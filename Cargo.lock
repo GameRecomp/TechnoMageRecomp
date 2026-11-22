@@ -562,6 +562,7 @@ dependencies = [
  "rc-manifest",
  "rc-media",
  "rc-pe",
+ "rc-unpack",
  "rc-x86",
  "serde_json",
 ]

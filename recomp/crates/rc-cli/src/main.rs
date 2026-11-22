@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! `recomp`: the recompiler command line.
 //!
-//! Commands: `identify`, `info`, `list`, `extract`, `discover`, `codediff`, `lift`, `convert`.
+//! Commands: `identify`, `info`, `list`, `extract`, `unpack`, `discover`, `codediff`, `lift`, `convert`.
 
 mod convert;
 mod discover;
@@ -32,6 +32,8 @@ USAGE:
                                             unpack game ID from the first of its variants
                                             whose medium is in FOLDER (what the build does
                                             for a game that has no folder in orig/ yet)
+    recomp unpack PACKED OUT                restore a packed executable (UPX 1.x, Win32/PE)
+                                            into OUT, as `upx -d` does
     recomp discover [--games DIR] [--out DIR] [--base ADDR] [--no-write] [--no-relocs]
                     [--verbose] FILE...     find the code of an executable or DLL, print the
                                             coverage report and write the code map (default:
@@ -189,6 +191,16 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     };
     match cmd.as_str() {
         "identify" => identify(parse_opts(rest)?),
+        "unpack" => {
+            let [input, output] = rest else {
+                return Err("usage: recomp unpack PACKED OUT".into());
+            };
+            let data = std::fs::read(input).map_err(|e| format!("{input}: {e}"))?;
+            let out = rc_unpack::unpack(&data).map_err(|e| format!("{input}: {e}"))?;
+            std::fs::write(output, &out).map_err(|e| format!("{output}: {e}"))?;
+            println!("{input}: {} bytes restored into {output}", out.len());
+            Ok(ExitCode::SUCCESS)
+        }
         "info" => info(parse_opts(rest)?),
         "list" => {
             let o = parse_opts(rest)?;

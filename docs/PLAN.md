@@ -132,8 +132,8 @@ Binary treatment:
       readers; nested: the cabinets inside the CD image without unpacking to disk
 - [ ] The CD-resident folders (`Mov/`, `Mus/`, `Spc/`) copied to `orig/technomage/<variant>/cd/`, and the disc's
       volume label to `recomp-variant.txt`, so the runtime can present the virtual CD drive
-- [ ] `rc-unpack`: UPX 1.07 Win32/PE (NRV2B/NRV2D/NRV2E, the `call`/`jmp` filter, imports rebuilt from the
-      packer's table, relocations restored); byte-identical to `upx -d` for the pinned executables
+- [x] `rc-unpack`: UPX 1.07 Win32/PE (NRV2D, the call-trick filter `0x26`, imports rebuilt from the packer's
+      table, relocations restored), `recomp unpack`; byte-identical to `upx -d` 4.2.4 for the German executable
 - [ ] `recomp download technomage de|en` from the fixed archive.org URLs (curl), size and SHA-256 checked
 - [ ] Ignored tests `orig_extract` for every medium in `orig/`
 
