@@ -29,8 +29,14 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
   (`Sfx/HBoss.SBK` not yet compared: see the InstallShield 7 note below). The patch's executable is the same
   build wrapped in SecuROM (sections `.cms_t`, `.cms_d` after UPX's); the cover CD's has no SecuROM. So no patch is
   applied for German, and the copy protection is gone.
-- English CD mastered 2001-05-03, after 1.04: its version and protection **(open)**, measured from `DATA.TAG` and
-  the executable in M0.
+- English CD (`TECHNOMAGE.mdf` SHA-256 `178a16bf…`): `Technomage.EXE` 885 379 bytes, linked 2001-04-25, a later
+  build than the German 1.04. Like patch 1.04's executable it is **UPX inside SecuROM**: sections `UPX0`, `UPX1`,
+  `UPX2`, then `.cms_t` and `.cms_d`, the entry point in `.cms_t`. Comparing patch 1.04's wrapped executable with
+  the cover CD's plain one (the same build) shows what SecuROM changes: the UPX pack header is gone and the last
+  12 KiB of `UPX1` (file offsets `0x89400`–`0x8c3fe`, the end of the compressed data and UPX's loader) differ, so
+  they are encrypted. For German this does not matter (the cover CD's executable is plain); the English one
+  cannot be restored until that region is decrypted **(open)**: SecuROM 4's decryption, or another English
+  executable (the repack's).
 
 ## Media
 
@@ -38,10 +44,30 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
   archive.org md5 `d14c2fbcb016725ac17ad7e45f05b06b`. Redump 38144 lists a different md5 (likely another write
   offset; not relevant, the archive.org file is pinned).
 - Its setup: InstallShield 7 (`data1.hdr` version field `0x01007000`: major 7), `setup.inx`, `engine32.cab`,
-  `data1.cab` 267 674, `data2.cab` 173 003 611. SackedRecomp's version-6 reader, with the version check widened,
-  lists every file and extracts all but 20 `Sfx/*.SBK`, whose inflate fails part-way **(open)**: compare the
-  descriptors (flags, volume, offsets) with version 6's; a file split across the two cabinets is the first
-  suspect.
+  `data1.cab` 267 674, `data2.cab` 173 003 611. Version 7 keeps version 6's layout: the reader extracts every file
+  and checks its MD5, except 20 `Sfx/*.SBK`.
+- **The archived image is damaged there.** The EDC of every sector was checked: 1 608 of the 359 361 sectors fail
+  (sectors 332 689–346 317, all inside `DATA2.CAB`, mostly in pairs every 22 sectors; some have a damaged
+  subheader that marks them Form 2). Each has 30–76 bad P and 39–48 bad Q codewords, far beyond what the
+  sector's ECC can correct. The damaged range holds exactly the 20 sound banks `CMine.SBK` … `Steamer.SBK`
+  (file indices 154–173). Everything else on the disc (the other cabinet files, `Mov/`, `Mus/`, `Spc/`) is
+  intact.
+- **Where the 20 sound banks come from instead.** Sound banks are language-neutral: all 29 `Sfx/*.SBK` of the
+  English CD match the MD5s the German cabinet records. The German retail CD 1.00 (archive.org item
+  `technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000`, `TechnoMage.bin` 819 039 312 bytes and a cooked
+  `TechnoMage.iso` 713 177 088 bytes) holds 28 of them byte-identical; only `HBoss.SBK` differs, which patch 1.04
+  changed. archive.org's "view contents" serves the ISO's files one by one, also through `/cors/` with CORS
+  headers (checked 2026-11-23): `…/TechnoMage.iso/data1.hdr` (25 875 bytes) and `…/TechnoMage.iso/data1.cab`
+  (167 969 179 bytes, InstallShield 5, `DATA.TAG` `Version=1.00.000`) are all that is needed, 167 MB instead of
+  two more CD images. Patch 1.04's `HBoss.SBK` matches the German cabinet's MD5, but the patch is a RAR SFX (RAR
+  2.0 method, solid), from which archive.org serves no single files: **decided** to take `HBoss.SBK` from 1.00
+  (decision log). The sound bank of the Hive's boss is therefore 1.00's in the German build.
+- Other TechnoMage items on archive.org (search 2026-11-23): `technomage` (German, `TECHNOMAGE.zip` holding
+  the same 1.00 image as a `.bin`), `tecnomage` (Italian), `technomage_pc-fr` (French), `Videogame_hgftssa`
+  (Spanish), `TechnoMageRoE` (an English repack `Technomage_Setup.exe`, 520 MB, packed with Petite: contents
+  **(open)**, and the German patch 1.04), `isbn_9785699398751` (Russian), `24_20240222` (soundtrack MP3s), the
+  PlayStation version, magazine CDs with demos (PC Action 03, 05, 06/2001, Game On! 06/2001), and the scene
+  and patch collections.
 - The CD folders `Mov/` (17 Bink files), `Mus/` (≈70 WAV), `Spc/` (8 `.PCK`, one per world) are not installed;
   the game reads them from the CD (`MOV\%s.BIK`, `MUS\%s.WAV`, `SPC\%s.PCK`).
 - `Disc.rar` (English): RAR 4 format, not solid, holds an Alcohol image (`TECHNOMAGE.mdf` raw MODE1/2352,

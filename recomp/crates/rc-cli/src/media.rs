@@ -149,6 +149,113 @@ pub fn extract_game(
     ))
 }
 
+/// Take a supplement's files from its media (found in `beside`, where `recomp download` puts
+/// them) into `dest`, each checked by size and SHA-256.
+fn extract_supplement(
+    s: &rc_manifest::Supplement,
+    beside: &Path,
+    dest: &Path,
+) -> Result<(), String> {
+    let paths: Vec<PathBuf> = s.media.iter().map(|m| beside.join(&m.file)).collect();
+    for (p, m) in paths.iter().zip(&s.media) {
+        if !p.is_file() {
+            return Err(format!(
+                "{} is needed beside the medium for {} files it supplies ({}); `recomp download` fetches it",
+                m.file,
+                s.files.len(),
+                m.url.as_deref().unwrap_or("no address")
+            ));
+        }
+    }
+    let kinds: Vec<_> = s.media.iter().map(|m| m.kind).collect();
+    let mut ar: Box<dyn rc_media::Archive> = match kinds.first() {
+        Some(rc_manifest::MediaKind::Iscab) => {
+            let hdr = fs::read(&paths[0]).map_err(|e| format!("{}: {e}", paths[0].display()))?;
+            let mut vols = Vec::new();
+            for p in &paths[1..] {
+                let f = fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
+                vols.push(Some(
+                    Box::new(std::io::BufReader::new(f)) as Box<dyn rc_media::ReadSeek>
+                ));
+            }
+            Box::new(
+                rc_media::iscab::Cabinet::open_volumes(&hdr, vols)
+                    .map_err(|e| format!("{}: {e}", paths[0].display()))?,
+            )
+        }
+        _ => {
+            rc_media::open(&paths[0])
+                .map_err(|e| format!("{}: {e}", paths[0].display()))?
+                .1
+        }
+    };
+    let want: Vec<String> = s
+        .files
+        .iter()
+        .map(|f| f.path.to_ascii_lowercase())
+        .collect();
+    let n = ar
+        .extract(dest, &|e| want.contains(&e.path.to_ascii_lowercase()))
+        .map_err(|e| format!("extracting the supplement: {e}"))?;
+    for f in &s.files {
+        let p = find_path(dest, &f.path).ok_or_else(|| format!("{}: not supplied", f.path))?;
+        let sha = rc_manifest::sha256_file(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        if sha != f.sha256 || size != f.size {
+            return Err(format!(
+                "{}: the supplied file differs from the manifest's",
+                f.path
+            ));
+        }
+    }
+    println!("{n} files supplied by {} (verified)", s.media[0].file);
+    Ok(())
+}
+
+/// `rel` (a `/`-separated path) below `dir`, matching each name case-insensitively.
+fn find_path(dir: &Path, rel: &str) -> Option<PathBuf> {
+    let mut p = dir.to_path_buf();
+    for part in rel.split('/') {
+        p = fs::read_dir(&p)
+            .ok()?
+            .filter_map(Result::ok)
+            .find_map(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(part)
+                    .then(|| e.path())
+            })?;
+    }
+    Some(p)
+}
+
+/// The folders a game reads from its CD at run time, copied from the image into `dest`, and the
+/// disc's label into `dest/volume-label.txt`.
+fn copy_cd_dirs(media: &Path, dest: &Path, dirs: &[String]) -> Result<(), String> {
+    use rc_media::Archive as _;
+    let f = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
+    let mut iso = rc_media::open_cd_files(Box::new(std::io::BufReader::new(f)))
+        .map_err(|e| format!("{}: {e}", media.display()))?;
+    let wanted = |path: &str| {
+        let top = path.split('/').next().unwrap_or("");
+        dirs.iter().any(|d| d.eq_ignore_ascii_case(top))
+    };
+    let n = iso
+        .extract(dest, &|e| wanted(&e.path))
+        .map_err(|e| format!("copying the CD's files: {e}"))?;
+    fs::write(
+        dest.join("volume-label.txt"),
+        format!("{}\n", iso.volume_id()),
+    )
+    .map_err(|e| format!("{}: {e}", dest.display()))?;
+    println!(
+        "{n} files of the CD ({}) → {}",
+        dirs.join(", "),
+        dest.display()
+    );
+    Ok(())
+}
+
 pub fn extract(
     games: &Path,
     dest: Option<&Path>,
@@ -202,10 +309,36 @@ pub fn extract(
     }
     let (kind, mut ar) = rc_media::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
     println!("{kind}, {} files → {}", ar.entries().len(), dest.display());
+    // Files a supplement supplies are not taken from this medium (it lacks them or holds them
+    // damaged).
+    let supplied: Vec<String> = variant
+        .and_then(|(m, v)| m.variants.iter().find(|x| x.id == v))
+        .map(|var| {
+            var.supplements
+                .iter()
+                .flat_map(|s| s.files.iter().map(|f| f.path.to_ascii_lowercase()))
+                .collect()
+        })
+        .unwrap_or_default();
     let n = ar
-        .extract(&dest, &|_| true)
+        .extract(&dest, &|e| !supplied.contains(&e.path.to_ascii_lowercase()))
         .map_err(|e| format!("extracting {}: {e}", media.display()))?;
+    if let Some((m, v)) = variant {
+        if let Some(var) = m.variants.iter().find(|x| x.id == v) {
+            let beside = media.parent().unwrap_or(Path::new("."));
+            for s in &var.supplements {
+                extract_supplement(s, beside, &dest)?;
+            }
+        }
+    }
     println!("{n} files written in {:.1}s", t0.elapsed().as_secs_f64());
+    if let Some((m, v)) = variant {
+        if let Some(var) = m.variants.iter().find(|x| x.id == v) {
+            if !var.cd_dirs.is_empty() {
+                copy_cd_dirs(media, &dest.join("cd"), &var.cd_dirs)?;
+            }
+        }
+    }
     write_registry(ar.as_ref(), &dest)?;
     if let Some((_, v)) = variant {
         write_variant(&dest, v)?;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! InstallShield 5 and 6 cabinet readers (`DATA1.HDR` + `DATA1.CAB`, `DATA2.CAB`, …), as used on
-//! the German Cultures Gold CD (5) and the Russian Sacked CD (6). Files may span volumes. Other
+//! InstallShield 5, 6 and 7 cabinet readers (`DATA1.HDR` + `DATA1.CAB`, `DATA2.CAB`, …), as used on
+//! the German Cultures Gold CD (5), the Russian Sacked CD (6) and the German TechnoMage cover CD (7). Files may span volumes. Other
 //! versions are reported as unsupported.
 //!
 //! Compressed file data is a sequence of chunks, each a little-endian u16 length followed
@@ -77,9 +77,10 @@ impl Cabinet {
             return format_err("not an InstallShield header (signature)");
         }
         let major = major_version(le32(hdr, 4)?);
-        if major != 5 && major != 6 {
+        // Version 7 (the German TechnoMage cover CD) keeps version 6's layout.
+        if !(5..=7).contains(&major) {
             return Err(Error::Unsupported(format!(
-                "InstallShield cabinet version {major} (only 5 and 6)"
+                "InstallShield cabinet version {major} (only 5, 6 and 7)"
             )));
         }
         let b = le32(hdr, 0x0c)? as usize; // cab descriptor

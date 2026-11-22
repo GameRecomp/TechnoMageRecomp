@@ -9,7 +9,7 @@ from the fixed URLs below.
 | Variant | Release | archive.org item | File | Size | SHA-256 | Version |
 |---------|---------|------------------|------|------|---------|---------|
 | `cd-de` | SCREENFUN 03/2004 cover CD (German full version), volume `TECHNOMAGE`, 2004-01-29 | [`SF2004-03`](https://archive.org/details/SF2004-03) | `2004-03.BIN` (raw MODE2/2352) | 845 217 072 | `c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7` | **1.04** |
-| `cd-en` | European English CD, volume `TECHNOMAGE`, 2001-05-03 | [`TechnoMage_Return_of_Eternity_Europe`](https://archive.org/details/TechnoMage_Return_of_Eternity_Europe) | `TECHNOMAGE.mdf` inside `Disc.rar` (raw MODE1/2352, Alcohol) | 840 680 064 | **(open)** (md5 `4c863d6e4e45f5c8f5deffd2e8999e48`) | **(open)**, after 1.04 by date |
+| `cd-en` | European English CD, volume `TECHNOMAGE`, 2001-05-03 | [`TechnoMage_Return_of_Eternity_Europe`](https://archive.org/details/TechnoMage_Return_of_Eternity_Europe) | `TECHNOMAGE.mdf` inside `Disc.rar` (raw MODE1/2352, Alcohol) | 840 680 064 | `178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450` | after 1.04 (linked 2001-04-25) |
 
 Download URLs (fixed; the page uses `/cors/` instead of `/download/`):
 
@@ -17,6 +17,21 @@ Download URLs (fixed; the page uses `/cors/` instead of `/download/`):
 - `https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf`
 
 The `.cue` (`2004-03.CUE`, `MODE2/2352`) and the `.mds` are not needed.
+
+### Supplement of `cd-de`
+
+The archived cover CD has 20 unreadable sound banks (RESEARCH). They are taken from the German retail CD 1.00,
+whose ISO archive.org serves file by file; `recomp download` fetches both files beside the cover CD's image and
+`recomp extract` takes the 20 files from them, each checked by SHA-256 (the manifest lists them).
+
+| File (local name) | URL | Size | SHA-256 |
+|-------------------|-----|------|---------|
+| `TechnoMage-1.00-data1.hdr` | `https://archive.org/download/technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000/TechnoMage.iso/data1.hdr` | 25 875 | `2fae071cf725561c667e5663976ffde96fef313e29846c3e92e71507cfb8899d` |
+| `TechnoMage-1.00-data1.cab` | `https://archive.org/download/technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000/TechnoMage.iso/data1.cab` | 167 969 179 | `a1c2ddb7cfbb92bfc1a17b71965a34031b4c5c3352066dfaf3e70cfac0d7cf1f` |
+
+Supplied: `Sfx/CMine.SBK`, `Crypta`, `DForest`, `Dreamer`, `Dreamr_N`, `FBoss`, `FFCamp`, `FForest`, `FRace`, `FTown`,
+`HBoss`, `MBoss`, `Mine`, `Mountain`, `OldOnes`, `RuinBoss`, `Ruins`, `Ruins_in`, `Shach`, `Steamer` (`.SBK`). 19 are
+identical to version 1.04's; **`HBoss.SBK` is version 1.00's** (patch 1.04 changed it; decision log).
 
 The English CD is archived as `Disc.rar` (794 064 172 bytes: `TECHNOMAGE.mdf`, `TECHNOMAGE.mds`, `CHECKSUM.md5`).
 archive.org serves the members of an archive on their own (the item's "view contents" list; `/download/<item>/
@@ -28,7 +43,7 @@ reader is needed**. The `.mdf` is one Mode 1 track of 357 432 raw sectors, read 
 | Patch | Language | Date | archive.org | Size | SHA-256 | Needed |
 |-------|----------|------|-------------|------|---------|--------|
 | 1.02 | German | by 2001-01-28 | not archived | ≈2.5 MB | – | no (superseded) |
-| 1.04 | German | 2001-03-23 | [`TechnoMageRoE/technomage_patch104_ger.exe`](https://archive.org/download/TechnoMageRoE/technomage_patch104_ger.exe) | 7 392 269 | `5ccb0d8e97378f3578d02fbf21c718bb6b5447493b9d230ed6e80830322d2b36` | **no**: `cd-de` is 1.04 already |
+| 1.04 | German | 2001-03-23 | [`TechnoMageRoE/technomage_patch104_ger.exe`](https://archive.org/download/TechnoMageRoE/technomage_patch104_ger.exe) | 7 392 269 | `5ccb0d8e97378f3578d02fbf21c718bb6b5447493b9d230ed6e80830322d2b36` | **no**: `cd-de` is 1.04 already (served through `/cors/` with CORS headers; a RAR SFX) |
 
 There is no English patch (the official English download page listed only the German 1.02). The English CD was
 mastered after 1.04; whether it carries 1.04's fixes is measured in M0 (its `DATA.TAG`, the executable's link
@@ -45,7 +60,10 @@ time). The patch 1.04 is kept as a **reference** (it identifies the German build
 | `Mss32.dll` | `cd-de` | 349 184 | `24c0a90dbff552102c09f671853e7247cf20de6e845254d5db625de961e4ae94` | Miles 6 (2000-10-23), HLE |
 | `TM_Setup.exe` | `cd-de` | 246 784 | `37ad65019922b2d448e45d2c0bef77724ad09adea1b25f0f6b05cf1e4203cacb` | options program, skipped |
 | `TM_Diagnostic.exe` | `cd-de` | 85 504 | `ea52a8f440d5e0601448510ce17237fbc2900b5a98847f5474de62475e37fd65` | install checker (new in 1.04), skipped |
-| English binaries | `cd-en` | **(open)** | **(open)** | measured in M0 |
+| `Technomage.EXE` | `cd-en` | 885 379 | `0673cd9f85e27eb31f1461a2e1906b7272fd4eb40d90d6414d04c5c76c7ffe98` | linked 2001-04-25; UPX inside SecuROM: not restorable yet (RESEARCH) |
+| `binkw32.dll`, `Mss32.dll` | `cd-en` | | as `cd-de` | the same files |
+| `TM_Setup.exe` | `cd-en` | 246 784 | `ac104d700e33392150c2b2eb1101d0e620ab9328b27a9bf58adc4cb598b7eca9` | skipped |
+| `TM_Diagnostic.exe` | `cd-en` | 85 504 | `1c09c0162ad39a4218496a57b2c08595cd0f2313b1ad6732a570912a9d3d3165` | skipped |
 
 ## Not targeted
 

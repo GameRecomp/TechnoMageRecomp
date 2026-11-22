@@ -17,6 +17,8 @@ pub struct Iso {
     /// (byte offset, length) of each entry's single extent.
     extents: Vec<(u64, u64)>,
     joliet: bool,
+    /// The primary volume's identifier (the disc's label), without trailing spaces.
+    volume_id: String,
 }
 
 impl Iso {
@@ -47,11 +49,15 @@ impl Iso {
             (None, None) => return format_err("no primary volume descriptor"),
         };
         let root = &vd[156..156 + 34];
+        let volume_id = primary
+            .map(|p| String::from_utf8_lossy(&p[40..72]).trim_end().to_string())
+            .unwrap_or_default();
         let mut iso = Iso {
             r,
             entries: Vec::new(),
             extents: Vec::new(),
             joliet: is_joliet,
+            volume_id,
         };
         let (lba, len) = (le32(root, 2)?, le32(root, 10)?);
         iso.walk(u64::from(lba) * SECTOR, u64::from(len), "", 0)?;
@@ -131,6 +137,11 @@ impl Iso {
     }
 
     /// Index of the entry whose path matches ignoring ASCII case.
+    /// The disc's label (the primary volume identifier), as a drive reports it.
+    pub fn volume_id(&self) -> &str {
+        &self.volume_id
+    }
+
     pub fn find(&self, path: &str) -> Option<usize> {
         self.entries
             .iter()

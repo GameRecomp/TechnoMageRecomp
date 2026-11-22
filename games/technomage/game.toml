@@ -14,6 +14,7 @@ id = "cd-de"
 store = "cd"
 language = "de"
 content = ["base"]
+cd_dirs = ["Mov", "Mus", "Spc"]
 notes = """German full version on the SCREENFUN 03/2004 cover CD, as archived on archive.org (item \
 SF2004-03): a raw MODE2/2352 image with an InstallShield 7 setup (data1.hdr, data1.cab, data2.cab). \
 The videos (Mov/), the music (Mus/) and the speech (Spc/) stay on the CD and are read from there by the \
@@ -23,20 +24,53 @@ media = [
   { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
 ]
 
-# English: pinned as soon as the image is measured (docs/TARGETS.md).
-# [[variant]]
-# id = "cd-en"
-# store = "cd"
-# language = "en"
-# content = ["base"]
-# notes = """European English CD (mastered 2001-05-03), as archived on archive.org (item \
-# TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
-# ("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
-# reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
-# Mov/, Mus/ and Spc/ (English speech) on the CD."""
-# media = [
-#   { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
-# ]
+# The archived cover CD has 1 608 unreadable sectors inside DATA2.CAB: 20 sound banks fail their
+# MD5 (docs/RESEARCH.md). They come from the German retail CD 1.00 instead, whose ISO archive.org
+# serves file by file: 19 are byte-identical to the 1.04 ones; HBoss.SBK is 1.00's (patch 1.04
+# changed it; the patch is a RAR SFX and is not used, decision log in docs/PLAN.md).
+[[variant.supplement]]
+notes = "German retail CD 1.00 (archive.org item technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000, TechnoMage.iso), its InstallShield 5 cabinet only."
+media = [
+  { file = "TechnoMage-1.00-data1.hdr", kind = "iscab", size = 25875, sha256 = "2fae071cf725561c667e5663976ffde96fef313e29846c3e92e71507cfb8899d", url = "https://archive.org/download/technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000/TechnoMage.iso/data1.hdr" },
+  { file = "TechnoMage-1.00-data1.cab", kind = "iscab", size = 167969179, sha256 = "a1c2ddb7cfbb92bfc1a17b71965a34031b4c5c3352066dfaf3e70cfac0d7cf1f", url = "https://archive.org/download/technomage-die-rueckkehr-der-ewigkeit-sunflowers-2000/TechnoMage.iso/data1.cab" },
+]
+files = [
+  { path = "Sfx/CMine.SBK", size = 1712762, sha256 = "089f62e02dc37e2785c2638f0299c7c4ff9e055c82955c9110c8a5d1f92a2c1f" },
+  { path = "Sfx/Crypta.SBK", size = 1655754, sha256 = "25620041af222457286a8debf951bbcc1964eb7b13cefdea3690f86bdf22af47" },
+  { path = "Sfx/DForest.SBK", size = 1329012, sha256 = "f883dbdcbb98a9397e99a79bc4f9d551c5ab3b87630a7cdc684ad0f33583db27" },
+  { path = "Sfx/Dreamer.SBK", size = 1629126, sha256 = "44724c5f5c9b32ab1a38d1a5a4ee96806a0c6a87135ed68e471c389544a5302b" },
+  { path = "Sfx/Dreamr_N.SBK", size = 1510070, sha256 = "a5ed97782340f8136d3cca7da2798d683c6ad99d6a2f88714d4b02cb597f6a22" },
+  { path = "Sfx/FBoss.SBK", size = 1460744, sha256 = "6e774c346f1a0bb6b048609b864a97f0b667664804c76efd0065197ae0f41ffb" },
+  { path = "Sfx/FFCamp.SBK", size = 1569426, sha256 = "7c6bc99a91ae8ee72c6af34ce1cf7905be268dd21f6db7abe4ea5fb95dc4ba62" },
+  { path = "Sfx/FForest.SBK", size = 1710338, sha256 = "6b341ae43d4f285699162081ee1f31870a8747ce70f7b215c2c4438f41614530" },
+  { path = "Sfx/FRace.SBK", size = 1160418, sha256 = "244df4eb1440ac5eb2443099067b5765146f16223f3e16fd46919353602ccf86" },
+  { path = "Sfx/FTown.SBK", size = 1552618, sha256 = "d8ca95a41b34ffbd3f5ced2f8fc5e9b08a3b5b6c02fd69024402b6da66fb2434" },
+  { path = "Sfx/HBoss.SBK", size = 1229462, sha256 = "3efdd2191fd1bca68d7d912c50109d41f5b4e8efbf514aa180dc220d3e59b2e9" },
+  { path = "Sfx/MBoss.SBK", size = 1243334, sha256 = "dc2086cab85b4b26227745334cb5b92e4baee2a3dcdf3d244c1f1eb41a886a3b" },
+  { path = "Sfx/Mine.SBK", size = 1670050, sha256 = "cca19e857c0d49684d5d3af32431c5eaf9f67d9a6a2248ae71ce97d36521c7e6" },
+  { path = "Sfx/Mountain.SBK", size = 1336436, sha256 = "09658f8dca9005d710cac79d1effdb363e230dc726d1681030afe2012222f901" },
+  { path = "Sfx/OldOnes.SBK", size = 1715528, sha256 = "74b69e5e3080cb6c8530cd1f80be625ecb89def7b044d93dabca10fee8824bb9" },
+  { path = "Sfx/RuinBoss.SBK", size = 1582020, sha256 = "690b9377f42c022403775022e5f560a81d60dbd0448dda2c9597097b9dff801d" },
+  { path = "Sfx/Ruins.SBK", size = 1713100, sha256 = "ca8a0b397957cd2864ec2267db2757559fb154d695bd1f26e536e94269a6ae22" },
+  { path = "Sfx/Ruins_in.SBK", size = 1715800, sha256 = "94d1c671c80f8a2ee3a0b436a33d49149a02aaf6f1623c1868838d86f383aa8f" },
+  { path = "Sfx/Shach.SBK", size = 1711310, sha256 = "62089070d73ae8b05ef99b88fb57991e28a0b44ab0d0f6c80ff0dc7bbf3da6ff" },
+  { path = "Sfx/Steamer.SBK", size = 1483618, sha256 = "5d44749c75d96567aa3056d20ebbb4232e6d52cba1e273a0489577c184293e46" },
+]
+
+[[variant]]
+id = "cd-en"
+store = "cd"
+language = "en"
+content = ["base"]
+cd_dirs = ["Mov", "Mus", "Spc"]
+notes = """European English CD (mastered 2001-05-03), as archived on archive.org (item \
+TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
+("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
+reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
+Mov/, Mus/ and Spc/ (English speech) on the CD. Its executable is wrapped in SecuROM (docs/RESEARCH.md)."""
+media = [
+  { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
+]
 
 # --- executables -------------------------------------------------------------
 
@@ -58,7 +92,7 @@ role = "library"
 treatment = "lift"
 size = 261120
 sha256 = "545f402be018bc905c03305322072e194d77b1a5ec20b62c34cdbc4c81c961fa"
-variants = ["cd-de"]
+variants = ["cd-de", "cd-en"]
 
 [[binary]]
 name = "Mss32.dll"
@@ -66,7 +100,7 @@ role = "library"
 treatment = "hle"
 size = 349184
 sha256 = "24c0a90dbff552102c09f671853e7247cf20de6e845254d5db625de961e4ae94"
-variants = ["cd-de"]
+variants = ["cd-de", "cd-en"]
 
 [[binary]]
 name = "TM_Setup.exe"
@@ -84,3 +118,30 @@ treatment = "ignore"
 size = 85504
 sha256 = "ea52a8f440d5e0601448510ce17237fbc2900b5a98847f5474de62475e37fd65"
 variants = ["cd-de"]
+
+# --- English ----------------------------------------------------------------------------------
+
+[[binary]]
+name = "Technomage.EXE"
+role = "main"
+treatment = "lift"
+size = 885379
+sha256 = "0673cd9f85e27eb31f1461a2e1906b7272fd4eb40d90d6414d04c5c76c7ffe98"
+variants = ["cd-en"]
+notes = "Linked 2001-04-25. UPX 1.07 inside SecuROM (.cms_t, .cms_d): the pack header is gone and the end of the compressed data is encrypted, so it cannot be restored yet (docs/RESEARCH.md, open)."
+
+[[binary]]
+name = "TM_Setup.exe"
+role = "tool"
+treatment = "ignore"
+size = 246784
+sha256 = "ac104d700e33392150c2b2eb1101d0e620ab9328b27a9bf58adc4cb598b7eca9"
+variants = ["cd-en"]
+
+[[binary]]
+name = "TM_Diagnostic.exe"
+role = "tool"
+treatment = "ignore"
+size = 85504
+sha256 = "1c09c0162ad39a4218496a57b2c08595cd0f2313b1ad6732a570912a9d3d3165"
+variants = ["cd-en"]

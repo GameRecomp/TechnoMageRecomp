@@ -47,10 +47,23 @@ pub fn download(games: &Path, game: &str, language: &str, dest: &Path) -> Result
     let [media] = v.media.as_slice() else {
         return Err(format!("{game}/{}: more than one medium", v.id));
     };
+    let what = format!("{} ({})", m.game.title, v.language);
+    let path = fetch(&what, media, dest)?;
+    // Media that supply files the main one lacks or holds damaged, beside it.
+    for s in &v.supplements {
+        for md in &s.media {
+            fetch(&format!("{what}, supplement"), md, dest)?;
+        }
+    }
+    Ok(path)
+}
+
+/// Download one medium into `dest` unless a file with its hash is there; its path.
+fn fetch(what: &str, media: &rc_manifest::Media, dest: &Path) -> Result<PathBuf, String> {
     let url = media
         .url
         .as_deref()
-        .ok_or_else(|| format!("{game}/{}: no download address", v.id))?;
+        .ok_or_else(|| format!("{}: no download address", media.file))?;
     fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     let path = dest.join(&media.file);
     if path.is_file()
@@ -61,9 +74,8 @@ pub fn download(games: &Path, game: &str, language: &str, dest: &Path) -> Result
     }
     let part = dest.join(format!("{}.part", media.file));
     println!(
-        "download    {} ({}, {} MiB) from {url}",
-        m.game.title,
-        v.language,
+        "download    {what}: {} ({} MiB) from {url}",
+        media.file,
         media.size >> 20
     );
     let st = Command::new("curl")

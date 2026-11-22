@@ -63,6 +63,35 @@ pub struct Variant {
     #[serde(default)]
     pub notes: Option<String>,
     pub media: Vec<Media>,
+    /// Folders the game reads from its CD at run time (`Mov`, `Mus`, `Spc`): `recomp extract`
+    /// copies them from the CD image into `cd/` beside the install, with the disc's label in
+    /// `cd/volume-label.txt`, and the runtime presents that folder as the CD drive.
+    #[serde(default)]
+    pub cd_dirs: Vec<String>,
+    /// Files the medium lacks or holds damaged, and the other archived media they are taken
+    /// from instead (the German TechnoMage cover CD's 20 unreadable sound banks).
+    #[serde(default, rename = "supplement")]
+    pub supplements: Vec<Supplement>,
+}
+
+/// Other media that supply some of a variant's files: downloaded beside the main medium, and
+/// only the listed files taken from them, each checked by size and SHA-256.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Supplement {
+    #[serde(default)]
+    pub notes: Option<String>,
+    pub media: Vec<Media>,
+    pub files: Vec<SuppliedFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SuppliedFile {
+    /// Path in the install, `/`-separated, as the main medium names it.
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +121,8 @@ pub enum MediaKind {
     Zip,
     /// Nullsoft (NSIS) installer.
     Nsis,
+    /// An InstallShield cabinet set on its own: the header (`.hdr`) first, then the volumes.
+    Iscab,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -346,6 +377,18 @@ pub fn validate(manifests: &[Manifest]) -> Result<(), Error> {
             }
             if v.media.is_empty() {
                 errs.push(format!("{g}/{}: no media", v.id));
+            }
+            for s in &v.supplements {
+                for md in &s.media {
+                    if !is_sha256(&md.sha256) {
+                        errs.push(format!("{g}/{}: bad sha256 for {}", v.id, md.file));
+                    }
+                }
+                for f in &s.files {
+                    if !is_sha256(&f.sha256) {
+                        errs.push(format!("{g}/{}: bad sha256 for {}", v.id, f.path));
+                    }
+                }
             }
             for md in &v.media {
                 if !is_sha256(&md.sha256) {
@@ -659,6 +702,19 @@ mod tests {
                         md.file
                     );
                 }
+            }
+            for md in v.supplements.iter().flat_map(|s| &s.media) {
+                assert!(page.contains(&md.sha256), "web/games.js lacks {}", md.file);
+                let path = md
+                    .url
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim_start_matches("https://archive.org/download/");
+                assert!(
+                    page.contains(path),
+                    "web/games.js lacks the URL of {}",
+                    md.file
+                );
             }
         }
     }

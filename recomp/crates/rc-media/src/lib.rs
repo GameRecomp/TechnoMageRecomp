@@ -482,6 +482,15 @@ pub fn open(path: &Path) -> Result<(MediaType, Box<dyn Archive>)> {
     )
 }
 
+/// The files on a CD image themselves (cooked ISO 9660 or raw 2352-byte sectors), not the
+/// installer on it: for games that read part of their data from the disc at run time.
+pub fn open_cd_files(mut r: Box<dyn ReadSeek>) -> Result<iso::Iso> {
+    if let Some(offset) = rawcd::detect(&mut r) {
+        return iso::Iso::from_reader(Box::new(rawcd::RawCd::new(r, offset)?));
+    }
+    iso::Iso::from_reader(r)
+}
+
 /// Open a medium from any reader (in a browser: the chosen file in pieces): see [`open`].
 pub fn open_reader(r: Box<dyn ReadSeek>) -> Result<(MediaType, Box<dyn Archive>)> {
     open_readers(r, Vec::new())
