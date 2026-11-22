@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-hle"
+description = "High-level emulation of the Windows, DirectX, Miles and Bink APIs TechnoMage imports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rc-runtime.workspace = true
+rc-platform.workspace = true
+
+[lints]
+workspace = true

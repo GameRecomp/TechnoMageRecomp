@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: MIT
+# One workspace for everything: the recompiler (recomp/), the runtime, the HLE layer, the
+# platform layer and the game shell. Rust only: no C, no C++, no SDL (docs/PLAN.md).
+[workspace]
+resolver = "2"
+members = [
+  "recomp/crates/*",
+  "runtime",
+  "hle",
+  "platform",
+  "games/technomage",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+rc-runtime = { path = "runtime" }
+rc-hle = { path = "hle" }
+rc-platform = { path = "platform" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+debug = 1
+
+# The lifted game code is large and machine-generated: optimise it even in dev builds, or the
+# game runs too slowly to test (decision log).
+[profile.dev.package.technomage]
+opt-level = 1

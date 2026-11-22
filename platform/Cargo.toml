@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-platform"
+description = "The host below the HLE layer: window and input (winit), rendering (wgpu), audio (cpal), and a null backend for tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

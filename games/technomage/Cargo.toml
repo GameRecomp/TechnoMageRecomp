@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "technomage"
+description = "The TechnoMage shell: links the lifted code, the runtime and the HLE layer into one program"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "technomage"
+path = "src/main.rs"
+
+[dependencies]
+rc-runtime.workspace = true
+rc-hle.workspace = true
+rc-platform.workspace = true
+
+[lints]
+workspace = true

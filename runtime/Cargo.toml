@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-runtime"
+description = "Guest memory, CPU state, x87, dispatch, PE loader, SEH, threads, clock and files for lifted Win32 programs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

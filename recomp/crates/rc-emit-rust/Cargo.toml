@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-emit-rust"
+description = "IR to Rust source: the developer back end that replaces the sister projects' rc-emit-c"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
