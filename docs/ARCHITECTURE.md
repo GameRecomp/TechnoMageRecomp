@@ -114,7 +114,8 @@ are less work than lifting Miles, its nine 3D providers and DirectSound 3D benea
 
 ## Platform layer (platform/, crate `rc-platform`)
 
-A thin Rust API, nothing above it names winit, wgpu or cpal types:
+A thin Rust API; nothing above it names winit, wgpu or cpal types, so the backend can change (Bevy is
+evaluated as an alternative backend in M5, see [PLAN.md](PLAN.md)):
 
 - **Window and input** (`winit`): one window, windowed and full screen, integer or aspect scaling of the game's
   resolution, keyboard, mouse (relative motion for DirectInput, absolute for the cursor).

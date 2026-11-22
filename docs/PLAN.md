@@ -175,6 +175,7 @@ Binary treatment:
 
 ### M5 – Picture and input
 
+- [ ] Spike: Bevy as an alternative `rc-platform` backend (see "Platform: plain crates or Bevy"); decide and log
 - [ ] DirectDraw surfaces as CPU buffers with lazy wgpu textures; `Blt`, `BltFast`, colour keys, `Lock`/`Unlock`,
       `Flip` presents through wgpu with integer/aspect scaling
 - [ ] Direct3D 7 on wgpu: device enumeration (one HAL device with T&L), z-buffer surfaces, viewports, transforms,
@@ -240,6 +241,28 @@ archive.org as `TechnoMageRoE/technomage_patch104_ger.exe`). There is no English
 - The rule stays: each language at its newest official patch level. Should a newer build turn up, it is pinned like
   a medium (fixed archive.org URL, size, SHA-256) and applied by `recomp extract`.
 
+## Platform: plain crates or Bevy
+
+The platform layer needs a window, input, a GPU device and an audio stream, on Windows, Linux and in the browser.
+Two ways to get them:
+
+| | winit + wgpu + cpal (the plan) | Bevy |
+|---|---|---|
+| What it is | the crates Bevy itself is built on, used directly | a game engine (ECS, schedules, renderer, assets, audio) on the same crates |
+| Fit for a recompilation | the guest owns its main loop and calls Direct3D immediately; the platform only presents, collects input and mixes audio | Bevy owns the main loop and the frame; the guest's draws must be handed into Bevy's render world (a custom render node on its `RenderDevice`/`RenderQueue`, which are wgpu) |
+| Browser | winit's canvas, wgpu on WebGPU/WebGL2, cpal on Web Audio; the guest yields through JSPI at `Flip`/`PeekMessage` | the same underneath, but Bevy's own runner drives the frame (`requestAnimationFrame`); a guest suspended by JSPI must not block it, which needs the guest on its own stack and a hand-off each frame |
+| Extras | none: gamepads (`gilrs`), screenshots, settings UI written as needed | gamepads, `bevy_audio`, windows/full screen, screenshots, diagnostics, an egui settings overlay (`bevy_egui`) for free |
+| Cost | small dependency tree, fast builds, versions under our control | large dependency tree, slow clean builds, a breaking release every few months; Bevy pins its wgpu and winit versions |
+| Determinism (scripted runs) | the null backend and the virtual clock as in the sister projects | Bevy's time and schedules have to be bypassed for scripted runs |
+
+**Decision (for now): winit + wgpu + cpal**, behind the `rc-platform` API, so that nothing above it depends on the
+choice. Bevy is evaluated as an **alternative backend** in a spike at the start of M5 (`rc-platform` feature
+`bevy`): the main menu through DirectDraw and one Direct3D scene, natively and in the browser. Bevy is taken if the
+spike shows that (1) the guest's immediate draws can be recorded into one Bevy render node per frame without an
+extra copy, (2) the browser build works with JSPI and Bevy's runner together, (3) build times stay acceptable;
+then the settings overlay and gamepad support come from it. Otherwise the plain crates stay, and the extras are
+added from the same crates Bevy uses (`gilrs`, `egui-wgpu`).
+
 ## Definition of done (per release)
 
 - The game can be played to the end on Linux, Windows and in the browser, in German and English.
@@ -287,4 +310,5 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |
 | 2026-11-22 | `binkw32.dll` is lifted (as in HoMM4Recomp); `Mss32.dll` and its `.m3d` providers are HLE. |
 | 2026-11-22 | `TechnoMage.exe` is restored from UPX by our own `rc-unpack` (no external `upx` in the pipeline); `upx -d` is only the test reference. |
+| 2026-11-22 | Bevy considered as the platform: kept as an alternative backend to evaluate in M5; winit + wgpu + cpal until then (section "Platform: plain crates or Bevy"). |
 | 2026-11-22 | Cooperative guest threads: OS threads with a baton natively, JSPI in the browser (no ucontext/fibers in Rust). |
