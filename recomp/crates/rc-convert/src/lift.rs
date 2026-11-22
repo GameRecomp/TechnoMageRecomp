@@ -87,6 +87,25 @@ pub fn load(
     use_relocs: bool,
 ) -> Result<Loaded, Error> {
     let sha256 = rc_manifest::sha256_hex(data);
+    // A packed executable (UPX) is restored first; its hash stays the shipped file's, which is
+    // what the runtime finds on the user's disk.
+    let unpacked;
+    let data = match known.as_ref().and_then(|k| k.binary.packed.as_ref()) {
+        Some(_) => {
+            unpacked = rc_unpack::unpack(data).map_err(|e| format!("{name}: {e}"))?;
+            let want = known
+                .as_ref()
+                .and_then(|k| k.binary.unpacked_sha256.as_deref())
+                .unwrap_or_default();
+            if rc_manifest::sha256_hex(&unpacked) != want {
+                return Err(format!(
+                    "{name}: the restored image differs from the manifest's"
+                ));
+            }
+            &unpacked[..]
+        }
+        None => data,
+    };
     let pe = rc_pe::parse(data).map_err(|e| format!("{name}: {e}"))?;
     let base = base.or(known.as_ref().and_then(|k| k.binary.base));
     let mut image = Image::load(data, &pe, base).map_err(|e| format!("{name}: {e}"))?;

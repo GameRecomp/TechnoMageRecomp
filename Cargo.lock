@@ -581,6 +581,7 @@ dependencies = [
  "rc-manifest",
  "rc-media",
  "rc-pe",
+ "rc-unpack",
  "rc-x86",
  "sha2",
 ]
@@ -607,6 +608,7 @@ dependencies = [
 name = "rc-emit-rust"
 version = "0.0.1"
 dependencies = [
+ "rc-emit-wasm",
  "rc-ir",
 ]
 
@@ -662,6 +664,10 @@ version = "0.0.1"
 [[package]]
 name = "rc-runtime"
 version = "0.0.1"
+dependencies = [
+ "rc-pe",
+ "rc-unpack",
+]
 
 [[package]]
 name = "rc-unpack"
@@ -872,6 +878,7 @@ dependencies = [
  "rc-hle",
  "rc-platform",
  "rc-runtime",
+ "sha2",
 ]
 
 [[package]]

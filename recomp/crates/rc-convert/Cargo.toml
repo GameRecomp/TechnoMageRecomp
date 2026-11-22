@@ -14,6 +14,7 @@ rc-media.workspace = true
 rc-discover.workspace = true
 rc-ir.workspace = true
 rc-x86.workspace = true
+rc-unpack.workspace = true
 rc-emit-native.workspace = true
 rc-emit-wasm.workspace = true
 crc32fast = "1"

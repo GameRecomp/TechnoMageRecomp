@@ -16,6 +16,7 @@ path = "src/main.rs"
 rc-runtime.workspace = true
 rc-hle.workspace = true
 rc-platform.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

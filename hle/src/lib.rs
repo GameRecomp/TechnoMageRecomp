@@ -17,6 +17,34 @@
 //! `binkw32.dll` is lifted, not emulated (as in HoMM4Recomp). Every HLE function has the
 //! signature of lifted code, `fn(&mut Cpu)`, reads its arguments from the guest stack and pops
 //! them (`stdcall`). See docs/ARCHITECTURE.md.
+//!
+//! Done: `kernel32`. The others follow in M4–M6 (docs/PLAN.md).
+
+pub mod codepage;
+pub mod kernel32;
 
 pub use rc_platform as platform;
 pub use rc_runtime as runtime;
+
+use rc_runtime::cpu::Cpu;
+
+/// Register every HLE module with the runtime's import table.
+pub fn register_all() {
+    kernel32::register();
+    rc_runtime::dispatch::set_import_resolver(rc_runtime::imports::resolve);
+}
+
+/// The base of a lifted DLL the process mapped (`binkw32.dll`).
+pub(crate) fn lifted_module_base(name: &str) -> Option<u32> {
+    rc_runtime::process::module_base(name)
+}
+
+/// An export of a lifted DLL, by its module handle (its base).
+pub(crate) fn lifted_export(base: u32, name: &str) -> Option<u32> {
+    rc_runtime::process::module_export(base, name)
+}
+
+/// Where a guest thread may give way to another (`Sleep`, waits). Guest threads come in M4.
+pub(crate) fn yield_point(c: &mut Cpu) {
+    let _ = c;
+}
