@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+# Manifest for TechnoMage: Return of Eternity (German: TechnoMage – Die Rückkehr der Ewigkeit),
+# Sunflowers, 2000/2001. Human-readable overview: docs/TARGETS.md
+schema = 1
+
+[game]
+id = "technomage"
+title = "TechnoMage: Return of Eternity"
+title_de = "TechnoMage – Die Rückkehr der Ewigkeit"
+engine = "sunflowers-technomage"
+
+[[variant]]
+id = "cd-de"
+store = "cd"
+language = "de"
+content = ["base"]
+notes = """German full version on the SCREENFUN 03/2004 cover CD, as archived on archive.org (item \
+SF2004-03): a raw MODE2/2352 image with an InstallShield 7 setup (data1.hdr, data1.cab, data2.cab). \
+The videos (Mov/), the music (Mus/) and the speech (Spc/) stay on the CD and are read from there by the \
+game. Version 1.04 (the build of the official patch 1.04, without its SecuROM wrapper): no patch is \
+applied. The .cue beside the image is not needed."""
+media = [
+  { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
+]
+
+[[variant]]
+id = "cd-en"
+store = "cd"
+language = "en"
+content = ["base"]
+notes = """European English CD (mastered 2001-05-03), as archived on archive.org (item \
+TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
+("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
+reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
+Mov/, Mus/ and Spc/ (English speech) on the CD."""
+media = [
+  { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
+]
+
+# --- executables -------------------------------------------------------------
+
+[[binary]]
+name = "TechnoMage.exe"
+role = "main"
+treatment = "lift"
+packed = "upx-1.07"
+size = 574976
+sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a"
+# The image rc-unpack restores (what upx -d writes): PE32, MSVC 6, base 0x400000, with .reloc.
+unpacked_size = 1863680
+unpacked_sha256 = "a1201ab89542093b3ca312840fc44c216d62cdb6146e3ca3b29925ceac68ba1a"
+variants = ["cd-de"]
+
+[[binary]]
+name = "binkw32.dll"
+role = "library"
+treatment = "lift"
+size = 261120
+sha256 = "545f402be018bc905c03305322072e194d77b1a5ec20b62c34cdbc4c81c961fa"
+variants = ["cd-de"]
+
+[[binary]]
+name = "Mss32.dll"
+role = "library"
+treatment = "hle"
+size = 349184
+sha256 = "24c0a90dbff552102c09f671853e7247cf20de6e845254d5db625de961e4ae94"
+variants = ["cd-de"]
+
+[[binary]]
+name = "TM_Setup.exe"
+role = "tool"
+treatment = "skip"
+size = 246784
+sha256 = "37ad65019922b2d448e45d2c0bef77724ad09adea1b25f0f6b05cf1e4203cacb"
+variants = ["cd-de"]
+notes = "The options program (writes TechnoMage.ini). Its settings are offered by the shell instead."
+
+[[binary]]
+name = "TM_Diagnostic.exe"
+role = "tool"
+treatment = "skip"
+size = 85504
+sha256 = "ea52a8f440d5e0601448510ce17237fbc2900b5a98847f5474de62475e37fd65"
+variants = ["cd-de"]
