@@ -34,9 +34,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+pub mod flags;
+
 use rc_ir::{
     BinOp as B, Expr as E, FArith, FBinary, FConst, FLoc, FUnary, Flag, Fpu, Function, Helper,
-    Part, Reg, Stmt as S, Term, UnOp as U, W,
+    MmxOp, Part, Reg, Stmt as S, Term, UnOp as U, W,
 };
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, CustomSection, ElementSection, Elements, EntityType,
@@ -81,12 +83,15 @@ pub struct Options {
     /// The flags cross function boundaries: stored into `c` at every return
     /// and read back after every call. On by default.
     pub flags_at_return: bool,
+    /// Leave out the flag settings nothing reads (see `flags.rs`). On by default.
+    pub prune_flags: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
             flags_at_return: true,
+            prune_flags: true,
         }
     }
 }
@@ -122,7 +127,9 @@ const F_FPU: u32 = 4;
 const F_FSTSW: u32 = 5;
 const F_POINT: u32 = 6;
 /// `rc.mmx(c, op, a, b) -> i64`: one MMX operation (`op`: the `rc_ir::MmxOp` in declaration
-/// order, as rc/mmx.h's RC_MMX_OPS lists them).
+/// order, as rc/mmx.h's RC_MMX_OPS lists them). Still imported, so that the imports after it
+/// keep their numbers, but no longer called: the operations are inline (`Emitter::mmx`).
+#[allow(dead_code)]
 const F_MMX: u32 = 7;
 /// `rc.dispatch_jump(c, target)`: an indirect jump (rc_dispatch_jump).
 const F_DISPATCH_JUMP: u32 = 8;
@@ -382,12 +389,15 @@ struct Emitter<'a> {
     /// Scratch locals not in use, by type.
     free32: Vec<u32>,
     free64: Vec<u32>,
+    free128: Vec<u32>,
     /// Block starts: address to case number.
     cases: BTreeMap<u32, u32>,
     /// The case being emitted, and the frames opened inside it.
     case: u32,
     frames: Vec<Frame>,
     trap_no: u32,
+    /// The flag settings left out, by instruction and statement (`flags::dead_settings`).
+    dead: Vec<Vec<bool>>,
 }
 
 impl<'a> Emitter<'a> {
@@ -401,10 +411,12 @@ impl<'a> Emitter<'a> {
             tmps: HashMap::new(),
             free32: Vec::new(),
             free64: Vec::new(),
+            free128: Vec::new(),
             cases: BTreeMap::new(),
             case: 0,
             frames: Vec::new(),
             trap_no: 0,
+            dead: Vec::new(),
         }
     }
 
@@ -449,6 +461,12 @@ impl<'a> Emitter<'a> {
         } else {
             self.free32.push(l);
         }
+    }
+
+    fn scratch_v128(&mut self) -> u32 {
+        self.free128
+            .pop()
+            .unwrap_or_else(|| self.new_local(ValType::V128))
     }
 
     fn tmp(&mut self, t: u32, w: W) -> u32 {
@@ -670,12 +688,7 @@ impl<'a> Emitter<'a> {
                     .local_get(L_C)
                     .i64_load(mem(layout::MM + 8 * u64::from(*n), 3));
             }
-            E::Mmx(op, a, b) => {
-                self.i().local_get(L_C).i32_const(*op as i32);
-                self.exact(a, W::B64);
-                self.exact(b, W::B64);
-                self.i().call(F_MMX);
-            }
+            E::Mmx(op, a, b) => self.mmx(*op, a, b),
             E::FpuStatus => {
                 self.i()
                     .local_get(L_C)
@@ -1074,6 +1087,163 @@ impl<'a> Emitter<'a> {
     }
 
     /// Byte-swap the i32 on the stack.
+    /// An MMX operation, inline with WebAssembly's 128-bit SIMD on the low 64 bits (rc/mmx.h has
+    /// the meaning of each). A call into the runtime for each was most of a Sacked frame's time
+    /// in a browser: it blends the whole screen with MMX, some million operations a frame.
+    fn mmx(&mut self, op: MmxOp, a: &E, b: &E) {
+        use MmxOp as M;
+        // Shuffles taking the low 8 bytes from the lanes named (0-15: a, 16-31: b).
+        fn lanes(low: [u8; 8]) -> [u8; 16] {
+            let mut l = [0u8; 16];
+            l[..8].copy_from_slice(&low);
+            l
+        }
+        fn lane_op(i: &mut InstructionSink<'_>, op: MmxOp) {
+            use MmxOp as M;
+            match op {
+                M::Paddb => i.i8x16_add(),
+                M::Paddw => i.i16x8_add(),
+                M::Paddd => i.i32x4_add(),
+                M::Paddsb => i.i8x16_add_sat_s(),
+                M::Paddsw => i.i16x8_add_sat_s(),
+                M::Paddusb => i.i8x16_add_sat_u(),
+                M::Paddusw => i.i16x8_add_sat_u(),
+                M::Psubb => i.i8x16_sub(),
+                M::Psubw => i.i16x8_sub(),
+                M::Psubd => i.i32x4_sub(),
+                M::Psubsb => i.i8x16_sub_sat_s(),
+                M::Psubsw => i.i16x8_sub_sat_s(),
+                M::Psubusb => i.i8x16_sub_sat_u(),
+                M::Psubusw => i.i16x8_sub_sat_u(),
+                M::Pmullw => i.i16x8_mul(),
+                M::Pmaddwd => i.i32x4_dot_i16x8_s(),
+                M::Pcmpeqb => i.i8x16_eq(),
+                M::Pcmpeqw => i.i16x8_eq(),
+                M::Pcmpeqd => i.i32x4_eq(),
+                M::Pcmpgtb => i.i8x16_gt_s(),
+                M::Pcmpgtw => i.i16x8_gt_s(),
+                M::Pcmpgtd => i.i32x4_gt_s(),
+                M::Punpcklbw => i.i8x16_shuffle(lanes([0, 16, 1, 17, 2, 18, 3, 19])),
+                M::Punpckhbw => i.i8x16_shuffle(lanes([4, 20, 5, 21, 6, 22, 7, 23])),
+                M::Punpcklwd => i.i8x16_shuffle(lanes([0, 1, 16, 17, 2, 3, 18, 19])),
+                M::Punpckhwd => i.i8x16_shuffle(lanes([4, 5, 20, 21, 6, 7, 22, 23])),
+                M::Punpckldq => i.i8x16_shuffle(lanes([0, 1, 2, 3, 16, 17, 18, 19])),
+                M::Punpckhdq => i.i8x16_shuffle(lanes([4, 5, 6, 7, 20, 21, 22, 23])),
+                _ => unreachable!("not a lane operation"),
+            };
+        }
+        match op {
+            M::Psllq | M::Psrlq => {
+                // At or past 64, zero (WebAssembly takes the count modulo 64).
+                let n = self.scratch(W::B64);
+                self.exact(a, W::B64);
+                self.exact(b, W::B64);
+                self.i().local_tee(n);
+                if op == M::Psllq {
+                    self.i().i64_shl();
+                } else {
+                    self.i().i64_shr_u();
+                }
+                self.i()
+                    .i64_const(0)
+                    .local_get(n)
+                    .i64_const(64)
+                    .i64_lt_u()
+                    .select();
+                self.release(n, W::B64);
+            }
+            M::Psllw | M::Pslld | M::Psrlw | M::Psrld => {
+                let bits = if matches!(op, M::Psllw | M::Psrlw) {
+                    16
+                } else {
+                    32
+                };
+                let n = self.scratch(W::B64);
+                self.exact(a, W::B64);
+                self.i().i64x2_splat();
+                self.exact(b, W::B64);
+                self.i().local_tee(n).i32_wrap_i64();
+                let i = &mut self.i();
+                match op {
+                    M::Psllw => i.i16x8_shl(),
+                    M::Pslld => i.i32x4_shl(),
+                    M::Psrlw => i.i16x8_shr_u(),
+                    _ => i.i32x4_shr_u(),
+                };
+                self.i()
+                    .i64x2_extract_lane(0)
+                    .i64_const(0)
+                    .local_get(n)
+                    .i64_const(bits)
+                    .i64_lt_u()
+                    .select();
+                self.release(n, W::B64);
+            }
+            M::Psraw | M::Psrad => {
+                // At or past the width, every bit the sign: a shift by width - 1.
+                let top = if op == M::Psraw { 15 } else { 31 };
+                let n = self.scratch(W::B64);
+                self.exact(a, W::B64);
+                self.i().i64x2_splat();
+                self.exact(b, W::B64);
+                self.i()
+                    .local_tee(n)
+                    .i64_const(top)
+                    .local_get(n)
+                    .i64_const(top)
+                    .i64_lt_u()
+                    .select()
+                    .i32_wrap_i64();
+                if op == M::Psraw {
+                    self.i().i16x8_shr_s();
+                } else {
+                    self.i().i32x4_shr_s();
+                }
+                self.i().i64x2_extract_lane(0);
+                self.release(n, W::B64);
+            }
+            M::Packsswb | M::Packssdw | M::Packuswb => {
+                // a's lanes, then b's: narrow the vector (a, b) with itself.
+                let v = self.scratch_v128();
+                self.exact(a, W::B64);
+                self.i().i64x2_splat();
+                self.exact(b, W::B64);
+                self.i().i64x2_replace_lane(1).local_tee(v).local_get(v);
+                let i = &mut self.i();
+                match op {
+                    M::Packsswb => i.i8x16_narrow_i16x8_s(),
+                    M::Packssdw => i.i16x8_narrow_i32x4_s(),
+                    _ => i.i8x16_narrow_i16x8_u(),
+                };
+                self.i().i64x2_extract_lane(0);
+                self.free128.push(v);
+            }
+            M::Pmulhw => {
+                // The high halves of the four 32-bit products.
+                let v = self.scratch_v128();
+                self.exact(a, W::B64);
+                self.i().i64x2_splat();
+                self.exact(b, W::B64);
+                self.i()
+                    .i64x2_splat()
+                    .i32x4_extmul_low_i16x8_s()
+                    .local_tee(v)
+                    .local_get(v)
+                    .i8x16_shuffle(lanes([2, 3, 6, 7, 10, 11, 14, 15]))
+                    .i64x2_extract_lane(0);
+                self.free128.push(v);
+            }
+            _ => {
+                self.exact(a, W::B64);
+                self.i().i64x2_splat();
+                self.exact(b, W::B64);
+                self.i().i64x2_splat();
+                lane_op(&mut self.i(), op);
+                self.i().i64x2_extract_lane(0);
+            }
+        }
+    }
+
     fn bswap32(&mut self) {
         let x = self.scratch(W::B32);
         self.i()
@@ -1342,6 +1512,11 @@ impl<'a> Emitter<'a> {
             .map(|(k, &a)| (a, k as u32))
             .collect();
         let n = self.cases.len() as u32;
+        if self.cx.opts.prune_flags {
+            let index = &self.cx.index;
+            self.dead =
+                flags::dead_settings(f, |a| index.contains_key(&a), self.cx.opts.flags_at_return);
+        }
 
         self.i()
             .local_get(L_C)
@@ -1378,7 +1553,11 @@ impl<'a> Emitter<'a> {
                 self.case = c;
             }
             self.trap_no = 0;
-            self.stmts(&ins.stmts, ins.addr);
+            for (i, s) in ins.stmts.iter().enumerate() {
+                if !self.dead.get(k).is_some_and(|d| d[i]) {
+                    self.stmt(s, ins.addr);
+                }
+            }
             let next = ins.next();
             let next_emitted = f.insns.get(k + 1).map(|n| n.addr);
             match &ins.term {

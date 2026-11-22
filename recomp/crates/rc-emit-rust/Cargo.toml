@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 rc-ir.workspace = true
+rc-emit-wasm.workspace = true
 
 [lints]
 workspace = true

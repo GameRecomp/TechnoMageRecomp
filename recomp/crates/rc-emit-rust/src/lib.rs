@@ -22,7 +22,7 @@
 //! above its lowest instruction simply starts in the entry's block.
 //!
 //! Output layout (`generated/<game>/<binary>-<variant>/`, git-ignored): `code_XXXX.rs` per 64 KiB
-//! of guest address space and `mod.rs`, which declares them, re-exports every function and holds
+//! of guest address space (by the function's middle instruction) and `mod.rs`, which declares them, re-exports every function and holds
 //! the sorted dispatch table `TABLE`. The output is a function of the input only.
 
 #![forbid(unsafe_code)]
@@ -431,6 +431,8 @@ struct Emitter<'a> {
     depth: usize,
     unwind_range: (u32, u32),
     continuations: Vec<u32>,
+    /// Flag settings nothing reads, by instruction and statement (`rc_emit_wasm::flags`).
+    dead: Vec<Vec<bool>>,
 }
 
 impl Emitter<'_> {
@@ -629,7 +631,12 @@ impl Emitter<'_> {
             }
             self.line("{");
             self.depth += 1;
-            self.stmts(&ins.stmts, ins.addr);
+            let dead = std::mem::take(&mut self.dead[i]);
+            for (k, s) in ins.stmts.iter().enumerate() {
+                if !(matches!(s, S::SetFlag(..)) && dead.get(k).copied().unwrap_or(false)) {
+                    self.stmt(s, ins.addr);
+                }
+            }
             let next = ins.next();
             let next_emitted = f.insns.get(i + 1).map(|n| n.addr);
             // Fall through: either the next instruction continues this block, or a transfer.
@@ -863,6 +870,7 @@ pub fn function(p: &dyn Program, f: &Function, opts: Options) -> String {
         depth: 0,
         unwind_range: unwind_range(f),
         continuations: f.continuations.clone(),
+        dead: rc_emit_wasm::flags::dead_settings(f, |a| p.is_entry(a), opts.flags_at_return),
     };
     e.function();
     e.out
@@ -882,7 +890,10 @@ pub fn binary(p: &Entries, functions: &[Function], opts: Options) -> Tree {
     let mut tree = Tree::new();
     let mut buckets: BTreeMap<u32, String> = BTreeMap::new();
     for f in functions {
-        let b = buckets.entry(f.addr >> 16).or_default();
+        // By where the body is, not the entry: an entry is often a jump thunk far from it, and
+        // its lowest instruction may be that thunk too. The middle instruction is in the body.
+        let middle = f.insns.get(f.insns.len() / 2).map_or(f.addr, |i| i.addr);
+        let b = buckets.entry(middle >> 16).or_default();
         b.push_str(&function(p, f, opts));
         b.push('\n');
     }
