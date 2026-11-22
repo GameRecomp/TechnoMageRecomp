@@ -1,0 +1,32 @@
+# Original game files: supplied by each user, never committed.
+/orig/
+# Lifted Rust produced by the recompiler. Derived from copyrighted code: never commit.
+/generated/
+# Build output
+/target/
+/build/
+/out/
+/web/pkg/
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+.cache/
+# Game files that must never end up in the tree, wherever they are copied to
+*.iso
+*.bin
+*.BIN
+*.cue
+*.CUE
+*.rar
+*.cab
+*.hdr
+*.bik
+*.BIK
+*.wav
+*.WAV
+*.PCK
+*.TPL
+*.cmp
+*.SBK

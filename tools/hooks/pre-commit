@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Enable with: git config core.hooksPath tools/hooks
+exec "$(git rev-parse --show-toplevel)/tools/audit.sh" --staged

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Enable with: git config core.hooksPath tools/hooks
+# Commit messages describe the change only: no AI tool, model, vendor or session mentions
+# and no attribution trailers for them (CONTRIBUTING.md).
+set -euo pipefail
+msg_file=$1
+if grep -v '^#' "$msg_file" | grep -qiE 'claude|anthropic|openai|chatgpt|copilot|gemini|generated with|co-authored-by:.*(noreply@anthropic|bot)|session[ _-]?id'; then
+  echo "commit-msg: the message mentions an AI tool, a session or an attribution trailer." >&2
+  echo "commit-msg: describe the change only (see CONTRIBUTING.md)." >&2
+  exit 1
+fi
