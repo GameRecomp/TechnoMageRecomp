@@ -7,7 +7,7 @@ schema = 1
 id = "technomage"
 title = "TechnoMage: Return of Eternity"
 title_de = "TechnoMage – Die Rückkehr der Ewigkeit"
-engine = "sunflowers-technomage"
+engine = "technomage"
 
 [[variant]]
 id = "cd-de"
@@ -23,19 +23,20 @@ media = [
   { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
 ]
 
-[[variant]]
-id = "cd-en"
-store = "cd"
-language = "en"
-content = ["base"]
-notes = """European English CD (mastered 2001-05-03), as archived on archive.org (item \
-TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
-("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
-reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
-Mov/, Mus/ and Spc/ (English speech) on the CD."""
-media = [
-  { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
-]
+# English: pinned as soon as the image is measured (docs/TARGETS.md).
+# [[variant]]
+# id = "cd-en"
+# store = "cd"
+# language = "en"
+# content = ["base"]
+# notes = """European English CD (mastered 2001-05-03), as archived on archive.org (item \
+# TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
+# ("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
+# reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
+# Mov/, Mus/ and Spc/ (English speech) on the CD."""
+# media = [
+#   { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
+# ]
 
 # --- executables -------------------------------------------------------------
 
@@ -70,7 +71,7 @@ variants = ["cd-de"]
 [[binary]]
 name = "TM_Setup.exe"
 role = "tool"
-treatment = "skip"
+treatment = "ignore"
 size = 246784
 sha256 = "37ad65019922b2d448e45d2c0bef77724ad09adea1b25f0f6b05cf1e4203cacb"
 variants = ["cd-de"]
@@ -79,7 +80,7 @@ notes = "The options program (writes TechnoMage.ini). Its settings are offered b
 [[binary]]
 name = "TM_Diagnostic.exe"
 role = "tool"
-treatment = "skip"
+treatment = "ignore"
 size = 85504
 sha256 = "ea52a8f440d5e0601448510ce17237fbc2900b5a98847f5474de62475e37fd65"
 variants = ["cd-de"]

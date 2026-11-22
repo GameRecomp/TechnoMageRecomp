@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-convert"
+description = "Packages from a game's install: shell templates, native code and the game's files in a zip (as TropicoRecomp's converter)"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rc-pe.workspace = true
+rc-manifest.workspace = true
+rc-media.workspace = true
+rc-discover.workspace = true
+rc-ir.workspace = true
+rc-x86.workspace = true
+rc-emit-native.workspace = true
+rc-emit-wasm.workspace = true
+crc32fast = "1"
+miniz_oxide = "0.8"
+sha2 = "0.10"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+
+[lints]
+workspace = true

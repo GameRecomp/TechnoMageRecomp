@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-cli"
+description = "The `recomp` command line tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "recomp"
+path = "src/main.rs"
+
+[dependencies]
+rc-pe.workspace = true
+rc-manifest.workspace = true
+rc-media.workspace = true
+rc-discover.workspace = true
+rc-ir.workspace = true
+rc-x86.workspace = true
+rc-emit-rust.workspace = true
+rc-emit-native.workspace = true
+rc-emit-wasm.workspace = true
+rc-convert.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

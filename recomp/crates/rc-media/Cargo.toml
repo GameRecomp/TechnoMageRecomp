@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "rc-media"
+description = "Readers for the game media: Inno Setup, NSIS, Windows Installer, ISO 9660 (cooked and raw), InstallShield 5 cabinets, zip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+crc32fast = "1"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+miniz_oxide = "0.9"
+sha1 = "0.10"
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

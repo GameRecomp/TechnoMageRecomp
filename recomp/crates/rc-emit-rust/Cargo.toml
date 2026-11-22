@@ -8,5 +8,8 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[dependencies]
+rc-ir.workspace = true
+
 [lints]
 workspace = true

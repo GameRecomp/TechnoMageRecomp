@@ -13,21 +13,38 @@ members = [
 
 [workspace.package]
 version = "0.0.1"
-edition = "2024"
+edition = "2021"
 license = "MIT"
 rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
+rc-pe = { path = "recomp/crates/rc-pe" }
+rc-manifest = { path = "recomp/crates/rc-manifest" }
+rc-media = { path = "recomp/crates/rc-media" }
+rc-discover = { path = "recomp/crates/rc-discover" }
+rc-ir = { path = "recomp/crates/rc-ir" }
+rc-x86 = { path = "recomp/crates/rc-x86" }
+rc-unpack = { path = "recomp/crates/rc-unpack" }
+rc-emit-rust = { path = "recomp/crates/rc-emit-rust" }
+rc-emit-native = { path = "recomp/crates/rc-emit-native" }
+rc-emit-wasm = { path = "recomp/crates/rc-emit-wasm" }
+rc-convert = { path = "recomp/crates/rc-convert" }
+iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "instr_info"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+toml = "0.8"
+cranelift-codegen = { version = "0.137", default-features = false, features = ["std", "x86", "arm64"] }
+cranelift-frontend = { version = "0.137", default-features = false, features = ["std"] }
 rc-runtime = { path = "runtime" }
 rc-hle = { path = "hle" }
 rc-platform = { path = "platform" }
 
+# The recompiler crates forbid unsafe code; the runtime and the platform layer, which need it
+# (guest memory, executable memory, the window), set their own lints.
 [workspace.lints.rust]
-unsafe_op_in_unsafe_fn = "deny"
-
-[workspace.lints.clippy]
-undocumented_unsafe_blocks = "warn"
+unsafe_code = "forbid"
 
 [profile.release]
 debug = 1
