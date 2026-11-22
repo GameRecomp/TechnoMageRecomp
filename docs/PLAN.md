@@ -11,8 +11,9 @@
 3. **Rust only.** The recompiler, the runtime, the HLE layer, the platform layer, the converter **and the lifted
    game code** are Rust. No C, no C++, no assembly sources, no C compiler in any build. `tools/audit.sh` refuses C
    sources.
-4. **Rust-native platform, no SDL.** `winit` (window, input), **`wgpu`** (rendering: the game uses Direct3D 7, so
-   the platform needs a real 3D API, also in the browser through WebGPU/WebGL2), `cpal` (audio).
+4. **Rust-native platform, no SDL: Bevy.** The platform layer is a Bevy app: window, input, gamepads, audio
+   and the frame loop on Windows, Linux and in the browser. Rendering goes through Bevy's **wgpu** device (the
+   game uses Direct3D 7, so the platform needs a real 3D API, also in the browser through WebGPU/WebGL2).
 5. **Same architecture** as TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp: the Rust recompiler crates
    (`recomp/`) taken over from SackedRecomp, the manifest, the converter (CLI and browser page), CI and the
    packaging. The runtime, HLE and platform layers follow the sister projects' C design module for module, so
@@ -39,7 +40,7 @@ Everything below "the game" exists in the sister projects, but in C for the runt
 | `rc-emit-native`, `rc-emit-wasm`, `rc-convert`, `rc-web`, `rc-cli` | SackedRecomp | one game, two languages, the Rust shell as template; the web runtime is Rust (wasm-bindgen), not Emscripten |
 | `runtime/` (memory, CPU, x87, dispatch, loader, SEH, threads, clock, files) | C11 in the sister projects | **port to Rust** (`rc-runtime`) with the same `Cpu` layout and helper table |
 | `hle/` kernel32, user32, gdi32, ole32, winmm, ddraw, dinput, dsound, mss32 | C11 in the sister projects | **port to Rust** (`rc-hle`), only what TechnoMage and `binkw32.dll` import; **new: Direct3D 7 on wgpu**, Miles 3D samples |
-| `platform/` SDL3 + null | C11 in the sister projects | **new in Rust**: winit + wgpu + cpal, null backend |
+| `platform/` SDL3 + null | C11 in the sister projects | **new in Rust**: a Bevy app (window, input, audio, the frame; Direct3D on its wgpu device), null backend |
 | `web/`, `tools/`, `.github/workflows` | SackedRecomp | rename, one game, two language flags, the wasm-bindgen player |
 
 The code is copied at pinned commits (decision log), not vendored as a submodule. Upstream heads checked on
@@ -65,7 +66,7 @@ The game, measured from the German CD (details in [RESEARCH.md](RESEARCH.md)):
 ## Order of work
 
 ```
- M0 ─ M1 ─ M2 ─ M3 ─ M4 boots ─ M5 picture (DDraw + D3D on wgpu) ─ M6 sound, video ─ M7 in game ─ M9 release
+ M0 ─ M1 ─ M2 ─ M3 ─ M4 boots ─ M5 picture (DDraw + D3D on Bevy/wgpu) ─ M6 sound, video ─ M7 in game ─ M9 release
                 └──────────── M3r runtime port (parallel from M1) ──┘                └─ M8 converter, web
 ```
 
@@ -85,7 +86,7 @@ Status: ✅ done · 🔶 in progress · ⬜ not started
 | M3  | Lift and build | ⬜ | Every function lifts; no trap in reachable code; `rc-emit-rust` output compiles warning-free and links into `technomage`; difftests pass with the Rust reference side. |
 | M3r | Runtime in Rust | ⬜ | `rc-runtime` passes the ported runtime tests (memory, dispatch, x87, SEH, threads); the Cranelift blob of a test program runs on it; a hand-written guest test program calls HLE kernel32. |
 | M4  | Boots | ⬜ | Static CRT start-up, files and the virtual CD drive, threads; the game creates its window and DirectDraw 7. |
-| M5  | Picture and input | ⬜ | The main menu renders through DirectDraw on wgpu; Direct3D 7 draws the first level (geometry, textures, alpha, z, fog, lights); mouse and keyboard through DirectInput; windowed and full screen; gamma ramp. |
+| M5  | Picture and input | ⬜ | The main menu renders through DirectDraw in the Bevy app; Direct3D 7 draws the first level (geometry, textures, alpha, z, fog, lights); mouse and keyboard through DirectInput; windowed and full screen; gamma ramp. |
 | M6  | Sound and video | ⬜ | Miles samples (2D and 3D), music (`Mus/*.WAV` by `Music.cfg`), speech (`Spc/*.PCK`); the Bink intro and cut scenes through the lifted `binkw32.dll` with DirectSound audio. |
 | M7  | In game | ⬜ | All eight worlds of the German release can be played through; saves load; English starts and plays a level; scripted soak runs without trap. |
 | M8  | Converter and platforms | ⬜ | `recomp convert` and the browser page download (or take) the medium of the chosen language from its fixed archive.org URL and produce Windows and Linux builds and a browser build; all three start and reach a level. |
@@ -175,7 +176,8 @@ Binary treatment:
 
 ### M5 – Picture and input
 
-- [ ] Spike: Bevy as an alternative `rc-platform` backend (see "Platform: plain crates or Bevy"); decide and log
+- [ ] The Bevy app (see "Platform: Bevy"): window, the guest's frame as a texture, input forwarded, natively
+      and in the browser
 - [ ] DirectDraw surfaces as CPU buffers with lazy wgpu textures; `Blt`, `BltFast`, colour keys, `Lock`/`Unlock`,
       `Flip` presents through wgpu with integer/aspect scaling
 - [ ] Direct3D 7 on wgpu: device enumeration (one HAL device with T&L), z-buffer surfaces, viewports, transforms,
@@ -215,7 +217,7 @@ Binary treatment:
       fixed archive.org URLs, checked, unpacked, lifted with Cranelift into the Rust shell template
 - [ ] Browser runtime: `rc-runtime`/`rc-hle`/`rc-platform` for `wasm32-unknown-unknown` with wasm-bindgen; the
       lifted code as a second module from `rc-emit-wasm` sharing memory and table; JSPI for guest threads and the
-      game's own message loop; wgpu on WebGPU (WebGL2 fallback); Web Audio through cpal
+      game's own message loop; the Bevy app on WebGPU (WebGL2 fallback) and Web Audio
 - [ ] Converter page: two flags (de, en); choosing one downloads that release through archive.org's `/cors/` path,
       checks its SHA-256 and converts it; the file picker stays for a copy the user has
 - [ ] Storage: the converted game in the browser's storage (OPFS); the CD folders included (the German medium is
@@ -241,27 +243,34 @@ archive.org as `TechnoMageRoE/technomage_patch104_ger.exe`). There is no English
 - The rule stays: each language at its newest official patch level. Should a newer build turn up, it is pinned like
   a medium (fixed archive.org URL, size, SHA-256) and applied by `recomp extract`.
 
-## Platform: plain crates or Bevy
+## Platform: Bevy
 
-The platform layer needs a window, input, a GPU device and an audio stream, on Windows, Linux and in the browser.
-Two ways to get them:
+The platform layer is a **Bevy** app. Bevy brings the window, keyboard, mouse and gamepads, audio, full screen,
+screenshots, diagnostics, an egui overlay for the settings `TM_Setup.exe` used to make (`bevy_egui`), and the
+same app in the browser. Underneath it is wgpu, winit and cpal, the crates this layer would otherwise use
+directly.
 
-| | winit + wgpu + cpal (the plan) | Bevy |
-|---|---|---|
-| What it is | the crates Bevy itself is built on, used directly | a game engine (ECS, schedules, renderer, assets, audio) on the same crates |
-| Fit for a recompilation | the guest owns its main loop and calls Direct3D immediately; the platform only presents, collects input and mixes audio | Bevy owns the main loop and the frame; the guest's draws must be handed into Bevy's render world (a custom render node on its `RenderDevice`/`RenderQueue`, which are wgpu) |
-| Browser | winit's canvas, wgpu on WebGPU/WebGL2, cpal on Web Audio; the guest yields through JSPI at `Flip`/`PeekMessage` | the same underneath, but Bevy's own runner drives the frame (`requestAnimationFrame`); a guest suspended by JSPI must not block it, which needs the guest on its own stack and a hand-off each frame |
-| Extras | none: gamepads (`gilrs`), screenshots, settings UI written as needed | gamepads, `bevy_audio`, windows/full screen, screenshots, diagnostics, an egui settings overlay (`bevy_egui`) for free |
-| Cost | small dependency tree, fast builds, versions under our control | large dependency tree, slow clean builds, a breaking release every few months; Bevy pins its wgpu and winit versions |
-| Determinism (scripted runs) | the null backend and the virtual clock as in the sister projects | Bevy's time and schedules have to be bypassed for scripted runs |
+How the recompiled game fits into it:
 
-**Decision (for now): winit + wgpu + cpal**, behind the `rc-platform` API, so that nothing above it depends on the
-choice. Bevy is evaluated as an **alternative backend** in a spike at the start of M5 (`rc-platform` feature
-`bevy`): the main menu through DirectDraw and one Direct3D scene, natively and in the browser. Bevy is taken if the
-spike shows that (1) the guest's immediate draws can be recorded into one Bevy render node per frame without an
-extra copy, (2) the browser build works with JSPI and Bevy's runner together, (3) build times stay acceptable;
-then the settings overlay and gamepad support come from it. Otherwise the plain crates stay, and the extras are
-added from the same crates Bevy uses (`gilrs`, `egui-wgpu`).
+- **Who owns the loop.** Bevy does. The guest (the game's own message loop and frame) runs on its own thread
+  natively, and as a JSPI coroutine in the browser. Each Bevy frame, a system hands the guest the input of that
+  frame and takes the finished guest frame; natively through channels, in the browser by resuming the guest until
+  it gives way at `Flip`/`PeekMessage`.
+- **Drawing.** Direct3D 7 and DirectDraw are immediate APIs. The HLE layer records the guest's draws of one frame
+  (vertices, state, texture uploads) into a command list; Bevy's render world extracts it and replays it in a
+  custom render-graph node on Bevy's `RenderDevice`/`RenderQueue` (wgpu) into the guest's frame texture: a
+  pipeline cache keyed by the fixed-function state, WGSL generated per key. A camera shows that texture scaled
+  to the window (integer or aspect), with the gamma ramp in the final shader. `Lock` of a GPU surface reads back.
+- **Audio.** The HLE mixer (Miles samples, DirectSound buffers, the music and speech streams) is one custom
+  `bevy_audio` source that pulls PCM from the guest side's ring buffer.
+- **Input.** Bevy's keyboard, mouse-motion and button events become window messages and DirectInput state for the
+  guest.
+- **Scripted runs and CI.** The null backend (no Bevy): frames kept for screenshots, scripted input, virtual clock,
+  as in the sister projects. Bevy's own time is not used for game time.
+- **Costs and how they are handled.** Bevy is a large dependency with slow clean builds and a breaking release
+  every few months: the version is pinned in the workspace, only the needed Bevy features are enabled
+  (`default-features = false`), and upgrades are their own commits. Bevy pins its wgpu version, so our Direct3D
+  code follows it.
 
 ## Definition of done (per release)
 
@@ -303,12 +312,12 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 |------|----------|
 | 2026-11-22 | The project follows TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp: MIT license, the Rust recompiler crates, the manifest, the converter with CLI and browser page. Platforms: Windows, Linux, browser; macOS built in CI, not offered; no Android. |
 | 2026-11-22 | **Rust only**, also for the lifted code: `rc-emit-rust` replaces `rc-emit-c`; the runtime, HLE and platform layers are written in Rust after the sister projects' C design. No C compiler in any build; the audit refuses C sources. |
-| 2026-11-22 | **No SDL**: winit, wgpu, cpal. wgpu because the game renders with Direct3D 7 and the browser build needs WebGPU/WebGL2. |
+| 2026-11-22 | **No SDL**. wgpu for rendering, because the game renders with Direct3D 7 and the browser build needs WebGPU/WebGL2. |
 | 2026-11-22 | SackedRecomp (`faf8fc7`) is the template for the shared recompiler crates (it contains HoMM4Recomp's shared code plus raw CD images, InstallShield 6, the archive.org download and the language flags). |
 | 2026-11-22 | Targets: German (SCREENFUN 03/2004 cover CD, archive.org `SF2004-03`) and English (European release, archive.org `TechnoMage_Return_of_Eternity_Europe`, `TECHNOMAGE.mdf` inside `Disc.rar`), pinned by hash with fixed download URLs, as SackedRecomp does. Each at its newest official patch level. |
 | 2026-11-22 | No RAR reader: archive.org serves the members of an archive directly (`<item>/Disc.rar/TECHNOMAGE.mdf`, with CORS through `/cors/`), so the manifest links the image itself. |
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |
 | 2026-11-22 | `binkw32.dll` is lifted (as in HoMM4Recomp); `Mss32.dll` and its `.m3d` providers are HLE. |
 | 2026-11-22 | `TechnoMage.exe` is restored from UPX by our own `rc-unpack` (no external `upx` in the pipeline); `upx -d` is only the test reference. |
-| 2026-11-22 | Bevy considered as the platform: kept as an alternative backend to evaluate in M5; winit + wgpu + cpal until then (section "Platform: plain crates or Bevy"). |
+| 2026-11-22 | **Bevy is the platform** (section "Platform: Bevy"): window, input, gamepads, audio, the frame loop and the browser build come from it; Direct3D and DirectDraw are drawn with our own wgpu code on Bevy's render device. The `rc-platform` API keeps Bevy out of the HLE layer, and a null backend stays for tests. |
 | 2026-11-22 | Cooperative guest threads: OS threads with a baton natively, JSPI in the browser (no ucontext/fibers in Rust). |

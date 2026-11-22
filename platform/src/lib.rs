@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: MIT
 //! The host below the HLE layer, in pure Rust (no SDL):
 //!
-//! - window and input: `winit` (desktop and browser canvas)
-//! - rendering: `wgpu` (Vulkan, Metal, Direct3D 12, WebGPU, WebGL2); the Direct3D 7 calls the
-//!   HLE layer receives are translated into wgpu pipelines; DirectDraw surfaces are textures
-//! - audio: `cpal` (desktop and Web Audio), a mixer for the Miles samples and DirectSound
-//!   buffers
+//! - `bevy`: the game's backend. Window, input, gamepads, audio and the frame loop come from Bevy;
+//!   the Direct3D 7 and DirectDraw draws the HLE layer records are replayed in a custom render
+//!   node on Bevy's wgpu device (Vulkan, Direct3D 12, Metal, WebGPU, WebGL2)
 //! - `null`: no window, no audio, for tests, CI and scripted runs
 //!
-//! Nothing above this crate names winit, wgpu or cpal types.
+//! Nothing above this crate names Bevy or wgpu types.
 
 /// Which host backend a program runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Backend {
-    /// winit + wgpu + cpal.
+    /// The Bevy app.
     #[default]
-    Native,
+    Bevy,
     /// Headless: frames are kept for screenshots, audio is discarded.
     Null,
 }

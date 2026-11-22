@@ -8,10 +8,10 @@
 //! | `gdi32`     | platform (gamma ramp only)        | game, binkw32 |
 //! | `ole32`     | runtime COM registry              | game |
 //! | `winmm`     | runtime clock                     | game, binkw32 |
-//! | `ddraw`     | platform (wgpu)                   | game (`LoadLibrary`), binkw32 |
-//! | `d3d`       | platform (wgpu): Direct3D 7       | game, through `IDirectDraw7::QueryInterface` |
+//! | `ddraw`     | platform (Bevy, wgpu)             | game (`LoadLibrary`), binkw32 |
+//! | `d3d`       | platform (Bevy, wgpu): Direct3D 7 | game, through `IDirectDraw7::QueryInterface` |
 //! | `dinput`    | platform input                    | game (`LoadLibrary`) |
-//! | `dsound`    | platform audio (cpal)             | binkw32 (`BinkOpenDirectSound`) |
+//! | `dsound`    | platform audio (Bevy)             | binkw32 (`BinkOpenDirectSound`) |
 //! | `mss32`     | platform audio: a mixer with 3D   | game (45 `AIL_*` functions) |
 //!
 //! `binkw32.dll` is lifted, not emulated (as in HoMM4Recomp). Every HLE function has the

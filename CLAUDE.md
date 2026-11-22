@@ -1,7 +1,7 @@
 # TechnoMageRecomp – orientation for a new working session
 
 Static recompilation of Sunflowers' action RPG *TechnoMage: Return of Eternity* (German: *TechnoMage – Die
-Rückkehr der Ewigkeit*, 2000/2001) into **Rust**, on a Rust runtime with winit, wgpu and cpal. Fifth project on
+Rückkehr der Ewigkeit*, 2000/2001) into **Rust**, on a Rust runtime with a Bevy platform layer (Direct3D on its wgpu device). Fifth project on
 the toolchain of `../TropicoRecomp`, `../CulturesRecomp`, `../HoMM4Recomp` and `../SackedRecomp`
 (github.com/GameRecomp); SackedRecomp is the template for the shared recompiler crates. Unlike the sister
 projects there is **no C anywhere** (not even for lifted code) and **no SDL**. Start here, then read

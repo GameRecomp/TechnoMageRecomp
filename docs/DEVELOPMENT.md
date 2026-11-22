@@ -3,8 +3,8 @@
 ## Requirements
 
 - Rust stable (`rust-toolchain.toml` installs `rustfmt`, `clippy` and the `wasm32-unknown-unknown` target).
-- Nothing else: no C compiler, no CMake, no SDL. On Linux the window and audio crates need the usual system
-  libraries at run time (Vulkan or GL driver, X11 or Wayland, ALSA or PulseAudio/PipeWire).
+- Nothing else: no C compiler, no CMake, no SDL. On Linux Bevy needs the usual system libraries (Vulkan or GL driver,
+  X11 or Wayland, ALSA or PulseAudio/PipeWire, udev for gamepads) and their development packages to build.
 - For the difftests (M3): the `i686-unknown-linux-gnu` target.
 - For the browser build (M8): `wasm-bindgen-cli` matching the crate version.
 

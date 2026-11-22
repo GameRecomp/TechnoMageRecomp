@@ -26,7 +26,7 @@ files from the user's install. We never convert or redistribute assets.
 
 This is the fifth project on the toolchain of TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp, and the
 first one **without C**: the sister projects' C11 runtime, HLE and platform layers and their C back end are
-written in Rust here, and SDL3 is replaced by Rust-native crates (decision log in [PLAN.md](PLAN.md)).
+written in Rust here, and SDL3 is replaced by Bevy (decision log in [PLAN.md](PLAN.md)).
 
 ## What is different from the sister projects
 
@@ -34,8 +34,8 @@ written in Rust here, and SDL3 is replaced by Rust-native crates (decision log i
 |-----------------|------------|-----|
 | `rc-emit-c` → C11, CMake, gcc/clang/MSVC | `rc-emit-rust` → Rust, cargo | Rust only |
 | C11 runtime, HLE, platform | Rust crates `rc-runtime`, `rc-hle`, `rc-platform` | Rust only |
-| SDL3, SDL3_ttf, SDL3_mixer | winit, wgpu, cpal | Rust-native; wgpu because the game renders in 3D |
-| 2D DirectDraw (software blits) | DirectDraw 7 **and Direct3D 7** on wgpu | the game uses Direct3D |
+| SDL3, SDL3_ttf, SDL3_mixer | Bevy (on wgpu, winit, cpal) | Rust-native; wgpu because the game renders in 3D |
+| 2D DirectDraw (software blits) | DirectDraw 7 **and Direct3D 7** on Bevy's wgpu device | the game uses Direct3D |
 | Emscripten web shell (C runtime) | `wasm32-unknown-unknown` runtime with wasm-bindgen | no C compiler |
 | executables as shipped | **UPX 1.07** packed: `rc-unpack` restores the image first | the retail exe is packed |
 | no relocations: heuristics find code pointers | the restored image **has `.reloc`**: every pointer is known | exact discovery |
@@ -85,8 +85,9 @@ A port of the sister projects' runtime, module for module, with the same guest-v
 - **Threads**: guest threads are cooperative, exactly one runs at a time. Native: one OS thread per guest thread,
   handing a baton (`Mutex` + `Condvar`), the sister projects' pthread backend. Browser: JSPI (a thread that gives
   way suspends its WebAssembly stack on a promise).
-- **Host threading**: winit owns the main thread. Native: the guest runs on its own thread and talks to the
-  platform through channels (input in, frames and audio out). Browser: the guest yields at `Flip`/`PeekMessage`.
+- **Host threading**: Bevy owns the main thread and the frame loop. Native: the guest runs on its own thread and
+  talks to the Bevy app through channels (input in, frames and audio out). Browser: the guest is a JSPI
+  coroutine that a Bevy system resumes each frame until it yields at `Flip`/`PeekMessage`.
 - **Clock**: real time, or a virtual clock for scripted runs (`RC_CLOCK=virtual`), `timeGetTime`,
   `QueryPerformanceCounter`, `rdtsc`.
 - **Files**: a case-insensitive VFS with `\` → `/`. The CD's drive is virtual: `GetLogicalDrives`,
@@ -102,8 +103,8 @@ A port of the sister projects' runtime, module for module, with the same guest-v
 | `gdi32` | platform | game | only `GetDeviceGammaRamp`/`SetDeviceGammaRamp`: a gamma ramp applied in the final blit shader |
 | `ole32` | runtime | game | `CoInitialize`, `CoCreateInstance` → HLE classes (`CLSID_DirectDraw`) |
 | `winmm` | runtime clock | game, binkw32 | `timeGetTime` |
-| `ddraw` | platform (wgpu) | game, binkw32 | DirectDraw 7: display modes, primary/back buffer and flip, off-screen and texture surfaces (CPU copies with lock/unlock, uploaded lazily), colour keys, `Blt`/`BltFast`, gamma |
-| `d3d` | platform (wgpu) | game | Direct3D 7 (immediate mode, to verify in M2): devices enumerated as one HAL device, vertex buffers, `DrawPrimitive`/`DrawIndexedPrimitive` with FVF vertices, render and texture-stage states, transforms, lights, materials, fog, z-buffer; the fixed-function pipeline as generated WGSL pipelines keyed by state |
+| `ddraw` | platform (Bevy, wgpu) | game, binkw32 | DirectDraw 7: display modes, primary/back buffer and flip, off-screen and texture surfaces (CPU copies with lock/unlock, uploaded lazily), colour keys, `Blt`/`BltFast`, gamma |
+| `d3d` | platform (Bevy, wgpu) | game | Direct3D 7 (immediate mode, to verify in M2): devices enumerated as one HAL device, vertex buffers, `DrawPrimitive`/`DrawIndexedPrimitive` with FVF vertices, render and texture-stage states, transforms, lights, materials, fog, z-buffer; the fixed-function pipeline as generated WGSL pipelines keyed by state |
 | `dinput` | platform input | game | DirectInput 7: keyboard and mouse (loaded with `LoadLibraryA`) |
 | `dsound` | platform audio | binkw32 | the buffers Bink's DirectSound output writes |
 | `mss32` | platform audio | game | Miles Sound System 6: `AIL_startup`, 2D samples and 3D samples with position, velocity, distances, a listener and room types, providers enumerated as one; a mixer in Rust |
@@ -114,19 +115,18 @@ are less work than lifting Miles, its nine 3D providers and DirectSound 3D benea
 
 ## Platform layer (platform/, crate `rc-platform`)
 
-A thin Rust API; nothing above it names winit, wgpu or cpal types, so the backend can change (Bevy is
-evaluated as an alternative backend in M5, see [PLAN.md](PLAN.md)):
+A thin Rust API between the HLE layer and the host; nothing above it names Bevy or wgpu types. Two backends:
 
-- **Window and input** (`winit`): one window, windowed and full screen, integer or aspect scaling of the game's
-  resolution, keyboard, mouse (relative motion for DirectInput, absolute for the cursor).
-- **Graphics** (`wgpu`): the game's frame as a render target at its own resolution, presented with scaling and the
-  gamma ramp. Direct3D 7 draws become wgpu render passes: a pipeline cache keyed by the fixed-function state
-  (FVF, blend, alpha test, z, fog, texture stages), WGSL generated per key, textures from DirectDraw surfaces.
-  Backends: Vulkan, Direct3D 12, Metal (CI only), WebGPU with a WebGL2 fallback in the browser.
-- **Audio** (`cpal`): one output stream; a mixer for Miles samples (with simple 3D: distance attenuation, panning,
-  Doppler optional) and DirectSound buffers; WAV (PCM/ADPCM) decoding for the music and speech.
-- **Null backend**: no window, no audio; frames kept for screenshots (`RC_SCREENSHOT`), scripted input
-  (`RC_INPUT`), used by tests, CI and `tools/run-scenario`.
+- **Bevy** (the game): one window, windowed and full screen, scaling of the game's resolution; keyboard, mouse
+  (relative motion for DirectInput, absolute for the cursor) and gamepads; the guest's frame as a texture shown by
+  a camera with the gamma ramp; Direct3D 7 and DirectDraw replayed per frame in a custom render-graph node on
+  Bevy's wgpu device (pipeline cache keyed by FVF, blend, alpha test, z, fog and texture stages; WGSL generated
+  per key); audio as one custom `bevy_audio` source fed by the HLE mixer; the settings as an egui overlay.
+  Natively on Vulkan or Direct3D 12 (Metal in CI only), in the browser on WebGPU with a WebGL2 fallback.
+- **Null** (tests, CI, scripted runs): no window, no audio; frames kept for screenshots (`RC_SCREENSHOT`), scripted
+  input (`RC_INPUT`), the virtual clock.
+
+How the guest and Bevy share the frame is described in [PLAN.md](PLAN.md), "Platform: Bevy".
 
 ## Games (games/technomage/)
 
@@ -151,7 +151,7 @@ Cargo.toml           the workspace
 docs/                PLAN, ARCHITECTURE, DEVELOPMENT, TARGETS, RESEARCH
 games/technomage/    game.toml, the shell crate, scenarios/
 hle/                 Win32/DirectX/Miles reimplementations (crate rc-hle, one module per DLL)
-platform/            winit + wgpu + cpal backend, null backend (crate rc-platform)
+platform/            the Bevy app, null backend (crate rc-platform)
 recomp/crates/       the recompiler and the `recomp` CLI
 runtime/             guest memory, CPU, dispatch, loader, SEH, threads, clock, files (crate rc-runtime)
 tools/               audit.sh, git hooks, dev helpers

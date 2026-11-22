@@ -7,7 +7,7 @@ your machine.
 
 TechnoMageRecomp is an unofficial project that rebuilds the game as a native program for today's systems: no
 emulator, no Wine. The game's own code is translated ahead of time ("static recompilation") into Rust and runs on a
-small replacement for the parts of Windows, DirectX (including Direct3D 7, on wgpu) and Miles it uses. It is the
+small replacement for the parts of Windows, DirectX (including Direct3D 7, drawn with Bevy and wgpu) and Miles it uses. It is the
 fifth project on the toolchain of [TropicoRecomp](https://github.com/GameRecomp/TropicoRecomp),
 [CulturesRecomp](https://github.com/GameRecomp/CulturesRecomp),
 [HoMM4Recomp](https://github.com/GameRecomp/HoMM4Recomp) and
