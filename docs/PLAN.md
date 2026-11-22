@@ -108,7 +108,7 @@ Status: ✅ done · 🔶 in progress · ⬜ not started
 - [ ] `rc-difftest`: the reference side (`tools/difftest/ref32.c`) rewritten as a Rust `i686` program
 - [x] The archive.org URLs fixed: `SF2004-03/2004-03.BIN`, and `TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf`
       (archive.org serves the member of the RAR directly: no RAR reader)
-- [ ] The English release measured (the `.mdf`'s SHA-256, its `TechnoMage.exe` hash, `DATA.TAG` version) and pinned
+- [x] The English release measured and pinned (the `.mdf`, its executable and tools)
 - [x] Patches: 1.02 and 1.04 (German only) identified; the cover CD is 1.04 already, no English patch (below)
 - [ ] `recomp identify` recognises the media, the patch and every binary
 - [ ] Icon (`tools/icons/technomage.svg`, our own drawing)
@@ -126,12 +126,20 @@ Binary treatment:
 
 ### M1 – Read the inputs
 
-- [ ] `rc-media` InstallShield: accept major version 7 (the cabinet layout is version 6's); find why the 20
-      `Sfx/*.SBK` fail to inflate (files split across `data1.cab`/`data2.cab`, or stored); all files by MD5
+- [x] `rc-media` InstallShield: major version 7 accepted (the cabinet layout is version 6's); all files by MD5
+- [x] Why 20 `Sfx/*.SBK` fail: the archived German image has 1 608 unreadable sectors inside `DATA2.CAB`
+      (RESEARCH); everything else is intact
+- [x] A source for the 20 damaged sound banks: the German retail CD 1.00's `data1.hdr`/`data1.cab`, served out of
+      its ISO by archive.org (167 MB), pinned as the variant's supplement; `recomp download` fetches it,
+      `recomp extract` takes the 20 files from it, each checked by SHA-256
+- [x] `recomp extract orig/2004-03.BIN` unpacks the German release completely (164 + 20 files, the CD folders,
+      every binary verified)
+- [ ] The English executable: UPX inside SecuROM, the end of the compressed data encrypted (RESEARCH); decrypt
+      it, or find another English executable **(open)**
 - [ ] The English `TECHNOMAGE.mdf` (raw MODE1/2352) with its InstallShield 5 cabinet, read by the existing
       readers; nested: the cabinets inside the CD image without unpacking to disk
-- [ ] The CD-resident folders (`Mov/`, `Mus/`, `Spc/`) copied to `orig/technomage/<variant>/cd/`, and the disc's
-      volume label to `recomp-variant.txt`, so the runtime can present the virtual CD drive
+- [x] The CD-resident folders (manifest `cd_dirs`: `Mov/`, `Mus/`, `Spc/`) copied to
+      `orig/technomage/<variant>/cd/` with the disc's label in `cd/volume-label.txt`, for the virtual CD drive
 - [x] `rc-unpack`: UPX 1.07 Win32/PE (NRV2D, the call-trick filter `0x26`, imports rebuilt from the packer's
       table, relocations restored), `recomp unpack`; byte-identical to `upx -d` 4.2.4 for the German executable
 - [ ] `recomp download technomage de|en` from the fixed archive.org URLs (curl), size and SHA-256 checked
@@ -221,7 +229,9 @@ Binary treatment:
 - [ ] Converter page: two flags (de, en); choosing one downloads that release through archive.org's `/cors/` path,
       checks its SHA-256 and converts it; the file picker stays for a copy the user has
 - [ ] Storage: the converted game in the browser's storage (OPFS); the CD folders included (the German medium is
-      807 MiB: stream it, never hold it whole)
+      807 MiB: stream it, never hold it whole); the supplement (167 MB) downloaded with it
+- [ ] As SackedRecomp learned: frames paced by `requestAnimationFrame`; the game's files read ahead in blocks;
+      small `ReadFile`s served from a buffer, not each a trip to the browser's storage
 - [ ] Windows and Linux packages (zip, AppImage), CI release workflow
 
 ### M9 – Release v0.1
@@ -316,6 +326,8 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-22 | SackedRecomp (`faf8fc7`) is the template for the shared recompiler crates (it contains HoMM4Recomp's shared code plus raw CD images, InstallShield 6, the archive.org download and the language flags). |
 | 2026-11-22 | Targets: German (SCREENFUN 03/2004 cover CD, archive.org `SF2004-03`) and English (European release, archive.org `TechnoMage_Return_of_Eternity_Europe`, `TECHNOMAGE.mdf` inside `Disc.rar`), pinned by hash with fixed download URLs, as SackedRecomp does. Each at its newest official patch level. |
 | 2026-11-22 | No RAR reader: archive.org serves the members of an archive directly (`<item>/Disc.rar/TECHNOMAGE.mdf`, with CORS through `/cors/`), so the manifest links the image itself. |
+| 2026-11-23 | The German cover CD's 20 damaged sound banks come from the German retail CD 1.00's cabinet (archive.org serves `TechnoMage.iso/data1.cab` on its own, 167 MB), not from the English CD (840 MB) or the RAR patch. `HBoss.SBK` is therefore version 1.00's: patch 1.04 changed it, but taking it from the patch would need a RAR 2.0 reader. Accepted as a documented deviation. |
+| 2026-11-23 | From SackedRecomp `0dbd1df`: `rc-emit-wasm`'s flag liveness (`flags.rs`, now public and also used by `rc-emit-rust`) and its MMX in WebAssembly SIMD. The browser lessons (frames paced by `requestAnimationFrame`, read-ahead of the game's files, buffered small reads) are requirements for M8. |
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |
 | 2026-11-22 | `binkw32.dll` is lifted (as in HoMM4Recomp); `Mss32.dll` and its `.m3d` providers are HLE. |
 | 2026-11-22 | `TechnoMage.exe` is restored from UPX by our own `rc-unpack` (no external `upx` in the pipeline); `upx -d` is only the test reference. |
