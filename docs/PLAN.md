@@ -80,16 +80,16 @@ Status: ✅ done · 🔶 in progress · ⬜ not started
 
 | #   | Milestone | Status | Exit criterion |
 |-----|-----------|--------|----------------|
-| M0  | Foundation | 🔶 | Plan and docs; workspace builds (stubs); shared recompiler crates imported from SackedRecomp at the pinned commit; `rc-emit-c` removed; CI and audit hook; `games/technomage/game.toml` pins both media and every binary; `recomp identify` recognises them. |
-| M1  | Read the inputs | ⬜ | `recomp extract` turns both media into `orig/technomage/<variant>/` without third-party tools: InstallShield 7 and 5 by their MD5s, the CD folders copied, every binary verified by hash; `recomp unpack` restores `TechnoMage.exe` byte-identical to `upx -d`. |
-| M2  | Find the code | ⬜ | Coverage report for the restored `TechnoMage.exe` (both languages, patched) and `binkw32.dll`: 100 % classified, every leftover settled by analysis or a manifest hint. Direct3D interface level confirmed. |
-| M3  | Lift and build | ⬜ | Every function lifts; no trap in reachable code; `rc-emit-rust` output compiles warning-free and links into `technomage`; difftests pass with the Rust reference side. |
-| M3r | Runtime in Rust | ⬜ | `rc-runtime` passes the ported runtime tests (memory, dispatch, x87, SEH, threads); the Cranelift blob of a test program runs on it; a hand-written guest test program calls HLE kernel32. |
-| M4  | Boots | ⬜ | Static CRT start-up, files and the virtual CD drive, threads; the game creates its window and DirectDraw 7. |
-| M5  | Picture and input | ⬜ | The main menu renders through DirectDraw in the Bevy app; Direct3D 7 draws the first level (geometry, textures, alpha, z, fog, lights); mouse and keyboard through DirectInput; windowed and full screen; gamma ramp. |
-| M6  | Sound and video | ⬜ | Miles samples (2D and 3D), music (`Mus/*.WAV` by `Music.cfg`), speech (`Spc/*.PCK`); the Bink intro and cut scenes through the lifted `binkw32.dll` with DirectSound audio. |
-| M7  | In game | ⬜ | All eight worlds of the German release can be played through; saves load; English starts and plays a level; scripted soak runs without trap. |
-| M8  | Converter and platforms | ⬜ | `recomp convert` and the browser page download (or take) the medium of the chosen language from its fixed archive.org URL and produce Windows and Linux builds and a browser build; all three start and reach a level. |
+| M0  | Foundation | ✅ | Plan and docs; workspace builds (stubs); shared recompiler crates imported from SackedRecomp at the pinned commit; `rc-emit-c` removed; CI and audit hook; `games/technomage/game.toml` pins both media and every binary; `recomp identify` recognises them. |
+| M1  | Read the inputs | ✅ | `recomp extract` turns both media into `orig/technomage/<variant>/` without third-party tools: InstallShield 7 and 5 by their MD5s, the CD folders copied, every binary verified by hash; `recomp unpack` restores `TechnoMage.exe` byte-identical to `upx -d`. |
+| M2  | Find the code | 🔶 | Coverage report for the restored `TechnoMage.exe` (both languages, patched) and `binkw32.dll`: 100 % classified, every leftover settled by analysis or a manifest hint. Direct3D interface level confirmed. |
+| M3  | Lift and build | ✅ | Every function lifts; no trap in reachable code; `rc-emit-rust` output compiles warning-free and links into `technomage`; difftests pass with the Rust reference side. |
+| M3r | Runtime in Rust | ✅ | `rc-runtime` passes the ported runtime tests (memory, dispatch, x87, SEH, threads); the Cranelift blob of a test program runs on it; a hand-written guest test program calls HLE kernel32. |
+| M4  | Boots | ✅ | Static CRT start-up, files and the virtual CD drive, threads; the game creates its window and DirectDraw 7. |
+| M5  | Picture and input | 🔶 | The main menu renders through DirectDraw in the Bevy app; Direct3D 7 draws the first level (geometry, textures, alpha, z, fog, lights); mouse and keyboard through DirectInput; windowed and full screen; gamma ramp. |
+| M6  | Sound and video | 🔶 | Miles samples (2D and 3D), music (`Mus/*.WAV` by `Music.cfg`), speech (`Spc/*.PCK`); the Bink intro and cut scenes through the lifted `binkw32.dll` with DirectSound audio. |
+| M7  | In game | 🔶 | All eight worlds of the German release can be played through; saves load; English starts and plays a level; scripted soak runs without trap. |
+| M8  | Converter and platforms | 🔶 | `recomp convert` and the browser page download (or take) the medium of the chosen language from its fixed archive.org URL and produce Windows and Linux builds and a browser build; all three start and reach a level. |
 | M9  | **Release v0.1** | ⬜ | Played through on Linux, Windows and in the browser; release notes with the known issues. |
 
 ### M0 – Foundation
@@ -189,66 +189,56 @@ Binary treatment:
 
 ### M4 – Boots
 
-- [x] kernel32: all 81 imports (CRT start-up, heap, files, `FindFirstFile`, code pages, synchronisation objects,
-      `LoadLibraryA`/`GetProcAddress` for HLE DLLs); SEH (`RtlUnwind`, `RaiseException`) still stops
-- [x] user32 (the window, message queue, cursor; 32 imports), gdi32 (gamma ramp), ole32 (COM class registry),
-      winmm; mss32 state without a mixer (45 imports)
-- [ ] The CD check passes on the virtual drive (no patch, if possible)
-- [ ] `TechnoMage.ini` read (defaults when missing: written by `TM_Setup.exe` normally)
-- [ ] user32 window and message loop; ole32 `CoCreateInstance(CLSID_DirectDraw)`; `LoadLibraryA("ddraw.dll")`
-- [ ] DirectDraw 7: cooperative level, display mode, primary surface with back buffer
+- [x] kernel32: all 81 imports of the game and those of `binkw32.dll` (CRT start-up, heap, files,
+      `FindFirstFile`, code pages, synchronisation objects, threads, `LoadLibraryA`/`GetProcAddress` for HLE
+      DLLs), SEH (`RaiseException`, `RtlUnwind` over the guest's `fs:[0]` chain)
+- [x] user32 (the window, message queue, cursor), gdi32 (gamma ramp), ole32 (COM classes), winmm
+- [x] The DirectX version check (DirectDraw 1, 2, 4, 7 and every surface interface); DirectDraw and
+      DirectInput through `CoCreateInstance` as well as their DLLs
+- [x] The CD check passes on the virtual drive (`D:`, the disc's label), no patch needed
+- [x] `binkw32.dll` lifted, mapped at its base, `DllMain` run, the executable's imports bound to its exports
+- [x] Guest threads (Bink's), cooperative with a baton
 
 ### M5 – Picture and input
 
-- [ ] The Bevy app (see "Platform: Bevy"): window, the guest's frame as a texture, input forwarded, natively
-      and in the browser
-- [ ] DirectDraw surfaces as CPU buffers with lazy wgpu textures; `Blt`, `BltFast`, colour keys, `Lock`/`Unlock`,
-      `Flip` presents through wgpu with integer/aspect scaling
-- [ ] Direct3D 7 on wgpu: device enumeration (one HAL device with T&L), z-buffer surfaces, viewports, transforms,
-      FVF vertex layouts, `DrawPrimitive`/`DrawIndexedPrimitive` (and vertex buffers), render states (blend, alpha
-      test, z, cull, fog incl. the game's fog fixes: strings `F_FOGPATCH*`), texture stage states (the fixed-function
-      combiners), lights and materials; WGSL generated per state key, pipelines cached
-- [ ] Mixed 2D/3D: DirectDraw blits onto the 3D back buffer, `Lock` of the back buffer reads back from the GPU
-- [ ] Gamma ramp (`SetDeviceGammaRamp`) in the present shader
-- [ ] DirectInput 7 keyboard and mouse; the game's cursor; `SetCursorPos`/`GetCursorPos`
-- [ ] Display modes the game offers (640x480, 800x600, 1024x768 expected; `Gfx/Hi` is the high-resolution set)
-- [ ] Windowed and full screen by hand
-- [ ] Screenshot comparison in scripted runs (null backend renders with wgpu on a software adapter in CI, if
-      available; otherwise frame hashes only)
+- [x] The intro (Bink into the primary surface), the main menu, a new game in Dreamertown (German and English)
+- [x] DirectDraw 7 in software: surfaces in guest memory, `Blt`/`BltFast` with stretch, keys and fills,
+      `Flip`; pixel formats 565, 1555, 4444, 8888
+- [x] Direct3D 7 object layer: device and z-buffer enumeration, render and stage states, transforms, viewport,
+      material, lights, textures, vertex buffers, `Load`, `Clear`
+- [x] Software rasterizer of the fixed-function pipeline (reference, null backend, fallback)
+- [x] **GPU renderer** with wgpu (`rc-platform` feature `gpu`): about six times the software path
+- [x] DirectInput 7 keyboard and mouse, state and buffered events, object names; window messages
+- [x] The Bevy window: frames scaled with the aspect kept, keyboard, mouse, wheel, pointer mapping
+- [x] Gamma ramp in the frame conversion
+- [ ] Full screen toggle (Alt+Enter) and the `TECHMAGE.CFG` options (`WINDOWED`, `LO-RES`) checked by hand
+- [ ] Near-plane clipping of triangles behind the eye (now dropped whole)
 
 ### M6 – Sound and video
 
-- [ ] `mss32`: `AIL_startup`, preferences, waveOut open, 2D samples (WAV in memory, volume, pan, rate, loops),
-      3D providers (one, "DirectSound3D 7+ Software"), 3D samples (position, velocity, orientation, distances,
-      occlusion/obstruction ignored or approximated), listener, room type, speaker type
-- [ ] Music: `Mus/*.WAV` streamed by the game's music logic (`Music.cfg`)
-- [ ] Speech: `Spc/*.PCK` (format: **open**)
-- [ ] Bink: lifted `binkw32.dll`, `BinkOpenDirectSound` → `dsound` HLE buffers; `BinkCopyToBuffer` into a
-      DirectDraw surface
-- [ ] On the virtual clock audio is rendered, not played (scripted runs)
+- [x] Mixer (PCM, IMA ADPCM, volume, pan, loops, resampling) as one Bevy audio source
+- [x] Miles 2D and 3D samples (distance attenuation and pan by the listener), music by `AIL_set_sample_file`
+- [x] DirectSound with streaming buffers for Bink's sound (through `AIL_get_DirectSound_info`)
+- [ ] Heard on a machine with an audio device (this development machine has none in its session)
+- [ ] Speech (`Spc/*.PCK`): which path the game takes **(open)**
 
 ### M7 – In game
 
-- [ ] The intro, the main menu, a new game, the first world (Dreamertown)
-- [ ] All eight worlds (Dreamer, Steamer, Forest, Ruins, Canyon, Vulcano, Tower, The Hive) and the end fight
-- [ ] Save and load
-- [ ] The English release starts and plays a level; differences in code handled in the manifest
-- [ ] A one-hour soak without trap
+- [x] A new game starts in German and English; dialogue, tutorial, the first room
+- [x] Scripted runs: `RC_INPUT` (keys and clicks at frames), `RC_FRAMES`, `RC_SCREENSHOT`, `RC_TRACE=fps`
+- [ ] All eight worlds played through; save and load; a one-hour soak
 
 ### M8 – Converter and platforms
 
-- [ ] `recomp convert --download technomage --language de|en --system linux|windows`: medium (and patch) from the
-      fixed archive.org URLs, checked, unpacked, lifted with Cranelift into the Rust shell template
-- [ ] Browser runtime: `rc-runtime`/`rc-hle`/`rc-platform` for `wasm32-unknown-unknown` with wasm-bindgen; the
-      lifted code as a second module from `rc-emit-wasm` sharing memory and table; JSPI for guest threads and the
-      game's own message loop; the Bevy app on WebGPU (WebGL2 fallback) and Web Audio
-- [ ] Converter page: two flags (de, en); choosing one downloads that release through archive.org's `/cors/` path,
-      checks its SHA-256 and converts it; the file picker stays for a copy the user has
-- [ ] Storage: the converted game in the browser's storage (OPFS); the CD folders included (the German medium is
-      807 MiB: stream it, never hold it whole); the supplement (167 MB) downloaded with it
-- [ ] As SackedRecomp learned: frames paced by `requestAnimationFrame`; the game's files read ahead in blocks;
-      small `ReadFile`s served from a buffer, not each a trip to the browser's storage
-- [ ] Windows and Linux packages (zip, AppImage), CI release workflow
+- [x] `recomp download`/`extract` with supplements; `recomp convert` builds with cargo into `out/technomage/`
+- [x] Native code from the converter: the runtime loads Cranelift blobs (format 2); the shell runs a package's
+      `data/code-<target>-technomage.exe.bin` with `data/game`; `RC_NO_GENERATED` builds the template shell
+- [x] CI: audit, fmt, clippy, tests on Linux/Windows/macOS, wasm crates; release workflow for the converter
+      (Linux, Windows); Pages workflow
+- [ ] `recomp convert --system linux` end to end with a template built here
+- [ ] Browser player: the Rust runtime for `wasm32-unknown-unknown`, guest code from `rc-emit-wasm`, frames on
+      a canvas, input, Web Audio; converter page; read-ahead and buffered reads as SackedRecomp learned
+- [ ] Windows build checked on Windows
 
 ### M9 – Release v0.1
 
@@ -343,6 +333,8 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-22 | Targets: German (SCREENFUN 03/2004 cover CD, archive.org `SF2004-03`) and English (European release, archive.org `TechnoMage_Return_of_Eternity_Europe`, `TECHNOMAGE.mdf` inside `Disc.rar`), pinned by hash with fixed download URLs, as SackedRecomp does. Each at its newest official patch level. |
 | 2026-11-22 | No RAR reader: archive.org serves the members of an archive directly (`<item>/Disc.rar/TECHNOMAGE.mdf`, with CORS through `/cors/`), so the manifest links the image itself. |
 | 2026-11-23 | The German cover CD's 20 damaged sound banks come from the German retail CD 1.00's cabinet (archive.org serves `TechnoMage.iso/data1.cab` on its own, 167 MB), not from the English CD (840 MB) or the RAR patch. `HBoss.SBK` is therefore version 1.00's: patch 1.04 changed it, but taking it from the patch would need a RAR 2.0 reader. Accepted as a documented deviation. |
+| 2026-11-23 | **Direct3D on its own wgpu device, offscreen, read back into guest memory**, not in a Bevy render-graph node: the guest's surfaces stay the one truth (2D `Lock`/`Blt` work mixes with 3D as on Windows), the null backend and CI use the same path, and the Bevy window only shows finished frames. Transform and lighting stay on the CPU (a few thousand vertices a frame). The software rasterizer remains as reference and fallback (`RC_RENDERER=soft`). |
+| 2026-11-23 | Lifted Rust in **16 shard crates** that depend only on **`rc-abi`** (CPU state, memory, x87, MMX; the runtime's entry points as `extern` declarations defined by `rc-runtime`): a full build takes about 5 minutes (dev, unoptimised shards) or 7 (release) instead of more than 40, and runtime changes do not rebuild it. |
 | 2026-11-23 | **English runs on the German cover CD's executable.** The English CD's executable is wrapped in SecuROM with part of it encrypted; undoing copy protection is not done here. The cover CD's 1.04 executable has none and reads its language from `techmage.cfg`, so the English variant downloads the cover CD image as a supplement for its executable. |
 | 2026-11-23 | From SackedRecomp `0dbd1df`: `rc-emit-wasm`'s flag liveness (`flags.rs`, now public and also used by `rc-emit-rust`) and its MMX in WebAssembly SIMD. The browser lessons (frames paced by `requestAnimationFrame`, read-ahead of the game's files, buffered small reads) are requirements for M8. |
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |
