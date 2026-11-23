@@ -188,6 +188,44 @@ impl Archive for Iso {
         &self.entries
     }
 
+    fn extract_to(
+        &mut self,
+        sink: &mut dyn crate::Sink,
+        select: &dyn Fn(&Entry) -> bool,
+    ) -> Result<usize> {
+        let mut dirs = std::collections::BTreeSet::new();
+        for e in self.entries.iter().filter(|e| select(e)) {
+            let mut p = e.path.as_str();
+            while let Some((d, _)) = p.rsplit_once('/') {
+                dirs.insert(d.to_string());
+                p = d;
+            }
+        }
+        for d in dirs {
+            sink.dir(&d)?;
+        }
+        let mut n = 0;
+        let mut buf = vec![0u8; 1 << 20];
+        for i in 0..self.entries.len() {
+            if !select(&self.entries[i]) {
+                continue;
+            }
+            let (path, size) = (self.entries[i].path.clone(), self.entries[i].size);
+            sink.begin(&path, size)?;
+            let mut r = self.open_entry(i);
+            let mut left = size;
+            while left > 0 {
+                let k = (left as usize).min(buf.len());
+                r.read_exact(&mut buf[..k])?;
+                sink.write(&buf[..k])?;
+                left -= k as u64;
+            }
+            sink.end()?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
     fn extract(&mut self, dest: &Path, select: &dyn Fn(&Entry) -> bool) -> Result<usize> {
         let mut n = 0;
         for i in 0..self.entries.len() {
@@ -251,6 +289,38 @@ mod tests {
         let i = iso.find("data1.hdr").unwrap();
         assert_eq!(iso.read_entry(i).unwrap(), b"hello");
         assert_eq!(iso.read_entry(1).unwrap(), b"hel");
+    }
+
+    #[test]
+    fn extracts_to_a_sink() {
+        #[derive(Default)]
+        struct Mem(Vec<String>, Vec<(String, Vec<u8>)>);
+        impl crate::Sink for Mem {
+            fn dir(&mut self, p: &str) -> Result<()> {
+                self.0.push(p.into());
+                Ok(())
+            }
+            fn begin(&mut self, p: &str, _: u64) -> Result<()> {
+                self.1.push((p.into(), Vec::new()));
+                Ok(())
+            }
+            fn write(&mut self, d: &[u8]) -> Result<()> {
+                self.1.last_mut().unwrap().1.extend_from_slice(d);
+                Ok(())
+            }
+            fn end(&mut self) -> Result<()> {
+                Ok(())
+            }
+        }
+        let mut iso = Iso::from_reader(Box::new(Cursor::new(image()))).unwrap();
+        let mut m = Mem::default();
+        assert_eq!(
+            iso.extract_to(&mut m, &|e| e.path.starts_with("EXTRAS"))
+                .unwrap(),
+            1
+        );
+        assert_eq!(m.0, ["EXTRAS"]);
+        assert_eq!(m.1, [("EXTRAS/README".to_string(), b"hel".to_vec())]);
     }
 
     #[test]

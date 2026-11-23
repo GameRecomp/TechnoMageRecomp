@@ -132,6 +132,26 @@ pub fn convert_package(
     }
     let mut inst = rc_convert::install::Install::open_with(Box::new(reader), slices, &ms)
         .map_err(|e| format!("{}: {e}", media.display()))?;
+    // Supplements from beside the medium (where `recomp download` puts them), then the CD's
+    // own folders from the medium read as a disc.
+    let beside = media.parent().unwrap_or(Path::new("."));
+    for (k, sup) in inst.supplements_needed().into_iter().enumerate() {
+        let mut readers: Vec<Box<dyn rc_convert::rc_media::ReadSeek>> = Vec::new();
+        for m in &sup {
+            let p = beside.join(&m.file);
+            let f = fs::File::open(&p).map_err(|e| {
+                format!(
+                    "{}: {e}; `recomp download` fetches it ({})",
+                    p.display(),
+                    m.url.as_deref().unwrap_or("no address")
+                )
+            })?;
+            readers.push(Box::new(std::io::BufReader::with_capacity(1 << 20, f)));
+        }
+        inst.supply(k, readers)?;
+    }
+    let cd = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
+    inst.add_cd(Box::new(std::io::BufReader::with_capacity(1 << 20, cd)))?;
     let (_, files) = inst.plan();
     let game_bytes: u64 = files.iter().map(|f| f.1).sum();
     eprintln!(

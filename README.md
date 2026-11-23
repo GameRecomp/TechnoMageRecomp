@@ -26,7 +26,16 @@ Each is pinned by its checksum ([docs/TARGETS.md](docs/TARGETS.md)).
 
 ## State
 
-Planning and skeleton. See [docs/PLAN.md](docs/PLAN.md).
+Early but playable on Linux: the intro, the menus and a new game in German or English run, Direct3D on the GPU.
+The browser build and checked Windows builds are still to come. See [docs/PLAN.md](docs/PLAN.md).
+
+## Playing
+
+1. Download the converter for your system from the releases.
+2. Run `recomp download --dest media technomage de` (or `en`): it fetches the release from archive.org and
+   checks it.
+3. Run `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`): it writes a zip with
+   the game ready to run. Unpack it and start `technomage`.
 
 ## For developers
 

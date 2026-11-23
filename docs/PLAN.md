@@ -235,7 +235,8 @@ Binary treatment:
       `data/code-<target>-technomage.exe.bin` with `data/game`; `RC_NO_GENERATED` builds the template shell
 - [x] CI: audit, fmt, clippy, tests on Linux/Windows/macOS, wasm crates; release workflow for the converter
       (Linux, Windows); Pages workflow
-- [ ] `recomp convert --system linux` end to end with a template built here
+- [x] `recomp convert --system linux` end to end: a template built here, the German CD converted (supplements,
+      CD folders), the package runs to the first room on its Cranelift code
 - [ ] Browser player: the Rust runtime for `wasm32-unknown-unknown`, guest code from `rc-emit-wasm`, frames on
       a canvas, input, Web Audio; converter page; read-ahead and buffered reads as SackedRecomp learned
 - [ ] Windows build checked on Windows

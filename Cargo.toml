@@ -52,6 +52,12 @@ unsafe_code = "forbid"
 [profile.release]
 debug = 1
 
+# What players get (the release workflow): no debug information, stripped.
+[profile.dist]
+inherits = "release"
+debug = false
+strip = true
+
 # The lifted game code is large and machine-generated: optimise it even in dev builds, or the
 # game runs too slowly to test (decision log).
 [profile.dev.package.technomage]
