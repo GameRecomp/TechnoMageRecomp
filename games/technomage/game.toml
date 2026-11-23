@@ -67,9 +67,22 @@ notes = """European English CD (mastered 2001-05-03), as archived on archive.org
 TechnoMage_Return_of_Eternity_Europe) inside Disc.rar. archive.org serves the archive's members on their own \
 ("view contents"), so the Alcohol image TECHNOMAGE.mdf (raw MODE1/2352) is downloaded directly and no RAR \
 reader is needed; the .mds beside it is not needed either. InstallShield 5 setup (DATA1.HDR, DATA1.CAB); \
-Mov/, Mus/ and Spc/ (English speech) on the CD. Its executable is wrapped in SecuROM (docs/RESEARCH.md)."""
+Mov/, Mus/ and Spc/ (English speech) on the CD. Its executable is wrapped in SecuROM (docs/RESEARCH.md);
+the German cover CD's plain 1.04 executable runs the English data instead (techmage.cfg: LANGUAGE = 1)."""
 media = [
   { file = "TECHNOMAGE.mdf", kind = "iso", size = 840680064, sha256 = "178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450", url = "https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf" },
+]
+
+# The executable: the German cover CD's version 1.04, which has no copy protection and reads the
+# language from techmage.cfg. The English CD's own executable is the same game inside SecuROM,
+# whose encrypted part is not undone here (docs/PLAN.md, decision log).
+[[variant.supplement]]
+notes = "The German SCREENFUN 03/2004 cover CD: only TechnoMage.exe is taken from its InstallShield cabinet."
+media = [
+  { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
+]
+files = [
+  { path = "TechnoMage.exe", size = 574976, sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a" },
 ]
 
 # --- executables -------------------------------------------------------------
@@ -84,7 +97,7 @@ sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a"
 # The image rc-unpack restores (what upx -d writes): PE32, MSVC 6, base 0x400000, with .reloc.
 unpacked_size = 1863680
 unpacked_sha256 = "a1201ab89542093b3ca312840fc44c216d62cdb6146e3ca3b29925ceac68ba1a"
-variants = ["cd-de"]
+variants = ["cd-de", "cd-en"]
 
 [[binary]]
 name = "binkw32.dll"
@@ -123,12 +136,12 @@ variants = ["cd-de"]
 
 [[binary]]
 name = "Technomage.EXE"
-role = "main"
-treatment = "lift"
+role = "alternate"
+treatment = "ignore"
 size = 885379
 sha256 = "0673cd9f85e27eb31f1461a2e1906b7272fd4eb40d90d6414d04c5c76c7ffe98"
 variants = ["cd-en"]
-notes = "Linked 2001-04-25. UPX 1.07 inside SecuROM (.cms_t, .cms_d): the pack header is gone and the end of the compressed data is encrypted, so it cannot be restored yet (docs/RESEARCH.md, open)."
+notes = "Linked 2001-04-25. UPX 1.07 inside SecuROM (.cms_t, .cms_d): the pack header is gone and the end of the compressed data is encrypted. Not used: the cover CD's plain executable runs the English data (supplement above)."
 
 [[binary]]
 name = "TM_Setup.exe"

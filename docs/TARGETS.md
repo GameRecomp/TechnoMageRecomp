@@ -18,6 +18,11 @@ Download URLs (fixed; the page uses `/cors/` instead of `/download/`):
 
 The `.cue` (`2004-03.CUE`, `MODE2/2352`) and the `.mds` are not needed.
 
+### Supplement of `cd-en`
+
+The executable: the German cover CD's `TechnoMage.exe` (1.04, no copy protection), taken from `2004-03.BIN`
+(the same file as `cd-de`'s medium). The English CD's own executable is the same game inside SecuROM.
+
 ### Supplement of `cd-de`
 
 The archived cover CD has 20 unreadable sound banks (RESEARCH). They are taken from the German retail CD 1.00,
@@ -60,7 +65,8 @@ time). The patch 1.04 is kept as a **reference** (it identifies the German build
 | `Mss32.dll` | `cd-de` | 349 184 | `24c0a90dbff552102c09f671853e7247cf20de6e845254d5db625de961e4ae94` | Miles 6 (2000-10-23), HLE |
 | `TM_Setup.exe` | `cd-de` | 246 784 | `37ad65019922b2d448e45d2c0bef77724ad09adea1b25f0f6b05cf1e4203cacb` | options program, skipped |
 | `TM_Diagnostic.exe` | `cd-de` | 85 504 | `ea52a8f440d5e0601448510ce17237fbc2900b5a98847f5474de62475e37fd65` | install checker (new in 1.04), skipped |
-| `Technomage.EXE` | `cd-en` | 885 379 | `0673cd9f85e27eb31f1461a2e1906b7272fd4eb40d90d6414d04c5c76c7ffe98` | linked 2001-04-25; UPX inside SecuROM: not restorable yet (RESEARCH) |
+| `Technomage.EXE` | `cd-en` | 885 379 | `0673cd9f85e27eb31f1461a2e1906b7272fd4eb40d90d6414d04c5c76c7ffe98` | linked 2001-04-25; UPX inside SecuROM: **not used** |
+| `TechnoMage.exe` | `cd-en` | 574 976 | `6f2521de…` | the cover CD's 1.04 executable, a supplement of the English variant (it runs the English data with `LANGUAGE = 1`) |
 | `binkw32.dll`, `Mss32.dll` | `cd-en` | | as `cd-de` | the same files |
 | `TM_Setup.exe` | `cd-en` | 246 784 | `ac104d700e33392150c2b2eb1101d0e620ab9328b27a9bf58adc4cb598b7eca9` | skipped |
 | `TM_Diagnostic.exe` | `cd-en` | 85 504 | `1c09c0162ad39a4218496a57b2c08595cd0f2313b1ad6732a570912a9d3d3165` | skipped |

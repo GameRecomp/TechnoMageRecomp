@@ -134,8 +134,8 @@ Binary treatment:
       `recomp extract` takes the 20 files from it, each checked by SHA-256
 - [x] `recomp extract orig/2004-03.BIN` unpacks the German release completely (164 + 20 files, the CD folders,
       every binary verified)
-- [ ] The English executable: UPX inside SecuROM, the end of the compressed data encrypted (RESEARCH); decrypt
-      it, or find another English executable **(open)**
+- [x] The English executable: the English CD's is inside SecuROM; the cover CD's plain 1.04 executable runs the
+      English data (`techmage.cfg`: `LANGUAGE = 1`) and is the English variant's supplement
 - [ ] The English `TECHNOMAGE.mdf` (raw MODE1/2352) with its InstallShield 5 cabinet, read by the existing
       readers; nested: the cabinets inside the CD image without unpacking to disk
 - [x] The CD-resident folders (manifest `cd_dirs`: `Mov/`, `Mus/`, `Spc/`) copied to
@@ -343,6 +343,7 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-22 | Targets: German (SCREENFUN 03/2004 cover CD, archive.org `SF2004-03`) and English (European release, archive.org `TechnoMage_Return_of_Eternity_Europe`, `TECHNOMAGE.mdf` inside `Disc.rar`), pinned by hash with fixed download URLs, as SackedRecomp does. Each at its newest official patch level. |
 | 2026-11-22 | No RAR reader: archive.org serves the members of an archive directly (`<item>/Disc.rar/TECHNOMAGE.mdf`, with CORS through `/cors/`), so the manifest links the image itself. |
 | 2026-11-23 | The German cover CD's 20 damaged sound banks come from the German retail CD 1.00's cabinet (archive.org serves `TechnoMage.iso/data1.cab` on its own, 167 MB), not from the English CD (840 MB) or the RAR patch. `HBoss.SBK` is therefore version 1.00's: patch 1.04 changed it, but taking it from the patch would need a RAR 2.0 reader. Accepted as a documented deviation. |
+| 2026-11-23 | **English runs on the German cover CD's executable.** The English CD's executable is wrapped in SecuROM with part of it encrypted; undoing copy protection is not done here. The cover CD's 1.04 executable has none and reads its language from `techmage.cfg`, so the English variant downloads the cover CD image as a supplement for its executable. |
 | 2026-11-23 | From SackedRecomp `0dbd1df`: `rc-emit-wasm`'s flag liveness (`flags.rs`, now public and also used by `rc-emit-rust`) and its MMX in WebAssembly SIMD. The browser lessons (frames paced by `requestAnimationFrame`, read-ahead of the game's files, buffered small reads) are requirements for M8. |
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |
 | 2026-11-22 | `binkw32.dll` is lifted (as in HoMM4Recomp); `Mss32.dll` and its `.m3d` providers are HLE. |

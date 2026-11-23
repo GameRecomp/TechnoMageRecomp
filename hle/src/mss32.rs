@@ -192,13 +192,15 @@ fn AIL_waveOutClose(c: &mut Cpu) {
     ret_stdcall(c, 0, 1);
 }
 
+/// The DirectSound object Miles plays through: Bink plays the videos' sound through it.
 fn AIL_get_DirectSound_info(c: &mut Cpu) {
     let m = c.mem();
-    for i in 1..3 {
-        let p = c.arg(i);
-        if p != 0 {
-            m.st32(p, 0);
-        }
+    let (ds, buf) = (c.arg(1), c.arg(2));
+    if ds != 0 {
+        m.st32(ds, crate::dsound::object(m));
+    }
+    if buf != 0 {
+        m.st32(buf, 0);
     }
     ret_stdcall(c, 0, 3);
 }

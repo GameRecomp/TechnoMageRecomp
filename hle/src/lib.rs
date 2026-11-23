@@ -19,7 +19,7 @@
 //! them (`stdcall`). See docs/ARCHITECTURE.md.
 //!
 //! Done: `kernel32`, `user32`, `gdi32`, `ole32`, `winmm` (`small`), `mss32` (state, no mixer),
-//! `ddraw` (software surfaces, frames to the platform). `dinput` (keyboard and mouse state). Missing: `d3d`, `dsound`. The others follow in M4–M6
+//! `ddraw` (software surfaces, frames to the platform). `dinput` (keyboard and mouse state). `dsound` (streaming buffers for Bink), `d3d` (state, recorded draws, the software rasterizer). The others follow in M4–M6
 //! (docs/PLAN.md).
 
 pub mod codepage;
@@ -27,6 +27,7 @@ pub mod com;
 pub mod d3d;
 pub mod ddraw;
 pub mod dinput;
+pub mod dsound;
 pub mod kernel32;
 pub mod mixer;
 pub mod mss32;
@@ -101,6 +102,7 @@ pub fn register_all() {
     mss32::register();
     ddraw::register();
     dinput::register();
+    dsound::register();
     rc_runtime::dispatch::set_import_resolver(rc_runtime::imports::resolve);
 }
 

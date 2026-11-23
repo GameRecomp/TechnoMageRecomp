@@ -35,8 +35,13 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
   the cover CD's plain one (the same build) shows what SecuROM changes: the UPX pack header is gone and the last
   12 KiB of `UPX1` (file offsets `0x89400`–`0x8c3fe`, the end of the compressed data and UPX's loader) differ, so
   they are encrypted. For German this does not matter (the cover CD's executable is plain); the English one
-  cannot be restored until that region is decrypted **(open)**: SecuROM 4's decryption, or another English
-  executable (the repack's).
+  cannot be restored without undoing SecuROM's encryption, which this project does not do (decision log).
+- **The English data run on the German cover CD's executable.** The 1.04 executable reads `TECHMAGE.CFG`;
+  `LANGUAGE = 1` (the English CD ships that file) selects English (`ENG`, `GER` and the texts of `Txt/Eng`). Run
+  with the English CD's files and the cover CD's `TechnoMage.exe`, a new game starts in English with English
+  dialogue (checked 2026-11-23). So the English variant takes its executable from the cover CD (a supplement).
+- Other settings `TECHMAGE.CFG` knows: `SCREENSHOTS`, `HIGH-PRIORITY`, `GSM-SCALE`, `ZBUFFER`, `WINDOWED`,
+  `RECORD-PATH`, `LO-RES`, `MOVIE-PATH`, `GORE`, `MOVIES`, `PROFILER`, `STAGE`, `LEVEL`, `SOUND`.
 
 ## Media
 

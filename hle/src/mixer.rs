@@ -41,6 +41,9 @@ pub struct Voice {
     pub playing: bool,
     /// When it started, for the clock fallback.
     pub started: Instant,
+    /// A streaming buffer (DirectSound): played round and round from this shared copy, which
+    /// the game refills ahead of the play position.
+    pub stream: Option<Arc<Mutex<Vec<i16>>>>,
 }
 
 struct Mixer {
@@ -71,8 +74,56 @@ pub fn play(id: u32, pcm: Arc<Pcm>, rate: u32, loops: u32, volume: f32, pan: f32
             pan,
             playing: true,
             started: Instant::now(),
+            stream: None,
         },
     );
+}
+
+/// Start voice `id` on a streaming buffer of `channels` channels at `rate`, looping.
+pub fn play_stream(
+    id: u32,
+    buf: Arc<Mutex<Vec<i16>>>,
+    channels: u16,
+    rate: u32,
+    volume: f32,
+    pan: f32,
+) {
+    mx().voices.insert(
+        id,
+        Voice {
+            pcm: Arc::new(Pcm {
+                samples: Vec::new(),
+                channels,
+                rate,
+            }),
+            pos: 0.0,
+            rate,
+            loops: 0,
+            volume,
+            pan,
+            playing: true,
+            started: Instant::now(),
+            stream: Some(buf),
+        },
+    );
+}
+
+/// The play position of a voice in frames: where the device is, or where the clock says it
+/// would be without one.
+pub fn position(id: u32) -> Option<f64> {
+    let m = mx();
+    let live = m.pulled.is_some_and(|t| t.elapsed().as_millis() < 500);
+    let v = m.voices.get(&id)?;
+    if live {
+        Some(v.pos)
+    } else {
+        let rate = if v.rate != 0 {
+            v.rate
+        } else {
+            v.pcm.rate.max(1)
+        };
+        Some(v.started.elapsed().as_secs_f64() * f64::from(rate))
+    }
 }
 
 pub fn stop(id: u32) {
@@ -125,6 +176,28 @@ pub fn mix(out: &mut [f32]) {
     let out_rate = f64::from(rc_platform::audio::RATE);
     for v in m.voices.values_mut() {
         if !v.playing {
+            continue;
+        }
+        if let Some(stream) = &v.stream {
+            let buf = stream.lock().expect("stream");
+            let ch = usize::from(v.pcm.channels.max(1));
+            let frames = buf.len() / ch;
+            if frames == 0 {
+                continue;
+            }
+            let step = f64::from(v.rate.max(1)) / out_rate;
+            for o in out.as_chunks_mut::<2>().0 {
+                let i = (v.pos as usize) % frames;
+                let l = f32::from(buf[i * ch]) / 32768.0;
+                let r = if ch > 1 {
+                    f32::from(buf[i * ch + 1]) / 32768.0
+                } else {
+                    l
+                };
+                o[0] += l * v.volume;
+                o[1] += r * v.volume;
+                v.pos += step;
+            }
             continue;
         }
         let frames = v.pcm.frames();

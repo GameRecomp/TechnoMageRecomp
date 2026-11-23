@@ -33,7 +33,13 @@ export const GAMES = {
         ] },
       { code: 'en', flag: 'gb', label: 'English', title: 'TechnoMage: Return of Eternity', file: 'TECHNOMAGE.mdf',
         url: `${IA}TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf`, size: 840680064,
-        sha256: '178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450' },
+        sha256: '178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450',
+        // Its executable is wrapped in SecuROM: the German cover CD's plain one runs the
+        // English data (games/technomage/game.toml).
+        supplements: [
+          { file: '2004-03.BIN', size: 845217072, url: `${IA}SF2004-03/2004-03.BIN`,
+            sha256: 'c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7' },
+        ] },
     ],
   },
 };

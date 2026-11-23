@@ -362,6 +362,9 @@ pub fn extract(
             }
             Some(p) => match rc_manifest::sha256_file(&p) {
                 Ok(h) if h == b.sha256 => "ok".to_string(),
+                // A binary the game does not use, replaced by a supplement (the English CD's
+                // SecuROM executable by the cover CD's plain one).
+                Ok(_) if b.treatment == Treatment::Ignore => "replaced".to_string(),
                 Ok(h) => {
                     bad += 1;
                     format!("MISMATCH ({})", &h[..16])
