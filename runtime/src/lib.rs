@@ -9,6 +9,7 @@
 //!   the reserved import addresses), traps that name the address, unwinding.
 //! - [`handles`]: kernel objects (files, searches, synchronisation objects).
 //! - [`imports`]: reserved addresses for imported functions, the HLE registry.
+//! - [`native`]: native code from the converter (Cranelift blobs) in executable memory.
 //! - [`process`]: the PE loader (packed executables restored first), stack, TIB and PEB.
 //! - [`threads`]: cooperative guest threads (one host thread each, a baton).
 //! - [`vfs`]: Windows paths onto the install, the virtual CD drive, the user directory.
@@ -24,6 +25,7 @@ pub mod clock;
 pub mod dispatch;
 pub mod handles;
 pub mod imports;
+pub mod native;
 pub mod process;
 pub mod threads;
 pub mod vfs;

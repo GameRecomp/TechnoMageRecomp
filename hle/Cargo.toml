@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 rc-runtime.workspace = true
 rc-platform.workspace = true
+rayon = "1"
 
 [lints]
 workspace = true

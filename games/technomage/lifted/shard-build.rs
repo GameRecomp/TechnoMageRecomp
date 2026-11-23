@@ -14,6 +14,12 @@ fn main() {
         .expect("a shard number at the end of the package name");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../generated/technomage");
     println!("cargo:rerun-if-changed={}", root.display());
+    println!("cargo:rerun-if-env-changed=RC_NO_GENERATED");
+    if std::env::var_os("RC_NO_GENERATED").is_some() {
+        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("shard.rs");
+        std::fs::write(out, "").expect("shard.rs");
+        return;
+    }
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
         .map(|d| d.filter_map(Result::ok).map(|e| e.path()).collect())
         .unwrap_or_default();

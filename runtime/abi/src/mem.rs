@@ -72,6 +72,9 @@ pub struct Mem {
 // SAFETY: guest memory is never unmapped, and the guest threads that share it run one at a
 // time (`threads`), as on the single-CPU machines the games were made for.
 unsafe impl Send for Mem {}
+// SAFETY: as above; host helpers that split work over threads (the software rasterizer) write
+// disjoint bytes.
+unsafe impl Sync for Mem {}
 
 macro_rules! access {
     ($ld:ident, $st:ident, $t:ty, $n:expr) => {

@@ -40,6 +40,7 @@ pub fn default_targets(system: &str) -> Option<&'static [&'static str]> {
 /// How a game's packages are named: the folder (and file stem) in the zip.
 pub fn stem(game: &str) -> &'static str {
     match game {
+        "technomage" => "TechnoMage",
         "sacked" => "Sacked",
         "crazyschool" => "CrazySchool",
         _ => "Game",

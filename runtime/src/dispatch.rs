@@ -11,9 +11,33 @@ pub use rc_abi::lifted::GuestFn;
 /// Finds the HLE function behind a reserved import address.
 pub type ImportResolver = fn(u32) -> Option<GuestFn>;
 
+/// What an address resolves to: a Rust function (lifted Rust, HLE) or native code.
+#[derive(Clone, Copy)]
+enum Callable {
+    Rust(GuestFn),
+    Native(crate::native::NativeFn),
+}
+
+impl Callable {
+    fn call(self, c: &mut Cpu) {
+        match self {
+            Callable::Rust(f) => f(c),
+            Callable::Native(f) => {
+                if c.helpers.is_null() {
+                    crate::native::bind(c);
+                }
+                // SAFETY: native code from a loaded blob takes the CPU state's address, valid
+                // and exclusively ours for the call.
+                unsafe { f(c) }
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 struct Registry {
     tables: Vec<&'static [(u32, GuestFn)]>,
+    native: Vec<&'static [(u32, crate::native::NativeFn)]>,
     hooks: Vec<(u32, GuestFn)>,
     points: Vec<(u32, GuestFn)>,
     resolver: Option<ImportResolver>,
@@ -22,6 +46,7 @@ struct Registry {
 
 static REGISTRY: RwLock<Registry> = RwLock::new(Registry {
     tables: Vec::new(),
+    native: Vec::new(),
     hooks: Vec::new(),
     points: Vec::new(),
     resolver: None,
@@ -31,7 +56,7 @@ static REGISTRY: RwLock<Registry> = RwLock::new(Registry {
 const CACHE: usize = 4096;
 
 /// A per-thread lookup cache: the registry generation it is valid for, and its slots.
-type Cache = (u64, Vec<(u32, Option<GuestFn>)>);
+type Cache = (u64, Vec<(u32, Option<Callable>)>);
 
 thread_local! {
     static LOOKUP: RefCell<Cache> = RefCell::new((u64::MAX, vec![(0, None); CACHE]));
@@ -45,6 +70,13 @@ fn changed(r: &mut Registry) {
 pub fn add_lifted(table: &'static [(u32, GuestFn)]) {
     let mut r = REGISTRY.write().expect("registry");
     r.tables.push(table);
+    changed(&mut r);
+}
+
+/// Add a table of native code (sorted by address).
+pub fn add_native(table: &'static [(u32, crate::native::NativeFn)]) {
+    let mut r = REGISTRY.write().expect("registry");
+    r.native.push(table);
     changed(&mut r);
 }
 
@@ -98,21 +130,31 @@ pub fn point(c: &mut Cpu, addr: u32) {
     }
 }
 
-fn resolve(addr: u32) -> Option<GuestFn> {
+fn resolve(addr: u32) -> Option<Callable> {
     let r = REGISTRY.read().expect("registry");
     if let Some(h) = r.hooks.iter().find(|h| h.0 == addr) {
-        return Some(h.1);
+        return Some(Callable::Rust(h.1));
     }
     for t in &r.tables {
         if let Ok(i) = t.binary_search_by_key(&addr, |e| e.0) {
-            return Some(t[i].1);
+            return Some(Callable::Rust(t[i].1));
         }
     }
-    r.resolver.and_then(|f| f(addr))
+    for t in &r.native {
+        if let Ok(i) = t.binary_search_by_key(&addr, |e| e.0) {
+            return Some(Callable::Native(t[i].1));
+        }
+    }
+    r.resolver.and_then(|f| f(addr)).map(Callable::Rust)
+}
+
+/// Whether `addr` is something the dispatcher can call.
+pub fn is_known(addr: u32) -> bool {
+    lookup(addr).is_some()
 }
 
 /// The function at `addr`: a hook, a lifted function or an import.
-pub fn lookup(addr: u32) -> Option<GuestFn> {
+fn lookup(addr: u32) -> Option<Callable> {
     // Reserved import addresses resolve by index, cheaply, and are not cached: the traced
     // wrapper (`RC_TRACE=imports`) must know which import it stands for.
     if addr >= crate::imports::IMPORT_BASE {
@@ -143,7 +185,7 @@ pub fn lookup(addr: u32) -> Option<GuestFn> {
 #[export_name = "rc_rt_dispatch"]
 pub fn dispatch(c: &mut Cpu, target: u32) {
     match lookup(target) {
-        Some(f) => f(c),
+        Some(f) => f.call(c),
         None => {
             c.eip = target;
             let ret = c.mem().ld32(c.r[ESP]);

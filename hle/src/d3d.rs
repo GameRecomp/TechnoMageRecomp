@@ -398,7 +398,12 @@ fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16
     };
     let state = snapshot(d);
     // The software renderer draws now, into the target in guest memory.
+    let t = std::time::Instant::now();
     crate::raster::draw(m, &state, primitive, fvf, &vertices, &indices);
+    crate::RASTER_NS.fetch_add(
+        t.elapsed().as_nanos() as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     s.frame.push(Command::Draw {
         primitive,
         fvf,

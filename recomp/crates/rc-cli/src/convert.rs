@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! `recomp convert`: the user's installer, CD image, zip or installed folder to a program, in
 //! one step: identify, unpack (to `orig/<game>/<variant>/`), lift every binary the manifest
-//! lifts, build the game's shell with CMake, and put it with a launcher into `out/<game>/`.
+//! lifts, build the game with cargo (release, or dev with `--preset dev`), and put it with a launcher into `out/<game>/`.
 //! The program contains code derived from the user's copy: it stays on their machine.
 
 use crate::lift::{self, identify_dir};
@@ -100,31 +100,21 @@ pub fn convert(o: &ConvertOpts, paths: &[PathBuf]) -> Result<ExitCode, String> {
         std::slice::from_ref(&dir),
     )?;
 
-    // 3. Build the game's program.
-    let target = format!("sacked-{id}");
-    // The build lifts again when the lifter or the manifest changes (cmake/lift.cmake): from
-    // this install, not another variant in orig/. (`absolute`, not `canonicalize`: no `\\?\`
-    // prefix on Windows, which CMake does not take.)
+    // 3. Build the game's program: the lifted Rust in its shards, with cargo.
+    let target = id.to_string();
     let game_dir = std::path::absolute(&dir).unwrap_or_else(|_| dir.clone());
-    let dirs_var = format!("-D{}_GAME_DIRS={}", id.to_uppercase(), game_dir.display());
-    run(Command::new("cmake")
-        .current_dir(&root)
-        .args(["--preset", o.preset, &dirs_var]))?;
+    let release = o.preset != "dev";
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(&root).args(["build", "-p", id.as_str()]);
+    if release {
+        cmd.arg("--release");
+    }
     let jobs = build_jobs().to_string();
-    run(Command::new("cmake").current_dir(&root).args([
-        "--build",
-        "--preset",
-        o.preset,
-        "--parallel",
-        &jobs,
-        "--target",
-        &target,
-    ]))?;
+    cmd.args(["--jobs", &jobs]);
+    run(&mut cmd)?;
     let built = root
-        .join("build")
-        .join(o.preset)
-        .join("games")
-        .join(id)
+        .join("target")
+        .join(if release { "release" } else { "debug" })
         .join(&target);
     let built = if built.exists() {
         built

@@ -8,9 +8,13 @@ fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../generated/technomage");
     let set = root.join("set.rs");
     println!("cargo:rerun-if-changed={}", set.display());
+    // A converter shell template (RC_NO_GENERATED): no lifted code, the packaged native code
+    // instead.
+    println!("cargo:rerun-if-env-changed=RC_NO_GENERATED");
+    let skip = std::env::var_os("RC_NO_GENERATED").is_some();
     println!("cargo:rustc-check-cfg=cfg(rc_have_generated)");
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("generated.rs");
-    let text = if set.is_file() {
+    let text = if set.is_file() && !skip {
         println!("cargo:rustc-cfg=rc_have_generated");
         let set = set.canonicalize().expect("set.rs");
         format!("#[path = {:?}]\npub mod set;\n", set.display().to_string())

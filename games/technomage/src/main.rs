@@ -86,32 +86,72 @@ fn lifted() -> &'static [&'static rc_runtime::lifted::GeneratedBinary] {
     &[]
 }
 
+/// The directory of this program (where a package keeps `data/`).
+fn program_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
+/// Where the lifted code comes from: compiled in (Rust) or a converter package's native blob.
+enum Code {
+    Rust(&'static rc_runtime::lifted::GeneratedBinary),
+    Native,
+}
+
 fn run(a: &Args) -> Result<ExitCode, String> {
-    let Some(dir) = &a.game_dir else {
-        return Err("usage: technomage --game-dir DIR [--check] (see docs/DEVELOPMENT.md)".into());
-    };
-    if lifted().is_empty() {
+    // In a converter package the game's files are in data/game beside the program.
+    let packaged = program_dir()
+        .map(|d| d.join("data/game"))
+        .filter(|d| d.is_dir());
+    let Some(dir) = a.game_dir.clone().or(packaged) else {
         return Err(
-            "this build has no lifted code: run `recomp lift` first (docs/DEVELOPMENT.md)".into(),
+            "usage: technomage --game-dir DIR [--check] [--headless] (see docs/DEVELOPMENT.md)"
+                .into(),
         );
-    }
+    };
+    let dir = &dir;
     let exe_path = find(dir, "TechnoMage.exe")
         .ok_or_else(|| format!("{}: no TechnoMage.exe", dir.display()))?;
     let exe = std::fs::read(&exe_path).map_err(|e| format!("{}: {e}", exe_path.display()))?;
     let sha = sha256_hex(&exe);
-    let build = lifted().iter().find(|b| b.sha256 == sha).ok_or_else(|| {
-        format!(
-            "{}: not a build this program was made for ({})",
-            exe_path.display(),
-            &sha[..16]
-        )
-    })?;
-    eprintln!(
-        "technomage: {} ({}), {} lifted functions",
-        build.name,
-        build.variant,
-        build.table.len()
-    );
+    let code = match lifted().iter().find(|b| b.sha256 == sha) {
+        Some(b) => Code::Rust(b),
+        None => {
+            // A package: data/code-<target>-technomage.exe.bin beside the program.
+            let target =
+                rc_runtime::native::target_name().ok_or("no native code for this machine")?;
+            let blob_path = program_dir()
+                .map(|d| d.join(format!("data/code-{target}-technomage.exe.bin")))
+                .filter(|p| p.is_file())
+                .ok_or_else(|| {
+                    format!(
+                        "{}: no lifted code for this build ({}): run `recomp lift`, or use a converter package",
+                        exe_path.display(),
+                        &sha[..16]
+                    )
+                })?;
+            let blob =
+                std::fs::read(&blob_path).map_err(|e| format!("{}: {e}", blob_path.display()))?;
+            let l = rc_runtime::native::load(&blob)
+                .map_err(|e| format!("{}: {e}", blob_path.display()))?;
+            eprintln!(
+                "technomage: native code, {} functions (modules {})",
+                l.functions,
+                l.modules.join(", ")
+            );
+            Code::Native
+        }
+    };
+    if let Code::Rust(build) = &code {
+        eprintln!(
+            "technomage: {} ({}), {} lifted functions",
+            build.name,
+            build.variant,
+            build.table.len()
+        );
+    }
 
     rc_runtime::clock::init_from_env();
     rc_runtime::vfs::init(dir, user_dir());
@@ -120,29 +160,40 @@ fn run(a: &Args) -> Result<ExitCode, String> {
         rc_runtime::imports::set_trace(true);
     }
     let mem = rc_runtime::mem::GuestMemory::get(1 << 30).mem();
-    // The lifted DLLs beside the executable first (binkw32.dll), each matched by its hash.
+    // The lifted DLLs beside the executable first (binkw32.dll): matched by hash (Rust), or the
+    // ones a native blob holds, at their preferred base.
     let mut dlls = Vec::new();
-    for b in lifted()
-        .iter()
-        .filter(|b| !b.name.to_ascii_lowercase().ends_with(".exe"))
-    {
-        let Some(path) = find(dir, b.name) else {
+    let dll_names: Vec<(
+        String,
+        Option<u32>,
+        Option<&'static rc_runtime::lifted::GeneratedBinary>,
+    )> = match &code {
+        Code::Rust(_) => lifted()
+            .iter()
+            .filter(|b| !b.name.to_ascii_lowercase().ends_with(".exe"))
+            .map(|b| (b.name.to_string(), Some(b.base), Some(*b)))
+            .collect(),
+        Code::Native => vec![("binkw32.dll".to_string(), None, None)],
+    };
+    for (name, base, b) in dll_names {
+        let Some(path) = find(dir, &name) else {
             continue;
         };
         let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        if sha256_hex(&data) != b.sha256 {
-            continue;
+        if let Some(b) = b {
+            if sha256_hex(&data) != b.sha256 {
+                continue;
+            }
         }
-        let m = rc_runtime::process::map(mem, b.name, &data, Some(b.base), &[])
-            .map_err(|e| e.to_string())?;
-        rc_runtime::dispatch::add_lifted(b.table);
+        let m =
+            rc_runtime::process::map(mem, &name, &data, base, &[]).map_err(|e| e.to_string())?;
+        if let Some(b) = b {
+            rc_runtime::dispatch::add_lifted(b.table);
+        } else if !rc_runtime::dispatch::is_known(m.entry) {
+            continue; // the blob does not hold this DLL's code
+        }
         rc_runtime::process::add_module(m.clone());
-        eprintln!(
-            "technomage: {} at {:#010x}, {} lifted functions",
-            b.name,
-            m.base,
-            b.table.len()
-        );
+        eprintln!("technomage: {name} at {:#010x}", m.base);
         dlls.push(m);
     }
     let image = rc_runtime::process::image_of(&exe).map_err(|e| e.to_string())?;
@@ -151,7 +202,9 @@ fn run(a: &Args) -> Result<ExitCode, String> {
     rc_runtime::vm::set_floor(module.base + module.size);
     rc_hle::kernel32::set_image_base(module.base);
     rc_runtime::process::add_module(module.clone());
-    rc_runtime::dispatch::add_lifted(build.table);
+    if let Code::Rust(build) = &code {
+        rc_runtime::dispatch::add_lifted(build.table);
+    }
 
     if a.check {
         let missing = rc_runtime::imports::missing();

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-recomp - static recompiler for Sacked (Gefeuert!) and Crazy School
+recomp - static recompiler for TechnoMage: Return of Eternity (Die Rückkehr der Ewigkeit)
 
 USAGE:
     recomp identify [--games DIR] PATH...   match files (installers, ISO, binaries) by SHA-256
@@ -53,21 +53,21 @@ USAGE:
                                             each instruction above its C
     recomp convert [--games DIR] [--preset NAME] [--force] MEDIA_OR_FOLDER
                                             in one step: unpack (if needed), lift every binary
-                                            the manifest lifts, build the game (CMake preset,
+                                            the manifest lifts, build the game (cargo profile,
                                             default: release) into out/<game>/ with play.sh
     recomp convert --system SYSTEM [--templates DIR] [-o FILE] INSTALLER_OR_ZIP
     recomp convert --template TEMPLATE.zip -o FILE INSTALLER_OR_ZIP
                                             without a compiler, as the converter page: the
                                             game's code compiled to native code into its shell
-                                            template for SYSTEM (windows, linux, macos,
-                                            android; from DIR, by default templates/ beside
+                                            template for SYSTEM (windows, linux, macos; from
+                                            DIR, by default templates/ beside
                                             recomp), with the game's files: <Game>-SYSTEM.zip
                                             (.apk for android) in the current folder
     recomp download [--games DIR] [--dest DIR] GAME LANGUAGE
                                             download the game's medium in that language
-                                            (sacked: de, en, hu, pl, nl, ru; crazyschool: de,
-                                            ru, pl) from archive.org into DIR (default: the
-                                            current folder), checked by its SHA-256
+                                            (technomage: de, en) and the media that supplement
+                                            it from archive.org into DIR (default: the current
+                                            folder), checked by their SHA-256
     recomp convert --download GAME --language LANGUAGE [--dest DIR] ...
                                             the same, then convert it (with --system: the
                                             converter's way, else the build's)
@@ -280,7 +280,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let o = parse_opts(rest)?;
             let [game, language] = o.paths.as_slice() else {
                 return Err(
-                    "download needs a game and a language (recomp download sacked en)".into(),
+                    "download needs a game and a language (recomp download technomage de)".into(),
                 );
             };
             let dest = o.dest.clone().unwrap_or_else(|| PathBuf::from("."));

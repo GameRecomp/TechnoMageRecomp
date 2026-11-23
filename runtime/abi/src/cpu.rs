@@ -14,6 +14,10 @@ pub const EBP: usize = 5;
 pub const ESI: usize = 6;
 pub const EDI: usize = 7;
 
+/// Offsets native code compiles against (`rc-emit-native`'s `layout`).
+pub const MEM_OFFSET: usize = std::mem::offset_of!(Cpu, mem);
+pub const HELPERS_OFFSET: usize = std::mem::offset_of!(Cpu, helpers);
+
 /// The state of one guest thread.
 #[repr(C)]
 #[derive(Debug)]

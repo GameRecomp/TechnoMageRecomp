@@ -313,14 +313,6 @@ fn vertices(m: Mem, st: &State, fvf: u32, data: &[u8]) -> Vec<Vert> {
     out
 }
 
-/// A texture: its pixels decoded on demand from guest memory.
-struct Texture {
-    info: SurfaceInfo,
-    key: Option<(u32, u32)>,
-    bilinear: bool,
-    clamp: (bool, bool),
-}
-
 fn channel(v: u32, mask: u32) -> f32 {
     if mask == 0 {
         return 1.0;
@@ -330,18 +322,94 @@ fn channel(v: u32, mask: u32) -> f32 {
     ((v & mask) >> shift) as f32 / max as f32
 }
 
-impl Texture {
-    fn raw(&self, m: Mem, x: u32, y: u32) -> u32 {
-        let a = self.info.buf + y * self.info.pitch + x * (self.info.bpp / 8);
-        match self.info.bpp {
-            16 => u32::from(m.ld16(a)),
-            8 => u32::from(m.ld8(a)),
-            _ => m.ld32(a),
+/// A texture decoded to RGBA8 once per content version (and colour-key setting), cached.
+struct Decoded {
+    w: u32,
+    h: u32,
+    texels: Vec<[u8; 4]>,
+    /// Whether any texel is colour-keyed (alpha 0 from the key).
+    keyed: bool,
+}
+
+fn decode(m: Mem, info: &SurfaceInfo, key: Option<(u32, u32)>) -> Decoded {
+    let (w, h) = (info.width, info.height);
+    let mut texels = Vec::with_capacity((w * h) as usize);
+    let k = info.masks;
+    let to8 = |v: u32, mask: u32| -> u8 {
+        if mask == 0 {
+            return 255;
+        }
+        let shift = mask.trailing_zeros();
+        let max = mask >> shift;
+        (((v & mask) >> shift) * 255 / max) as u8
+    };
+    let mut keyed = false;
+    let bytes = info.bpp / 8;
+    let mut row = vec![0u8; (w * bytes) as usize];
+    for y in 0..h {
+        m.read(info.buf + y * info.pitch, &mut row);
+        for x in 0..w as usize {
+            let v = match bytes {
+                2 => u32::from(u16::from_le_bytes([row[2 * x], row[2 * x + 1]])),
+                1 => u32::from(row[x]),
+                _ => {
+                    u32::from_le_bytes([row[4 * x], row[4 * x + 1], row[4 * x + 2], row[4 * x + 3]])
+                }
+            };
+            if let Some((lo, hi)) = key {
+                if v >= lo && v <= hi {
+                    keyed = true;
+                    texels.push([0, 0, 0, 0]);
+                    continue;
+                }
+            }
+            texels.push([to8(v, k[0]), to8(v, k[1]), to8(v, k[2]), to8(v, k[3])]);
         }
     }
+    Decoded {
+        w,
+        h,
+        texels,
+        keyed,
+    }
+}
 
-    fn texel(&self, m: Mem, x: i32, y: i32) -> Rgba {
-        let (w, h) = (self.info.width as i32, self.info.height as i32);
+type CacheKey = (u32, u32, bool);
+static TEXTURES: std::sync::Mutex<
+    Option<std::collections::HashMap<CacheKey, std::sync::Arc<Decoded>>>,
+> = std::sync::Mutex::new(None);
+
+fn decoded(
+    m: Mem,
+    obj: u32,
+    version: u32,
+    info: &SurfaceInfo,
+    key: Option<(u32, u32)>,
+) -> std::sync::Arc<Decoded> {
+    let k = (obj, version, key.is_some());
+    let mut cache = TEXTURES.lock().expect("textures");
+    let map = cache.get_or_insert_with(Default::default);
+    if let Some(d) = map.get(&k) {
+        return d.clone();
+    }
+    if map.len() > 1024 {
+        map.clear();
+    }
+    let d = std::sync::Arc::new(decode(m, info, key));
+    map.insert(k, d.clone());
+    d
+}
+
+struct Texture {
+    d: std::sync::Arc<Decoded>,
+    bilinear: bool,
+    clamp: (bool, bool),
+}
+
+impl Texture {
+    #[inline(always)]
+    fn texel(&self, x: i32, y: i32) -> Rgba {
+        let (w, h) = (self.d.w as i32, self.d.h as i32);
         let x = if self.clamp.0 {
             x.clamp(0, w - 1)
         } else {
@@ -352,35 +420,31 @@ impl Texture {
         } else {
             y.rem_euclid(h)
         };
-        let v = self.raw(m, x as u32, y as u32);
-        if let Some((lo, hi)) = self.key {
-            if v >= lo && v <= hi {
-                return [0.0; 4];
-            }
-        }
-        let k = self.info.masks;
+        let t = self.d.texels[(y * w + x) as usize];
+        const K: f32 = 1.0 / 255.0;
         [
-            channel(v, k[0]),
-            channel(v, k[1]),
-            channel(v, k[2]),
-            channel(v, k[3]),
+            f32::from(t[0]) * K,
+            f32::from(t[1]) * K,
+            f32::from(t[2]) * K,
+            f32::from(t[3]) * K,
         ]
     }
 
-    fn sample(&self, m: Mem, u: f32, v: f32) -> Rgba {
-        let (w, h) = (self.info.width as f32, self.info.height as f32);
+    #[inline(always)]
+    fn sample(&self, u: f32, v: f32) -> Rgba {
+        let (w, h) = (self.d.w as f32, self.d.h as f32);
         if !self.bilinear {
-            return self.texel(m, (u * w).floor() as i32, (v * h).floor() as i32);
+            return self.texel((u * w).floor() as i32, (v * h).floor() as i32);
         }
         let (fx, fy) = (u * w - 0.5, v * h - 0.5);
         let (x0, y0) = (fx.floor(), fy.floor());
         let (ax, ay) = (fx - x0, fy - y0);
         let (x0, y0) = (x0 as i32, y0 as i32);
         let t = [
-            self.texel(m, x0, y0),
-            self.texel(m, x0 + 1, y0),
-            self.texel(m, x0, y0 + 1),
-            self.texel(m, x0 + 1, y0 + 1),
+            self.texel(x0, y0),
+            self.texel(x0 + 1, y0),
+            self.texel(x0, y0 + 1),
+            self.texel(x0 + 1, y0 + 1),
         ];
         let mut r = [0f32; 4];
         for (i, o) in r.iter_mut().enumerate() {
@@ -389,6 +453,18 @@ impl Texture {
         }
         r
     }
+}
+
+/// A texture stage's configuration, read once per draw.
+#[derive(Clone, Copy)]
+struct Stage {
+    cop: u32,
+    ca1: u32,
+    ca2: u32,
+    aop: u32,
+    aa1: u32,
+    aa2: u32,
+    coords: usize,
 }
 
 fn arg(a: u32, diffuse: Rgba, current: Rgba, tex: Rgba, factor: Rgba, specular: Rgba) -> Rgba {
@@ -582,28 +658,46 @@ pub fn draw(m: Mem, st: &State, primitive: u32, fvf: u32, data: &[u8], indices: 
     }
     let mut textures: [Option<Texture>; 2] = [None, None];
     for (s, slot) in textures.iter_mut().enumerate() {
-        if let Some((obj, _)) = st.textures[s] {
+        if let Some((obj, version)) = st.textures[s] {
             if let Some(info) = ddraw::info(m, obj) {
+                let key = if rs(st, RS_COLORKEYENABLE, 0) != 0 {
+                    info.src_key
+                } else {
+                    None
+                };
                 *slot = Some(Texture {
-                    info,
-                    key: if rs(st, RS_COLORKEYENABLE, 0) != 0 {
-                        info.src_key
-                    } else {
-                        None
-                    },
+                    d: decoded(m, obj, ddraw::version_of(m, obj).max(version), &info, key),
                     bilinear: tss(st, s, TSS_MAGFILTER) >= 2,
                     clamp: (tss(st, s, TSS_ADDRESSU) == 3, tss(st, s, TSS_ADDRESSV) == 3),
                 });
             }
         }
     }
+    let mut stages = Vec::new();
+    for s in 0..2 {
+        let cop = tss(st, s, TSS_COLOROP);
+        if cop == 1 {
+            break;
+        }
+        stages.push(Stage {
+            cop,
+            ca1: tss(st, s, TSS_COLORARG1),
+            ca2: tss(st, s, TSS_COLORARG2),
+            aop: tss(st, s, TSS_ALPHAOP),
+            aa1: tss(st, s, TSS_ALPHAARG1),
+            aa2: tss(st, s, TSS_ALPHAARG2),
+            coords: tss(st, s, TSS_TEXCOORDINDEX) as usize & 1,
+        });
+    }
     let cull = rs(st, RS_CULLMODE, 3);
     let flat = rs(st, RS_SHADEMODE, 2) == 1;
     let ctx = Ctx {
         m,
-        st,
         target: &target,
         textures: &textures,
+        stages: &stages,
+        specular_add: rs(st, 29, 0) != 0,
+        keyed: textures.iter().flatten().any(|t| t.d.keyed),
         zfunc: rs(st, RS_ZFUNC, 4),
         zwrite: rs(st, RS_ZWRITEENABLE, 1) != 0,
         alphatest: rs(st, RS_ALPHATESTENABLE, 0) != 0,
@@ -643,9 +737,11 @@ pub fn draw(m: Mem, st: &State, primitive: u32, fvf: u32, data: &[u8], indices: 
 
 struct Ctx<'a> {
     m: Mem,
-    st: &'a State,
     target: &'a Target,
     textures: &'a [Option<Texture>; 2],
+    stages: &'a [Stage],
+    specular_add: bool,
+    keyed: bool,
     zfunc: u32,
     zwrite: bool,
     alphatest: bool,
@@ -676,7 +772,8 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     }
     let edge =
         |p: &Vert, q: &Vert, x: f32, y: f32| (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x);
-    for y in min_y..=max_y {
+    let inv_area = 1.0 / area;
+    let row = |y: i32| {
         // Direct3D before version 10 puts pixel centres on integer coordinates.
         let py = y as f32;
         for x in min_x..=max_x {
@@ -687,7 +784,7 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
             if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
                 continue;
             }
-            let (l0, l1, l2) = (w0 / area, w1 / area, w2 / area);
+            let (l0, l1, l2) = (w0 * inv_area, w1 * inv_area, w2 * inv_area);
             let z = l0 * a.z + l1 * b.z + l2 * c.z;
             if let Some(old) = cx.target.zread(cx.m, x as u32, y as u32) {
                 if !compare(cx.zfunc, z, old) {
@@ -703,71 +800,41 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
             let diffuse = lerp4(a.diffuse, b.diffuse, c.diffuse);
             let specular = lerp4(a.specular, b.specular, c.specular);
             let mut current = diffuse;
-            for s in 0..2 {
-                let cop = tss(cx.st, s, TSS_COLOROP);
-                if cop == 1 {
-                    break;
-                }
-                let ci = tss(cx.st, s, TSS_TEXCOORDINDEX) as usize & 1;
-                let u = p0 * a.uv[ci][0] + p1 * b.uv[ci][0] + p2 * c.uv[ci][0];
-                let v = p0 * a.uv[ci][1] + p1 * b.uv[ci][1] + p2 * c.uv[ci][1];
-                let tex = cx.textures[s]
-                    .as_ref()
-                    .map_or([1.0; 4], |t| t.sample(cx.m, u, v));
-                let ca1 = arg(
-                    tss(cx.st, s, TSS_COLORARG1),
-                    diffuse,
-                    current,
-                    tex,
-                    cx.factor,
-                    specular,
-                );
-                let ca2 = arg(
-                    tss(cx.st, s, TSS_COLORARG2),
-                    diffuse,
-                    current,
-                    tex,
-                    cx.factor,
-                    specular,
-                );
-                let aop = tss(cx.st, s, TSS_ALPHAOP);
-                let aa1 = arg(
-                    tss(cx.st, s, TSS_ALPHAARG1),
-                    diffuse,
-                    current,
-                    tex,
-                    cx.factor,
-                    specular,
-                )[3];
-                let aa2 = arg(
-                    tss(cx.st, s, TSS_ALPHAARG2),
-                    diffuse,
-                    current,
-                    tex,
-                    cx.factor,
-                    specular,
-                )[3];
+            let mut keyed_out = false;
+            for (s, stg) in cx.stages.iter().enumerate() {
+                let ci = stg.coords;
+                let tex = match cx.textures[s].as_ref() {
+                    Some(t) => {
+                        let u = p0 * a.uv[ci][0] + p1 * b.uv[ci][0] + p2 * c.uv[ci][0];
+                        let v = p0 * a.uv[ci][1] + p1 * b.uv[ci][1] + p2 * c.uv[ci][1];
+                        let x = t.sample(u, v);
+                        if t.d.keyed && x == [0.0; 4] {
+                            keyed_out = true;
+                        }
+                        x
+                    }
+                    None => [1.0; 4],
+                };
+                let ca1 = arg(stg.ca1, diffuse, current, tex, cx.factor, specular);
+                let ca2 = arg(stg.ca2, diffuse, current, tex, cx.factor, specular);
                 let mut next = current;
                 for i in 0..3 {
                     next[i] =
-                        op(cop, ca1[i], ca2[i], diffuse[3], tex[3], current[3]).clamp(0.0, 1.0);
+                        op(stg.cop, ca1[i], ca2[i], diffuse[3], tex[3], current[3]).clamp(0.0, 1.0);
                 }
-                if aop != 1 {
-                    next[3] = op(aop, aa1, aa2, diffuse[3], tex[3], current[3]).clamp(0.0, 1.0);
-                }
-                // A colour-keyed texel is transparent whatever the operations.
-                if cx.textures[s].as_ref().is_some_and(|t| t.key.is_some()) && tex == [0.0; 4] {
-                    next[3] = 0.0;
+                if stg.aop != 1 {
+                    let aa1 = arg(stg.aa1, diffuse, current, tex, cx.factor, specular)[3];
+                    let aa2 = arg(stg.aa2, diffuse, current, tex, cx.factor, specular)[3];
+                    next[3] = op(stg.aop, aa1, aa2, diffuse[3], tex[3], current[3]).clamp(0.0, 1.0);
                 }
                 current = next;
             }
-            if rs(cx.st, 29, 0) != 0 {
-                // SPECULARENABLE: added after the stages.
+            if cx.specular_add {
                 for i in 0..3 {
                     current[i] = (current[i] + specular[i]).min(1.0);
                 }
             }
-            if cx.textures.iter().flatten().any(|t| t.key.is_some()) && current[3] == 0.0 {
+            if cx.keyed && keyed_out {
                 continue;
             }
             if cx.alphatest && !compare(cx.alphafunc, current[3], cx.alpharef) {
@@ -802,6 +869,13 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
                 cx.target.zwrite(cx.m, x as u32, y as u32, z);
             }
         }
+    };
+    // Large triangles: rows in parallel (each pixel is written by one row only).
+    if (max_x - min_x + 1) * (max_y - min_y + 1) >= 8192 {
+        use rayon::prelude::*;
+        (min_y..=max_y).into_par_iter().for_each(row);
+    } else {
+        (min_y..=max_y).for_each(row);
     }
 }
 

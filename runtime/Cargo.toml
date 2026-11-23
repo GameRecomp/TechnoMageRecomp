@@ -12,6 +12,7 @@ publish.workspace = true
 rc-abi.workspace = true
 rc-pe.workspace = true
 rc-unpack.workspace = true
+memmap2 = "0.9"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

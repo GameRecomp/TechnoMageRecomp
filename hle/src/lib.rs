@@ -118,11 +118,35 @@ pub(crate) fn lifted_export(base: u32, name: &str) -> Option<u32> {
 
 /// After each frame the game shows (`Flip`): the virtual clock moves on a frame, a scripted run
 /// ends after `RC_FRAMES` frames, and the other guest threads get their turn.
+/// Time spent in the software rasterizer, in nanoseconds (`RC_TRACE=fps`).
+pub(crate) static RASTER_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn fps_trace(n: u64) {
+    use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    if !n.is_multiple_of(100) || !std::env::var("RC_TRACE").is_ok_and(|v| v.contains("fps")) {
+        return;
+    }
+    let mut last = LAST.lock().expect("fps");
+    if let Some(t) = *last {
+        let secs = t.elapsed().as_secs_f64();
+        let raster = RASTER_NS.swap(0, Ordering::Relaxed) as f64 / 1e9;
+        eprintln!(
+            "[fps] frame {n}: {:.1} frames/s, rasterizer {:.0} %",
+            100.0 / secs,
+            100.0 * raster / secs
+        );
+    }
+    *last = Some(std::time::Instant::now());
+}
+
 pub(crate) fn frame_done(c: &mut Cpu) {
     if rc_runtime::clock::is_virtual() {
         rc_runtime::clock::advance_ms(16);
     }
     let n = rc_platform::latest_frame().number;
+    fps_trace(n);
     scripted_input(n);
     if let Some(limit) = std::env::var("RC_FRAMES")
         .ok()
