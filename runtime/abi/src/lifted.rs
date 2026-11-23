@@ -1,10 +1,39 @@
 // SPDX-License-Identifier: MIT
-//! Everything generated code (`rc-emit-rust`) names: `use rc_runtime::lifted::*;`.
+//! Everything generated code (`rc-emit-rust`) names: `use rc_abi::lifted::*;`.
 
 pub use crate::cpu::Cpu;
-pub use crate::dispatch::{
-    cpuid, dispatch, dispatch_jump, point, rdtsc, trap, unwind_begin, unwind_claim, GuestFn,
-};
+
+/// A lifted (or hand-written) guest function.
+pub type GuestFn = fn(&mut Cpu);
+
+// The runtime's entry points. `rc-runtime` defines each with `#[no_mangle]` and exactly this
+// signature (its `dispatch` module); a program that links lifted code links the runtime too.
+// SAFETY: the definitions match these declarations (checked by the runtime's tests, which call
+// them through this block).
+unsafe extern "Rust" {
+    /// An indirect call: the return address is already pushed.
+    #[link_name = "rc_rt_dispatch"]
+    pub safe fn dispatch(c: &mut Cpu, target: u32);
+    /// An indirect jump.
+    #[link_name = "rc_rt_dispatch_jump"]
+    pub safe fn dispatch_jump(c: &mut Cpu, target: u32);
+    /// After a call returned while unwinding: this frame may take the continuation over.
+    #[link_name = "rc_rt_unwind_claim"]
+    pub safe fn unwind_claim(c: &mut Cpu, ebp: u32, lo: u32, hi: u32, at: &[u32]);
+    /// An `__except` block entered during an exception: unwind to its frame first.
+    #[link_name = "rc_rt_unwind_begin"]
+    pub safe fn unwind_begin(c: &mut Cpu, eip: u32);
+    /// A lifted instruction the runtime cannot execute.
+    #[link_name = "rc_rt_trap"]
+    pub safe fn trap(c: &mut Cpu, addr: u32, why: &str) -> !;
+    /// A patch point.
+    #[link_name = "rc_rt_point"]
+    pub safe fn point(c: &mut Cpu, addr: u32);
+    #[link_name = "rc_rt_cpuid"]
+    pub safe fn cpuid(eax: &mut u32, ebx: &mut u32, ecx: &mut u32, edx: &mut u32);
+    #[link_name = "rc_rt_rdtsc"]
+    pub safe fn rdtsc(eax: &mut u32, edx: &mut u32);
+}
 pub use crate::mem::Mem;
 pub use crate::mmx::*;
 pub use crate::x87::{

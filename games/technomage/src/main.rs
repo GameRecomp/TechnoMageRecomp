@@ -117,8 +117,25 @@ fn run(a: &Args) -> Result<ExitCode, String> {
         rc_runtime::imports::set_trace(true);
     }
     let mem = rc_runtime::mem::GuestMemory::get(1 << 30).mem();
+    // The lifted DLLs beside the executable first (binkw32.dll), each matched by its hash.
+    let mut dlls = Vec::new();
+    for b in lifted().iter().filter(|b| !b.name.to_ascii_lowercase().ends_with(".exe")) {
+        let Some(path) = find(dir, b.name) else {
+            continue;
+        };
+        let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if sha256_hex(&data) != b.sha256 {
+            continue;
+        }
+        let m = rc_runtime::process::map(mem, b.name, &data, Some(b.base), &[])
+            .map_err(|e| e.to_string())?;
+        rc_runtime::dispatch::add_lifted(b.table);
+        rc_runtime::process::add_module(m.clone());
+        eprintln!("technomage: {} at {:#010x}, {} lifted functions", b.name, m.base, b.table.len());
+        dlls.push(m);
+    }
     let image = rc_runtime::process::image_of(&exe).map_err(|e| e.to_string())?;
-    let module = rc_runtime::process::map(mem, "TechnoMage.exe", &image, None, &[])
+    let module = rc_runtime::process::map(mem, "TechnoMage.exe", &image, None, &dlls)
         .map_err(|e| e.to_string())?;
     rc_runtime::vm::set_floor(module.base + module.size);
     rc_hle::kernel32::set_image_base(module.base);
@@ -141,6 +158,13 @@ fn run(a: &Args) -> Result<ExitCode, String> {
     rc_runtime::threads::init_main();
     let mut cpu = rc_runtime::Cpu::new(mem);
     rc_runtime::process::main_thread(&mut cpu, module.base);
+    // DllMain(module, DLL_PROCESS_ATTACH, 0) of each lifted DLL, before the program starts.
+    for d in &dlls {
+        let ok = rc_runtime::dispatch::call_guest(&mut cpu, d.entry, &[d.base, 1, 0]);
+        if ok == 0 {
+            return Err(format!("{} did not initialise", d.name));
+        }
+    }
     rc_runtime::dispatch::dispatch(&mut cpu, module.entry);
     Ok(ExitCode::from(cpu.r[rc_runtime::cpu::EAX] as u8))
 }

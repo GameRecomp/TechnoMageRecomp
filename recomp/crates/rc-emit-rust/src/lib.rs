@@ -12,7 +12,7 @@
 //! Registers and the six arithmetic flags are locals, written back to `c` around every call,
 //! return and indirect transfer (the flags at returns and after calls with
 //! [`Options::flags_at_return`], the default). Guest memory is reached through `m`, a copy of the
-//! runtime's [`Mem`] handle (`rc_runtime::lifted::Mem`). Direct calls are Rust calls, tail
+//! runtime's [`Mem`] handle (`rc_abi::lifted::Mem`). Direct calls are Rust calls, tail
 //! transfers to other functions are `return f(c)`, indirect ones go through `dispatch`.
 //!
 //! Rust has no `goto`: a function is cut into blocks at its labels (`Function::labels`, which
@@ -939,7 +939,7 @@ pub fn binary(p: &Entries, functions: &[Function], opts: Options) -> Tree {
         shards[k].1.insert(p.name(f.addr));
     }
     for (k, (body, own)) in shards.iter().enumerate() {
-        let mut src = format!("{HEADER}{ALLOW}\nuse rc_runtime::lifted::*;\n\n");
+        let mut src = format!("{HEADER}{ALLOW}\nuse rc_abi::lifted::*;\n\n");
         let called: Vec<&str> = named_functions(&p.prefix, body)
             .into_iter()
             .filter(|n| !own.contains(*n))
@@ -954,7 +954,7 @@ pub fn binary(p: &Entries, functions: &[Function], opts: Options) -> Tree {
         src.push_str(body);
         tree.insert(format!("shard_{k:02}.rs"), src);
     }
-    let mut module = format!("{HEADER}{ALLOW}\nuse rc_runtime::lifted::Cpu;\n\n");
+    let mut module = format!("{HEADER}{ALLOW}\nuse rc_abi::lifted::Cpu;\n\n");
     module.push_str("// SAFETY: the shards define every name with exactly this signature (same list).\nunsafe extern \"Rust\" {\n");
     for f in functions {
         let _ = writeln!(module, "    safe fn {}(c: &mut Cpu);", p.name(f.addr));

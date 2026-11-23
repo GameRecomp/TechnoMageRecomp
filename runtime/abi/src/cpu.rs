@@ -43,7 +43,8 @@ pub struct Cpu {
     /// Base of guest memory, for native and WebAssembly code; set only by the runtime.
     mem: *mut u8,
     /// The runtime functions native code calls (`rc-emit-native`'s helper table).
-    pub(crate) helpers: *const *const (),
+    #[doc(hidden)]
+    pub helpers: *const *const (),
     /// MMX registers (kept apart from the x87 registers).
     pub mm: [u64; 8],
     /// Exceptions: while `unwind` is set, lifted functions return after each call until the

@@ -3,6 +3,6 @@
 
 #![allow(clippy::all)]
 
-use rc_runtime as _;
+use rc_abi as _;
 
 include!(concat!(env!("OUT_DIR"), "/shard.rs"));

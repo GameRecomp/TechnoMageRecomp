@@ -6,8 +6,7 @@ use crate::cpu::{Cpu, EBP, ESP};
 use std::cell::RefCell;
 use std::sync::RwLock;
 
-/// A lifted (or hand-written) guest function.
-pub type GuestFn = fn(&mut Cpu);
+pub use rc_abi::lifted::GuestFn;
 
 /// Finds the HLE function behind a reserved import address.
 pub type ImportResolver = fn(u32) -> Option<GuestFn>;
@@ -87,6 +86,7 @@ pub fn on_point(addr: u32, f: GuestFn) {
     changed(&mut r);
 }
 
+#[export_name = "rc_rt_point"]
 pub fn point(c: &mut Cpu, addr: u32) {
     let f = {
         let r = REGISTRY.read().expect("registry");
@@ -135,6 +135,7 @@ pub fn lookup(addr: u32) -> Option<GuestFn> {
 }
 
 /// An indirect call: the return address is already pushed.
+#[export_name = "rc_rt_dispatch"]
 pub fn dispatch(c: &mut Cpu, target: u32) {
     match lookup(target) {
         Some(f) => f(c),
@@ -150,6 +151,7 @@ pub fn dispatch(c: &mut Cpu, target: u32) {
 }
 
 /// An indirect jump: during an exception a jump out of the handler's frame continues there.
+#[export_name = "rc_rt_dispatch_jump"]
 pub fn dispatch_jump(c: &mut Cpu, target: u32) {
     if c.eh_depth != 0 && c.r[ESP] > c.eh_esp {
         c.unwind = 1;
@@ -163,6 +165,7 @@ pub fn dispatch_jump(c: &mut Cpu, target: u32) {
 
 /// After a call returned while unwinding: the frame with `ebp` whose code holds the place to
 /// continue at (`lo..hi` or one of `at`) takes it over.
+#[export_name = "rc_rt_unwind_claim"]
 pub fn unwind_claim(c: &mut Cpu, ebp: u32, lo: u32, hi: u32, at: &[u32]) {
     if c.unwind_ebp != ebp {
         return;
@@ -178,6 +181,7 @@ pub fn unwind_claim(c: &mut Cpu, ebp: u32, lo: u32, hi: u32, at: &[u32]) {
     c.resume_eip = 0;
 }
 
+#[export_name = "rc_rt_unwind_begin"]
 pub fn unwind_begin(c: &mut Cpu, eip: u32) {
     c.unwind = 1;
     c.unwind_eip = eip;
@@ -191,6 +195,7 @@ pub fn fatal(msg: &str) -> ! {
 }
 
 /// A lifted instruction the runtime cannot execute.
+#[export_name = "rc_rt_trap"]
 pub fn trap(c: &mut Cpu, addr: u32, why: &str) -> ! {
     c.eip = addr;
     let r = &c.r;
@@ -201,6 +206,7 @@ pub fn trap(c: &mut Cpu, addr: u32, why: &str) -> ! {
 }
 
 /// A P6-class CPU with FPU, TSC, CX8, CMOV and MMX, as the sister projects report.
+#[export_name = "rc_rt_cpuid"]
 pub fn cpuid(eax: &mut u32, ebx: &mut u32, ecx: &mut u32, edx: &mut u32) {
     match *eax {
         0 => {
@@ -226,6 +232,7 @@ pub fn cpuid(eax: &mut u32, ebx: &mut u32, ecx: &mut u32, edx: &mut u32) {
 
 /// The time-stamp counter: nanoseconds (a 1 GHz CPU); on the virtual clock its time plus a
 /// step per reading, so that it always grows.
+#[export_name = "rc_rt_rdtsc"]
 pub fn rdtsc(eax: &mut u32, edx: &mut u32) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static READS: AtomicU64 = AtomicU64::new(0);

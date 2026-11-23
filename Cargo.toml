@@ -6,6 +6,7 @@ resolver = "2"
 members = [
   "recomp/crates/*",
   "runtime",
+  "runtime/abi",
   "hle",
   "platform",
   "games/technomage",
@@ -39,6 +40,7 @@ toml = "0.8"
 cranelift-codegen = { version = "0.137", default-features = false, features = ["std", "x86", "arm64"] }
 cranelift-frontend = { version = "0.137", default-features = false, features = ["std"] }
 rc-runtime = { path = "runtime" }
+rc-abi = { path = "runtime/abi" }
 rc-hle = { path = "hle" }
 rc-platform = { path = "platform" }
 
@@ -56,50 +58,50 @@ debug = 1
 opt-level = 1
 
 [profile.dev.package.technomage-shard-00]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-01]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-02]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-03]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-04]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-05]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-06]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-07]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-08]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-09]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-10]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-11]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-12]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-13]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-14]
-opt-level = 1
+opt-level = 0
 
 [profile.dev.package.technomage-shard-15]
-opt-level = 1
+opt-level = 0
 

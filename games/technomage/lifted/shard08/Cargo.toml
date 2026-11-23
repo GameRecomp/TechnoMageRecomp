@@ -10,7 +10,7 @@ publish.workspace = true
 build = "../shard-build.rs"
 
 [dependencies]
-rc-runtime.workspace = true
+rc-abi.workspace = true
 
 # Generated code defines #[no_mangle] functions and declares the other shards' ones in
 # unsafe extern blocks (rc-emit-rust explains why that is sound).

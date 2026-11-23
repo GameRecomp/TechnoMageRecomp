@@ -550,6 +550,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
+name = "rc-abi"
+version = "0.0.1"
+
+[[package]]
 name = "rc-cli"
 version = "0.0.1"
 dependencies = [
@@ -665,6 +669,7 @@ version = "0.0.1"
 name = "rc-runtime"
 version = "0.0.1"
 dependencies = [
+ "rc-abi",
  "rc-pe",
  "rc-unpack",
 ]
@@ -901,112 +906,112 @@ dependencies = [
 name = "technomage-shard-00"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-01"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-02"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-03"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-04"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-05"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-06"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-07"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-08"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-09"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-10"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-11"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-12"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-13"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-14"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-15"
 version = "0.0.1"
 dependencies = [
- "rc-runtime",
+ "rc-abi",
 ]
 
 [[package]]

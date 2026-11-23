@@ -9,6 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+rc-abi.workspace = true
 rc-pe.workspace = true
 rc-unpack.workspace = true
 

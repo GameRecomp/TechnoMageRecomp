@@ -62,7 +62,7 @@ fn binary_rs(l: &Loaded) -> String {
         None => (l.map.binary.name.clone(), String::new()),
     };
     format!(
-        "\n/// The binary these functions were lifted from.\npub static BINARY: rc_runtime::lifted::GeneratedBinary = rc_runtime::lifted::GeneratedBinary {{\n    name: {name:?},\n    variant: {variant:?},\n    sha256: {:?},\n    base: {:#010x},\n    entry: {:#010x},\n    table: &TABLE,\n}};\n",
+        "\n/// The binary these functions were lifted from.\npub static BINARY: rc_abi::lifted::GeneratedBinary = rc_abi::lifted::GeneratedBinary {{\n    name: {name:?},\n    variant: {variant:?},\n    sha256: {:?},\n    base: {:#010x},\n    entry: {:#010x},\n    table: &TABLE,\n}};\n",
         l.sha256, l.image.base, l.image.entry
     )
 }
@@ -78,7 +78,7 @@ fn set_source(game: &str, dirs: &[String]) -> String {
         ));
     }
     s.push_str(&format!(
-        "\n/// Every binary lifted for the game.\npub static SET: rc_runtime::lifted::GeneratedSet = rc_runtime::lifted::GeneratedSet {{\n    game: {game:?},\n    binaries: &["
+        "\n/// Every binary lifted for the game.\npub static SET: rc_abi::lifted::GeneratedSet = rc_abi::lifted::GeneratedSet {{\n    game: {game:?},\n    binaries: &["
     ));
     for d in dirs {
         s.push_str(&format!("&{}::BINARY, ", symbol(d)));

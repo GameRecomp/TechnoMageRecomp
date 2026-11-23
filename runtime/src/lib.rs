@@ -21,17 +21,12 @@
 //! See docs/ARCHITECTURE.md.
 
 pub mod clock;
-pub mod cpu;
 pub mod dispatch;
 pub mod handles;
 pub mod imports;
-pub mod lifted;
-pub mod mem;
-pub mod mmx;
 pub mod process;
 pub mod threads;
 pub mod vfs;
 pub mod vm;
-pub mod x87;
 
-pub use cpu::Cpu;
+pub use rc_abi::{cpu, lifted, mem, mmx, x87, Cpu};
