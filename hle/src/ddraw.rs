@@ -32,12 +32,58 @@ pub const IID_IDIRECT3D7: [u8; 16] = com::guid(
     0x11d2,
     [0xa4, 0x07, 0x00, 0xa0, 0xc9, 0x06, 0x29, 0xa8],
 );
-const IID_IDIRECTDRAWSURFACE7: [u8; 16] = com::guid(
-    0x0667_5a80,
-    0x3b9b,
-    0x11d2,
-    [0xb9, 0x2f, 0x00, 0x60, 0x97, 0x97, 0xea, 0x5b],
+const IID_IDIRECTDRAW: [u8; 16] = com::guid(
+    0x6c14_db80,
+    0xa733,
+    0x11ce,
+    [0xa5, 0x21, 0x00, 0x20, 0xaf, 0x0b, 0xe5, 0x60],
 );
+const IID_IDIRECTDRAW2: [u8; 16] = com::guid(
+    0xb3a6_f3e0,
+    0x2b43,
+    0x11cf,
+    [0xa2, 0xde, 0x00, 0xaa, 0x00, 0xb9, 0x33, 0x56],
+);
+const IID_IDIRECTDRAW4: [u8; 16] = com::guid(
+    0x9c59_509a,
+    0x39bd,
+    0x11d1,
+    [0x8c, 0x4a, 0x00, 0xc0, 0x4f, 0xd9, 0x30, 0xc5],
+);
+/// Every IDirectDrawSurface version: their vtables are prefixes of version 7's, in the same
+/// order, so one object serves them all.
+const IID_SURFACES: [[u8; 16]; 5] = [
+    com::guid(
+        0x6c14_db81,
+        0xa733,
+        0x11ce,
+        [0xa5, 0x21, 0x00, 0x20, 0xaf, 0x0b, 0xe5, 0x60],
+    ),
+    com::guid(
+        0x5780_5885,
+        0x6eec,
+        0x11cf,
+        [0x94, 0x41, 0xa8, 0x23, 0x03, 0xc1, 0x0e, 0x27],
+    ),
+    com::guid(
+        0xda04_4e00,
+        0x69b2,
+        0x11d0,
+        [0xa1, 0xd5, 0x00, 0xaa, 0x00, 0xb8, 0xdf, 0xbb],
+    ),
+    com::guid(
+        0x0b2b_8630,
+        0xad35,
+        0x11d0,
+        [0x8e, 0xa6, 0x00, 0x60, 0x97, 0x97, 0xea, 0x5b],
+    ),
+    com::guid(
+        0x0667_5a80,
+        0x3b9b,
+        0x11d2,
+        [0xb9, 0x2f, 0x00, 0x60, 0x97, 0x97, 0xea, 0x5b],
+    ),
+];
 
 // DDSCAPS
 const DDSCAPS_BACKBUFFER: u32 = 0x4;
@@ -168,12 +214,14 @@ fn put_pixel_format(m: Mem, p: u32, bpp: u32, zbuffer: bool) {
     m.st32(p + 24, b);
 }
 
-/// DDSURFACEDESC2 of `s` at `d` (124 bytes).
+/// DDSURFACEDESC2 (124 bytes) or DDSURFACEDESC (108 bytes, the older interfaces; the same
+/// layout without the extended caps and the texture stage) of `s` at `d`, by its `dwSize`.
 fn put_desc(m: Mem, d: u32, s: &Surface, surface_ptr: u32) {
-    for i in (4..124).step_by(4) {
+    let size = if m.ld32(d) == 108 { 108 } else { 124 };
+    for i in (4..size).step_by(4) {
         m.st32(d + i, 0);
     }
-    m.st32(d, 124);
+    m.st32(d, size);
     let z = s.caps & DDSCAPS_ZBUFFER != 0;
     m.st32(
         d + 4,
@@ -226,7 +274,7 @@ fn DirectDrawCreateEx(c: &mut Cpu) {
 fn DirectDrawCreate(c: &mut Cpu) {
     let m = c.mem();
     let out = c.arg(1);
-    m.st32(out, new_ddraw(m));
+    m.st32(out, com::new_object(m, &DDRAW1, 0));
     ret_stdcall(c, S_OK, 3);
 }
 
@@ -236,9 +284,12 @@ fn dd_QueryInterface(c: &mut Cpu) {
     let m = c.mem();
     let (this, iid, out) = (c.arg(0), c.arg(1), c.arg(2));
     let g = com::read_guid(m, iid);
-    let r = if g == IID_IDIRECTDRAW7 {
-        com::add_ref_raw(m, this);
-        m.st32(out, this);
+    let r = if g == IID_IDIRECTDRAW7 || g == IID_IDIRECTDRAW4 || g == IID_IDIRECTDRAW2 {
+        // Versions 2, 4 and 7 share one vtable layout (each a prefix of the next).
+        m.st32(out, com::new_object(m, &DDRAW7, 0));
+        S_OK
+    } else if g == IID_IDIRECTDRAW {
+        m.st32(out, com::new_object(m, &DDRAW1, 0));
         S_OK
     } else if g == IID_IDIRECT3D7 {
         match crate::d3d::create(m, this) {
@@ -264,6 +315,14 @@ fn ok2(c: &mut Cpu) {
 }
 fn ok3(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 3);
+}
+
+/// IDirectDraw (version 1): width, height, depth; no refresh rate or flags.
+fn dd_SetDisplayMode1(c: &mut Cpu) {
+    let (w, h, bpp) = (c.arg(1), c.arg(2), c.arg(3));
+    st().mode = (w, h, bpp);
+    eprintln!("[ddraw] display mode {w}x{h}x{bpp}");
+    ret_stdcall(c, S_OK, 4);
 }
 
 fn dd_SetDisplayMode(c: &mut Cpu) {
@@ -476,7 +535,7 @@ fn s_QueryInterface(c: &mut Cpu) {
     let m = c.mem();
     let (this, iid, out) = (c.arg(0), c.arg(1), c.arg(2));
     let g = com::read_guid(m, iid);
-    let r = if g == IID_IDIRECTDRAWSURFACE7 {
+    let r = if IID_SURFACES.contains(&g) {
         com::add_ref_raw(m, this);
         m.st32(out, this);
         S_OK
@@ -878,6 +937,38 @@ static DDRAW7: Interface = Interface {
         ("GetDeviceIdentifier", Some(dd_GetDeviceIdentifier)),
         ("StartModeTest", Some(unsupported3)),
         ("EvaluateMode", None),
+    ],
+};
+
+/// IDirectDraw (version 1): version 7's first 23 methods, `SetDisplayMode` with three
+/// arguments.
+static DDRAW1: Interface = Interface {
+    dll: "ddraw.dll",
+    name: "IDirectDraw",
+    methods: &[
+        ("QueryInterface", Some(dd_QueryInterface)),
+        ("AddRef", Some(com::add_ref)),
+        ("Release", Some(com::release)),
+        ("Compact", Some(ok1)),
+        ("CreateClipper", Some(dd_CreateClipper)),
+        ("CreatePalette", None),
+        ("CreateSurface", Some(dd_CreateSurface)),
+        ("DuplicateSurface", None),
+        ("EnumDisplayModes", Some(dd_EnumDisplayModes)),
+        ("EnumSurfaces", None),
+        ("FlipToGDISurface", Some(ok1)),
+        ("GetCaps", Some(dd_GetCaps)),
+        ("GetDisplayMode", Some(dd_GetDisplayMode)),
+        ("GetFourCCCodes", Some(dd_GetFourCCCodes)),
+        ("GetGDISurface", None),
+        ("GetMonitorFrequency", Some(dd_GetMonitorFrequency)),
+        ("GetScanLine", Some(dd_GetScanLine)),
+        ("GetVerticalBlankStatus", Some(dd_GetVerticalBlankStatus)),
+        ("Initialize", Some(ok2)),
+        ("RestoreDisplayMode", Some(ok1)),
+        ("SetCooperativeLevel", Some(ok3)),
+        ("SetDisplayMode", Some(dd_SetDisplayMode1)),
+        ("WaitForVerticalBlank", Some(ok3)),
     ],
 };
 

@@ -880,6 +880,7 @@ checksum = "8c447be3a2abfa84b2d91680c56600bd6b2873866de27b36ec911be705e291da"
 name = "technomage"
 version = "0.0.1"
 dependencies = [
+ "rc-abi",
  "rc-hle",
  "rc-platform",
  "rc-runtime",

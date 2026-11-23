@@ -119,7 +119,10 @@ fn run(a: &Args) -> Result<ExitCode, String> {
     let mem = rc_runtime::mem::GuestMemory::get(1 << 30).mem();
     // The lifted DLLs beside the executable first (binkw32.dll), each matched by its hash.
     let mut dlls = Vec::new();
-    for b in lifted().iter().filter(|b| !b.name.to_ascii_lowercase().ends_with(".exe")) {
+    for b in lifted()
+        .iter()
+        .filter(|b| !b.name.to_ascii_lowercase().ends_with(".exe"))
+    {
         let Some(path) = find(dir, b.name) else {
             continue;
         };
@@ -131,7 +134,12 @@ fn run(a: &Args) -> Result<ExitCode, String> {
             .map_err(|e| e.to_string())?;
         rc_runtime::dispatch::add_lifted(b.table);
         rc_runtime::process::add_module(m.clone());
-        eprintln!("technomage: {} at {:#010x}, {} lifted functions", b.name, m.base, b.table.len());
+        eprintln!(
+            "technomage: {} at {:#010x}, {} lifted functions",
+            b.name,
+            m.base,
+            b.table.len()
+        );
         dlls.push(m);
     }
     let image = rc_runtime::process::image_of(&exe).map_err(|e| e.to_string())?;

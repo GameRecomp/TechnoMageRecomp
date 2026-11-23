@@ -113,6 +113,11 @@ fn resolve(addr: u32) -> Option<GuestFn> {
 
 /// The function at `addr`: a hook, a lifted function or an import.
 pub fn lookup(addr: u32) -> Option<GuestFn> {
+    // Reserved import addresses resolve by index, cheaply, and are not cached: the traced
+    // wrapper (`RC_TRACE=imports`) must know which import it stands for.
+    if addr >= crate::imports::IMPORT_BASE {
+        return resolve(addr);
+    }
     let generation = REGISTRY.read().expect("registry").generation;
     LOOKUP.with(|cache| {
         let mut cache = cache.borrow_mut();

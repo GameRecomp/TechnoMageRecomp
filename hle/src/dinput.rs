@@ -85,6 +85,37 @@ fn di_CreateDevice(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 4);
 }
 
+/// The system keyboard and mouse, as DIDEVICEINSTANCEA for an `EnumDevices` callback; no
+/// joysticks.
+fn di_EnumDevices(c: &mut Cpu) {
+    let m = c.mem();
+    let (kind, cb, ctx) = (c.arg(1), c.arg(2), c.arg(3));
+    let devices: &[([u8; 16], u32, &[u8])] = &[
+        (GUID_SYSKEYBOARD, 0x0403, b"Keyboard\0"),
+        (GUID_SYSMOUSE, 0x0202, b"Mouse\0"),
+    ];
+    let inst = rc_runtime::vm::heap_alloc(m, 0x244, true);
+    for (g, t, name) in devices {
+        if kind != 0 && kind != (t & 0xff) {
+            continue;
+        }
+        for i in (0..0x244).step_by(4) {
+            m.st32(inst + i, 0);
+        }
+        m.st32(inst, 0x244);
+        m.write(inst + 4, g);
+        m.write(inst + 20, g);
+        m.st32(inst + 36, *t);
+        m.write(inst + 40, name);
+        m.write(inst + 300, name);
+        if rc_runtime::dispatch::call_guest(c, cb, &[inst, ctx]) == 0 {
+            break;
+        }
+    }
+    rc_runtime::vm::heap_free(inst);
+    ret_stdcall(c, S_OK, 5);
+}
+
 fn ok1(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 1);
 }
@@ -153,7 +184,7 @@ static DINPUT: Interface = Interface {
         ("AddRef", Some(com::add_ref)),
         ("Release", Some(com::release)),
         ("CreateDevice", Some(di_CreateDevice)),
-        ("EnumDevices", None),
+        ("EnumDevices", Some(di_EnumDevices)),
         ("GetDeviceStatus", Some(ok2)),
         ("RunControlPanel", None),
         ("Initialize", Some(ok3)),
@@ -194,7 +225,20 @@ static DEVICE: Interface = Interface {
     ],
 };
 
+const CLSID_DIRECTINPUT: [u8; 16] = com::guid(
+    0x25e6_09e0,
+    0xb259,
+    0x11cf,
+    [0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00],
+);
+
+/// `CoCreateInstance(CLSID_DirectInput)`: the object, to be initialised by the game.
+fn create(c: &mut Cpu, _iid: [u8; 16]) -> u32 {
+    com::new_object(c.mem(), &DINPUT, 0)
+}
+
 pub fn register() {
+    crate::small::register_class(CLSID_DIRECTINPUT, create);
     imports::register(
         "dinput.dll",
         &[(
