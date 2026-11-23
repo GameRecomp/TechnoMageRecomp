@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Assemble the converter site: the page (web/), the converter compiled to
+# WebAssembly (rc-web, through wasm-bindgen) and the shell templates.
+#
+#   tools/build-web SITE_DIR [TEMPLATE_DIR [WEB_SHELL_DIR]]
+#
+# TEMPLATE_DIR holds TechnoMage-<system>.zip for windows, linux and macos
+# (made by `recomp template`); those present are copied. WEB_SHELL_DIR holds
+# the browser player (player/technomage.js and what it loads); without it the
+# page offers the browser as not available yet.
+# Systems that platforms.json has off get neither; the file goes to the site
+# too, and the page offers them as off.
+# Needs the wasm32-unknown-unknown target and wasm-bindgen-cli 0.2.130.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+site=${1:?site directory}
+templates=${2:-}
+web_shell=${3:-}
+cargo build --release --target wasm32-unknown-unknown -p rc-web ${CARGO_FLAGS:-}
+rm -rf "$site"
+mkdir -p "$site/templates"
+wasm-bindgen --target web --no-typescript --out-dir "$site" \
+    "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/rc_web.wasm"
+cp web/index.html web/app.js web/games.js web/worker.js web/style.css "$site/"
+[ -f web/play.html ] && cp web/play.html web/play.js "$site/"
+cp tools/icons/technomage.svg "$site/"
+cp -r web/flags "$site/flags"
+version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+sed -i "s/@VERSION@/$version/" "$site/index.html"
+cp platforms.json "$site/platforms.json"
+on() { python3 -c 'import json, sys; sys.exit(0 if json.load(open("platforms.json")).get(sys.argv[1], True) else 1)' "$1"; }
+if [ -n "$templates" ]; then
+    for s in windows linux macos; do
+        if on "$s" && [ -f "$templates/TechnoMage-$s.zip" ]; then
+            cp "$templates/TechnoMage-$s.zip" "$site/templates/"
+        fi
+    done
+fi
+if [ -n "$web_shell" ] && on web && [ -d "$web_shell" ]; then
+    mkdir -p "$site/player"
+    cp -r "$web_shell"/. "$site/player/"
+fi
+echo "build-web: $site ($(du -sh "$site" | cut -f1))"

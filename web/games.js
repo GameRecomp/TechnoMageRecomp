@@ -15,6 +15,7 @@ export const GAMES = {
     name: 'TechnoMage',
     full: 'TechnoMage: Return of Eternity (TechnoMage – Die Rückkehr der Ewigkeit)',
     stem: 'TechnoMage',
+    size: 'about 900 MiB',
     web: 'technomage',
     icon: 'technomage.svg',
     languages: [
@@ -43,3 +44,15 @@ export const GAMES = {
     ],
   },
 };
+
+/* The game's icon on the page: the tab's and every img.game-icon. */
+export function showIcon(game) {
+  for (const l of document.querySelectorAll('link[rel=icon]')) l.href = game.icon;
+  for (const i of document.querySelectorAll('img.game-icon')) i.src = game.icon;
+}
+
+/* The game a page is for (?game=<id>); there is one. */
+export function gameOf(location) {
+  const p = new URLSearchParams(location.search).get('game');
+  return GAMES[p] || GAMES.technomage;
+}

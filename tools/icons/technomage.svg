@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- SPDX-License-Identifier: MIT -->
+  <defs>
+    <radialGradient id="g" cx="50%" cy="40%" r="60%">
+      <stop offset="0" stop-color="#9fe3ff"/>
+      <stop offset="1" stop-color="#1b4f8a"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#1a1426"/>
+  <circle cx="32" cy="30" r="15" fill="url(#g)"/>
+  <path d="M32 6v10M32 44v14M14 30H4M60 30H50M19 17l-6-6M45 17l6-6" stroke="#d9a441" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="30" r="5" fill="#fff6d8"/>
+</svg>

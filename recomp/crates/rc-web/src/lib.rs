@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-//! The converter for the browser, as in TropicoRecomp: rc-convert's pipeline on a GOG installer
+//! The converter for the browser, as in TropicoRecomp: rc-convert's pipeline on the game's medium
 //! the page reads through a callback, so that nothing large is held in memory and nothing leaves
 //! the machine. The page runs it in a Web Worker (web/worker.js).
 //!
 //! - `convert`: a package for a shell template (zip, or a signed APK), handed out in pieces.
-//! - Each takes the installer and, for an installer with its data in an external slice
-//!   (`setup_….exe` with `-1.bin`), that file too (or null).
+//! - Each takes the medium and the supplements' media (`extra`: `[{size, read}]` in the
+//!   manifest's order, or null); the medium is also read as a disc for the CD's own folders.
 //! - `plan_web` and `convert_web`: for playing in the browser, the game's files and the
 //!   WebAssembly module of its code, handed to callbacks that store them.
 //! - `recompile_web`: the code again from a stored game, when the converter makes different code.
@@ -141,31 +141,51 @@ fn err(e: String) -> JsValue {
     JsValue::from_str(&e)
 }
 
-/// Read and identify the installer, then lift its programs (`identify`, `lift`).
-/// The installer's external data slice (`setup_….exe`'s `-1.bin`), if the page has one:
-/// `slice_read` is a function like `read`, or null.
-fn slices(slice_size: f64, slice_read: &JsValue) -> Vec<Box<dyn rc_convert::rc_media::ReadSeek>> {
-    match slice_read.dyn_ref::<Function>() {
-        Some(f) => vec![Box::new(JsReader::new(slice_size, f.clone()))],
-        None => Vec::new(),
+/// The extra media the page has: an array of `{size, read}` (or null), the supplements' media in
+/// the manifest's order (games.js lists them so).
+fn extras(extra: &JsValue) -> Result<Vec<JsReader>, JsValue> {
+    let mut out = Vec::new();
+    if let Some(a) = extra.dyn_ref::<js_sys::Array>() {
+        for v in a.iter() {
+            let size = Reflect::get(&v, &JsValue::from_str("size"))?
+                .as_f64()
+                .ok_or_else(|| err("an extra medium without its size".into()))?;
+            out.push(JsReader::new(size, method(&v, "read")?));
+        }
     }
+    Ok(out)
+}
+
+/// Open the medium, give it its supplements and its own CD folders.
+fn open_install(size: f64, read: &Function, extra: &JsValue) -> Result<Install, JsValue> {
+    let ms = manifests().map_err(err)?;
+    let mut inst = Install::open_with(Box::new(JsReader::new(size, read.clone())), Vec::new(), &ms)
+        .map_err(err)?;
+    let mut extra = extras(extra)?.into_iter();
+    for (k, media) in inst.supplements_needed().into_iter().enumerate() {
+        let mut readers: Vec<Box<dyn rc_convert::rc_media::ReadSeek>> = Vec::new();
+        for m in &media {
+            let r = extra
+                .next()
+                .ok_or_else(|| err(format!("{} is needed beside the medium", m.file)))?;
+            readers.push(Box::new(r));
+        }
+        inst.supply(k, readers).map_err(err)?;
+    }
+    inst.add_cd(Box::new(JsReader::new(size, read.clone())))
+        .map_err(err)?;
+    Ok(inst)
 }
 
 fn open(
     size: f64,
     read: Function,
-    slice_size: f64,
-    slice_read: &JsValue,
+    extra: &JsValue,
     progress: &Function,
 ) -> Result<(Install, Vec<Program>), JsValue> {
     let ms = manifests().map_err(err)?;
     tell(progress, "identify", 0.0, 1.0);
-    let inst = Install::open_with(
-        Box::new(JsReader::new(size, read)),
-        slices(slice_size, slice_read),
-        &ms,
-    )
-    .map_err(err)?;
+    let inst = open_install(size, &read, extra)?;
     tell(progress, "identify", 1.0, 1.0);
     tell(progress, "lift", 0.0, 1.0);
     let progs = inst.programs(&ms).map_err(err)?;
@@ -186,14 +206,13 @@ fn functions(progs: &[Program]) -> usize {
 pub fn convert(
     size: f64,
     read: Function,
-    slice_size: f64,
-    slice_read: JsValue,
+    extra: JsValue,
     template: Vec<u8>,
     progress: Function,
     output: Function,
 ) -> Result<String, JsValue> {
     let tpl = rc_convert::template(&template).map_err(err)?;
-    let (mut inst, progs) = open(size, read, slice_size, &slice_read, &progress)?;
+    let (mut inst, progs) = open(size, read, &extra, &progress)?;
     let total = (functions(&progs) * tpl.targets.len()) as f64;
     let mut done = 0usize;
     let mut blobs = Vec::new();
@@ -269,19 +288,8 @@ fn json_str(s: &str) -> String {
 /// `{"id", "title", "variant", "dirs": [path...], "files": [[path, size]...]}` with paths under
 /// `game/`. The page creates the files with it before `convert_web` fills them.
 #[wasm_bindgen]
-pub fn plan_web(
-    size: f64,
-    read: Function,
-    slice_size: f64,
-    slice_read: JsValue,
-) -> Result<String, JsValue> {
-    let ms = manifests().map_err(err)?;
-    let inst = Install::open_with(
-        Box::new(JsReader::new(size, read)),
-        slices(slice_size, &slice_read),
-        &ms,
-    )
-    .map_err(err)?;
+pub fn plan_web(size: f64, read: Function, extra: JsValue) -> Result<String, JsValue> {
+    let inst = open_install(size, &read, &extra)?;
     let (dirs, files) = inst.plan();
     let dirs: Vec<String> = dirs
         .iter()
@@ -384,13 +392,12 @@ fn web_module(progs: &[Program], progress: &Function) -> Result<Vec<u8>, JsValue
 pub fn convert_web(
     size: f64,
     read: Function,
-    slice_size: f64,
-    slice_read: JsValue,
+    extra: JsValue,
     progress: Function,
     sink: JsValue,
 ) -> Result<String, JsValue> {
     let code = method(&sink, "code")?;
-    let (mut inst, progs) = open(size, read, slice_size, &slice_read, &progress)?;
+    let (mut inst, progs) = open(size, read, &extra, &progress)?;
     let module = web_module(&progs, &progress)?;
     let arr = Uint8Array::new_with_length(module.len() as u32);
     arr.copy_from(&module);

@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TechnoMage Converter</title>
+<meta name="description" content="TechnoMage: Return of Eternity (TechnoMage – Die Rückkehr der Ewigkeit), the abandonware action RPG by Sunflowers, as a native build for Windows and Linux. Pick a language: the game is downloaded from archive.org and converted in this tab.">
+<link rel="icon" href="technomage.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <img class="game-icon" src="technomage.svg" alt="" width="56" height="56">
+    <div>
+      <h1>TechnoMage</h1>
+      <p class="lede">Makes <em id="game-name">TechnoMage</em> a build that runs natively on Windows or Linux. The game is abandonware, archived on archive.org: pick a language, and the game is downloaded from there and converted in this tab.</p>
+    </div>
+  </header>
+
+  <p class="local">Everything happens in this browser tab: the game comes from archive.org and is converted here. Nothing is uploaded anywhere; this site only serves the converter itself.</p>
+
+  <section class="card" id="step-system">
+    <h2><span class="step">1</span> Your system</h2>
+    <fieldset class="systems">
+      <legend class="sr-only">System</legend>
+      <label><input type="radio" name="system" value="windows"> Windows <small>64-bit</small></label>
+      <label><input type="radio" name="system" value="linux"> Linux <small>x86-64</small></label>
+      <label><input type="radio" name="system" value="macos"> macOS <small>Apple silicon and Intel</small></label>
+      <label id="web-choice"><input type="radio" name="system" value="web"> Browser <small>play here, without installing anything</small></label>
+    </fieldset>
+  </section>
+
+  <section class="card" id="step-file">
+    <h2><span class="step">2</span> Language</h2>
+    <p>Choose the release: it is downloaded from archive.org, checked and converted. The German CD needs 20 sound files from the retail CD as well (about 160 MiB more); the English one runs on the German CD's program (another 806 MiB).</p>
+    <div id="languages" class="languages" role="group" aria-label="Language"></div>
+    <p id="download-note" class="file-name"></p>
+    <details class="own">
+      <summary>Or use copies you have</summary>
+      <div id="drop" class="drop">
+        <p>The files as archived, all at once: <code id="installer">2004-03.BIN</code> and what it needs beside it (<span id="needs"></span>).</p>
+        <button id="choose" type="button">Choose files…</button>
+        <span id="file-name" class="file-name">No file chosen</span>
+        <input id="file" type="file" accept=".bin,.cue,.mdf,.hdr,.cab" multiple hidden>
+        <p class="hint">Or drop them here.</p>
+      </div>
+    </details>
+  </section>
+
+  <section id="stored" class="card stored" hidden>
+    <h2><img class="game-icon" src="technomage.svg" alt="" width="28" height="28"><span><span id="stored-title">TechnoMage</span> is in this browser</span></h2>
+    <p id="stored-info"></p>
+    <div class="actions">
+      <a class="primary button play" href="play.html">Play</a>
+      <button id="reconvert" type="button">Convert again</button>
+      <button id="remove" type="button">Remove it from this browser</button>
+    </div>
+  </section>
+
+  <section class="card" id="step-convert">
+    <h2><span class="step">3</span> Convert</h2>
+    <p id="convert-note">The result is a zip of about 900 MiB with the game in it. You choose where it is saved.</p>
+    <button id="start" class="primary" type="button" disabled>Convert</button>
+  </section>
+
+  <section id="progress-card" class="card" hidden aria-live="polite">
+    <h2>Progress</h2>
+    <div class="bar-row">
+      <progress id="bar" max="100" value="0"></progress>
+      <span id="bar-label" class="bar-label">0 %</span>
+    </div>
+    <ol id="stages" class="stages"></ol>
+    <p class="elapsed">Elapsed: <span id="elapsed">0 s</span></p>
+  </section>
+
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section id="result" class="card result" hidden>
+    <h2>Done</h2>
+    <p id="result-summary"></p>
+    <p id="result-after"></p>
+    <a id="download" class="primary button" hidden>Save the zip</a>
+    <a id="play" class="primary button play" href="play.html" hidden>Play</a>
+    <p id="result-warn" class="warn">The zip contains the game. It is abandonware as archived on archive.org; the rights stay with their holders.</p>
+  </section>
+
+  <footer>
+    <p>An unofficial fan project, not affiliated with or endorsed by Sunflowers or the game's publishers. Supported: the German SCREENFUN 03/2004 full version and the English European release, as archived on archive.org. <a href="https://github.com/GameRecomp/TechnoMageRecomp">Source code</a></p>
+    <p class="version">TechnoMageRecomp @VERSION@</p>
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

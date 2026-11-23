@@ -2,6 +2,5 @@
   "windows": true,
   "linux": true,
   "macos": false,
-  "android": false,
   "web": true
 }

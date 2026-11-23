@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
-# The converter page and the player on GitHub Pages (tools/build-web).
+# The converter page on GitHub Pages (tools/build-web): the converter as WebAssembly and the
+# shell templates it fills, one per system, built here without lifted code.
 name: pages
 on:
   push:
@@ -11,23 +12,70 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RC_NO_GENERATED: "1"
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  shell:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: linux
+            exe: ""
+          - os: windows-latest
+            system: windows
+            exe: ".exe"
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: System libraries for the Bevy window (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: cargo build --profile dist -p technomage -p rc-cli
+      - name: Template
+        shell: bash
+        run: |
+          mkdir -p build/templates
+          target/dist/recomp${{ matrix.exe }} template --game technomage --system ${{ matrix.system }} \
+            --shell target/dist/technomage${{ matrix.exe }} -o build/templates/TechnoMage-${{ matrix.system }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: template-${{ matrix.system }}
+          path: build/templates
+  site:
+    needs: shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - run: cargo install wasm-bindgen-cli --locked
-      - run: tools/build-web out/web
+      - run: cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: template-*
+          merge-multiple: true
+          path: build/templates
+      - run: tools/build-web out/web build/templates
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out/web
   deploy:
-    needs: build
+    needs: site
     runs-on: ubuntu-latest
     environment:
       name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      - id: deployment
+        uses: actions/deploy-pages@v4

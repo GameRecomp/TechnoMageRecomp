@@ -462,10 +462,8 @@ impl fmt::Display for MediaType {
 /// installer program in its root, that installer: either way the entries are the installed files.
 /// External Inno slices beside an installer exe are opened by name.
 pub fn open(path: &Path) -> Result<(MediaType, Box<dyn Archive>)> {
-    let mut f = fs::File::open(path)?;
     let mut magic = [0u8; 4];
-    let got = f.read(&mut magic)?;
-    drop(f);
+    let got = fs::File::open(path)?.read(&mut magic)?;
     if got >= 2 && magic[..2] == *b"MZ" {
         let mut r: Box<dyn ReadSeek> = Box::new(io::BufReader::new(fs::File::open(path)?));
         if nsis::find_first_header(&mut r).is_some() {

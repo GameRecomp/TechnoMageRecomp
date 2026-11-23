@@ -1,0 +1,167 @@
+/* SPDX-License-Identifier: MIT */
+:root {
+  --bg: #f6f4ef;
+  --card: #ffffff;
+  --text: #1d2327;
+  --muted: #5d676e;
+  --line: #dcd8cf;
+  --accent: #1f7fb0;
+  --accent-text: #ffffff;
+  --good: #2f8f46;
+  --bad: #b3261e;
+  --bad-bg: #fbe9e7;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181b;
+    --card: #1d2327;
+    --text: #e8ecee;
+    --muted: #9aa6ad;
+    --line: #2f383e;
+    --accent: #4fb3e6;
+    --accent-text: #0b1b24;
+    --good: #5cc775;
+    --bad: #ff8a80;
+    --bad-bg: #3a1d1b;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+header { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; }
+header img { border-radius: 12px; flex: none; }
+h1 { font-size: 1.8rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+.lede { margin: 4px 0 0; color: var(--muted); }
+.local { margin: 16px 0 24px; padding: 12px 16px; border-left: 4px solid var(--good); background: var(--card); border-radius: 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.step {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-text); font-size: 0.85rem; font-weight: 700;
+}
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 16px; }
+.drop.over { border-color: var(--accent); }
+.drop p { margin: 0 0 12px; }
+.drop .hint { margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+.file-name { margin-left: 12px; color: var(--muted); overflow-wrap: anywhere; }
+button, .button {
+  font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); cursor: pointer; text-decoration: none; display: inline-block;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+.systems { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+.systems label { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.systems small { color: var(--muted); }
+.systems label.off { opacity: 0.55; cursor: not-allowed; }
+.bar-row { display: flex; gap: 12px; align-items: center; }
+progress { flex: 1; height: 14px; accent-color: var(--accent); }
+.bar-label { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.stages { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 6px; }
+.stages li { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+.stages li::before { content: "○"; margin-right: 8px; }
+.stages li > span:first-child { flex: 1; }
+.stages li[data-state="active"] { color: var(--text); font-weight: 600; }
+.stages li[data-state="active"]::before { content: "◐"; color: var(--accent); }
+.stages li[data-state="done"]::before { content: "✓"; color: var(--good); }
+.stages li[data-state="failed"]::before { content: "✕"; color: var(--bad); }
+.detail { font-weight: 400; font-variant-numeric: tabular-nums; text-align: right; }
+.elapsed { margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+.error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 12px 16px; }
+.warn { color: var(--muted); font-size: 0.9rem; margin-bottom: 0; }
+footer { color: var(--muted); font-size: 0.85rem; margin-top: 32px; }
+code { overflow-wrap: anywhere; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (max-width: 520px) {
+  header { align-items: flex-start; }
+  .file-name { display: block; margin: 8px 0 0; }
+}
+.stored { border-color: var(--accent); }
+.stored p { margin: 0 0 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* The player (play.html). */
+body.player { background: #000; color: #e8ecee; color-scheme: dark; overflow: hidden; }
+.player .stage { position: fixed; inset: 0; display: grid; place-items: center; }
+.player canvas {
+  /* The canvas is the game's frame; play.js sizes it on the page (as
+   * large as fits) and the page centres it. */
+  display: block; background: #000; outline: none;
+}
+.player.sharp canvas { image-rendering: pixelated; }
+.player .bar {
+  position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 8px; align-items: center;
+  padding: 6px 10px; background: rgba(0, 0, 0, 0.6); font-size: 0.9rem; opacity: 0; transition: opacity 0.2s;
+}
+.player .bar:hover, .player .bar:focus-within, .player.idle .bar { opacity: 1; }
+.player .bar .spacer { flex: 1; }
+.player .bar a, .player .bar button, .player .bar label { color: #e8ecee; }
+.player .bar button { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.25); padding: 4px 10px; }
+.player .saved { color: #9aa6ad; }
+.player .overlay {
+  position: fixed; inset: 0; display: grid; place-items: center; background: #14181b; text-align: center; padding: 16px;
+}
+.player .overlay .card { max-width: 520px; background: #1d2327; border-color: #2f383e; color: #e8ecee; }
+.player .overlay p { color: #9aa6ad; }
+.player .overlay .error { text-align: left; white-space: pre-wrap; }
+.playing .step { display: none; }
+
+/* The game tabs. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 1rem;
+  border-bottom: 2px solid var(--line, #d6cbb4);
+}
+.tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: none;
+  padding: 0.55rem 1rem;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+.tabs button.on {
+  opacity: 1;
+  font-weight: 600;
+  background: var(--card, #fffaf0);
+  border-color: var(--line, #d6cbb4);
+  margin-bottom: -2px;
+}
+
+/* The languages, as flags */
+.languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+.language {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.8rem;
+}
+.language img {
+  height: 24px;
+  width: auto;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+}
+details.own {
+  margin-top: 1rem;
+}
+details.own summary {
+  cursor: pointer;
+}
