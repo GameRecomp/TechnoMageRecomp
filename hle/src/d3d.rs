@@ -390,12 +390,15 @@ fn snapshot(d: &mut Device) -> Arc<State> {
 }
 
 fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16>) {
-    let id = com::id_of(c.mem(), c.arg(0));
+    let m = c.mem();
+    let id = com::id_of(m, c.arg(0));
     let mut s = g();
     let Some(d) = s.devices.get_mut(&id) else {
         return;
     };
     let state = snapshot(d);
+    // The software renderer draws now, into the target in guest memory.
+    crate::raster::draw(m, &state, primitive, fvf, &vertices, &indices);
     s.frame.push(Command::Draw {
         primitive,
         fvf,
@@ -804,6 +807,12 @@ fn dev_DrawIndexedPrimitiveVB(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 8);
 }
 
+fn dev_Load(c: &mut Cpu) {
+    let m = c.mem();
+    let ok = ddraw::load(m, c.arg(1), c.arg(2), c.arg(3), c.arg(4));
+    ret_stdcall(c, if ok { S_OK } else { D3DERR_INVALIDCALL }, 6);
+}
+
 fn dev_ValidateDevice(c: &mut Cpu) {
     let p = c.arg(1);
     if p != 0 {
@@ -926,7 +935,7 @@ static DEVICE7: Interface = Interface {
         ("CaptureStateBlock", None),
         ("DeleteStateBlock", None),
         ("CreateStateBlock", None),
-        ("Load", None),
+        ("Load", Some(dev_Load)),
         ("LightEnable", Some(dev_LightEnable)),
         ("GetLightEnable", Some(dev_GetLightEnable)),
         ("SetClipPlane", Some(ok3)),

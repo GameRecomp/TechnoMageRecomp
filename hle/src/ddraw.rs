@@ -126,6 +126,57 @@ struct Surface {
     object: u32,
     /// Bumped on every change, for Direct3D's texture cache.
     version: u32,
+    /// Red, green, blue and alpha bit masks of the pixels (0 alpha: none).
+    masks: [u32; 4],
+}
+
+/// What the renderer needs of a surface.
+#[derive(Debug, Clone, Copy)]
+pub struct SurfaceInfo {
+    pub buf: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pitch: u32,
+    pub bpp: u32,
+    pub masks: [u32; 4],
+    pub src_key: Option<(u32, u32)>,
+}
+
+/// The default masks of a depth: 565 for 16 bits, 8888 (no alpha) for 32.
+fn default_masks(bpp: u32) -> [u32; 4] {
+    match bpp {
+        16 => [0xf800, 0x07e0, 0x001f, 0],
+        _ => [0x00ff_0000, 0x0000_ff00, 0x0000_00ff, 0],
+    }
+}
+
+/// A surface by its guest object, for the renderer.
+pub fn info(m: Mem, obj: u32) -> Option<SurfaceInfo> {
+    let s = surface(com::id_of(m, obj))?;
+    Some(SurfaceInfo {
+        buf: s.buf,
+        width: s.width,
+        height: s.height,
+        pitch: s.pitch,
+        bpp: s.bpp,
+        masks: s.masks,
+        src_key: s.src_key,
+    })
+}
+
+/// The z-buffer attached to the surface object `obj`.
+pub fn zbuffer_info(m: Mem, obj: u32) -> Option<SurfaceInfo> {
+    let z = surface(com::id_of(m, obj))?.zbuffer?;
+    let s = surface(z)?;
+    Some(SurfaceInfo {
+        buf: s.buf,
+        width: s.width,
+        height: s.height,
+        pitch: s.pitch,
+        bpp: s.bpp,
+        masks: s.masks,
+        src_key: None,
+    })
 }
 
 impl Surface {
@@ -167,6 +218,32 @@ pub fn zbuffer_of(m: Mem, obj: u32) -> Option<(u32, u32, u32, u32, u32)> {
     Some((s.buf, s.width, s.height, s.pitch, s.bpp))
 }
 
+/// `IDirect3DDevice7::Load`: `src`'s `rect` (its whole area if 0) copied into `dst` at `point`
+/// (the origin if 0). Returns false for an unknown surface.
+pub fn load(m: Mem, dst: u32, point: u32, src: u32, rect: u32) -> bool {
+    let (Some(d), Some(sr)) = (surface(com::id_of(m, dst)), surface(com::id_of(m, src))) else {
+        return false;
+    };
+    let r = read_rect(m, rect, &sr);
+    let (x, y) = if point != 0 {
+        (m.ld32(point) as i32, m.ld32(point + 4) as i32)
+    } else {
+        (0, 0)
+    };
+    let dr = Rect {
+        l: x,
+        t: y,
+        r: x + r.r - r.l,
+        b: y + r.b - r.t,
+    };
+    blit(m, &d, dr, &sr, r, None);
+    let id = com::id_of(m, dst);
+    if let Some(s) = st().surfaces.get_mut(&id) {
+        s.version = s.version.wrapping_add(1);
+    }
+    true
+}
+
 /// How often the surface object `obj` was locked: a texture's content version.
 pub fn version_of(m: Mem, obj: u32) -> u32 {
     surface(com::id_of(m, obj)).map_or(0, |s| s.version)
@@ -177,7 +254,7 @@ pub fn display_mode() -> (u32, u32, u32) {
     st().mode
 }
 
-fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32) -> u32 {
+fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32, masks: [u32; 4]) -> u32 {
     let pitch = (width * bpp / 8 + 3) & !3;
     let buf = vm::heap_alloc(m, (pitch * height).max(4), true);
     let id = {
@@ -197,6 +274,7 @@ fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32) -> u32 {
             buf,
             caps,
             object: obj,
+            masks,
             ..Surface::default()
         },
     );
@@ -204,7 +282,7 @@ fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32) -> u32 {
 }
 
 /// DDPIXELFORMAT of a surface depth at `p` (32 bytes).
-fn put_pixel_format(m: Mem, p: u32, bpp: u32, zbuffer: bool) {
+fn put_pixel_format(m: Mem, p: u32, bpp: u32, zbuffer: bool, masks: [u32; 4]) {
     for i in (0..32).step_by(4) {
         m.st32(p + i, 0);
     }
@@ -215,15 +293,13 @@ fn put_pixel_format(m: Mem, p: u32, bpp: u32, zbuffer: bool) {
         m.st32(p + 20, if bpp == 16 { 0xffff } else { 0xffff_ffff });
         return;
     }
-    m.st32(p + 4, 0x40); // DDPF_RGB
+    let alpha = if masks[3] != 0 { 0x1 } else { 0 }; // DDPF_ALPHAPIXELS
+    m.st32(p + 4, 0x40 | alpha); // DDPF_RGB
     m.st32(p + 12, bpp);
-    let (r, g, b) = match bpp {
-        16 => (0xf800, 0x07e0, 0x001f),
-        _ => (0x00ff_0000, 0x0000_ff00, 0x0000_00ff),
-    };
-    m.st32(p + 16, r);
-    m.st32(p + 20, g);
-    m.st32(p + 24, b);
+    m.st32(p + 16, masks[0]);
+    m.st32(p + 20, masks[1]);
+    m.st32(p + 24, masks[2]);
+    m.st32(p + 28, masks[3]);
 }
 
 /// DDSURFACEDESC2 (124 bytes) or DDSURFACEDESC (108 bytes, the older interfaces; the same
@@ -243,7 +319,12 @@ fn put_desc(m: Mem, d: u32, s: &Surface, surface_ptr: u32) {
     m.st32(d + 12, s.width);
     m.st32(d + 16, s.pitch);
     m.st32(d + 36, surface_ptr);
-    put_pixel_format(m, d + 72, s.bpp, z);
+    let masks = if s.masks == [0; 4] {
+        default_masks(s.bpp)
+    } else {
+        s.masks
+    };
+    put_pixel_format(m, d + 72, s.bpp, z, masks);
     m.st32(d + 104, s.caps);
 }
 
@@ -507,12 +588,27 @@ fn dd_CreateSurface(c: &mut Cpu) {
         return ret_stdcall(c, DDERR_INVALIDPARAMS, 4);
     }
     let caps = caps | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM;
+    let masks = if !z && flags & DDSD_PIXELFORMAT != 0 && m.ld32(d + 72 + 12) != 0 {
+        [
+            m.ld32(d + 88),
+            m.ld32(d + 92),
+            m.ld32(d + 96),
+            if m.ld32(d + 76) & 1 != 0 {
+                m.ld32(d + 100)
+            } else {
+                0
+            },
+        ]
+    } else {
+        default_masks(bpp)
+    };
     let obj = new_surface(
         m,
         w,
         h,
         bpp,
         caps | if primary { DDSCAPS_FRONTBUFFER } else { 0 },
+        masks,
     );
     if primary && caps & DDSCAPS_FLIP != 0 {
         let backs = if flags & DDSD_BACKBUFFERCOUNT != 0 {
@@ -527,6 +623,7 @@ fn dd_CreateSurface(c: &mut Cpu) {
             h,
             bpp,
             (caps & !DDSCAPS_PRIMARYSURFACE) | DDSCAPS_BACKBUFFER | DDSCAPS_COMPLEX,
+            masks,
         );
         let (pid, bid) = (com::id_of(m, obj), com::id_of(m, back));
         if let Some(s) = st().surfaces.get_mut(&pid) {
@@ -616,7 +713,7 @@ fn s_GetPixelFormat(c: &mut Cpu) {
     let p = c.arg(1);
     match surface(sid(c)) {
         Some(s) => {
-            put_pixel_format(m, p, s.bpp, s.caps & DDSCAPS_ZBUFFER != 0);
+            put_pixel_format(m, p, s.bpp, s.caps & DDSCAPS_ZBUFFER != 0, s.masks);
             ret_stdcall(c, S_OK, 2);
         }
         None => ret_stdcall(c, DDERR_GENERIC, 2),
@@ -675,7 +772,23 @@ fn s_Lock(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 5);
 }
 
+/// The primary surface is what the screen shows: a change to it (a video written by `Lock`,
+/// a `Blt` onto it) is a frame.
+fn present_if_primary(c: &mut Cpu, id: u32) {
+    let Some(s) = surface(id) else {
+        return;
+    };
+    if s.caps & DDSCAPS_PRIMARYSURFACE == 0 {
+        return;
+    }
+    let rgba = to_rgba(c.mem(), &s);
+    rc_platform::submit_frame(s.width, s.height, rgba);
+    crate::frame_done(c);
+}
+
 fn s_Unlock(c: &mut Cpu) {
+    let id = sid(c);
+    present_if_primary(c, id);
     ret_stdcall(c, S_OK, 2);
 }
 
@@ -785,6 +898,8 @@ fn s_Blt(c: &mut Cpu) {
         None
     };
     blit(m, &dst, dr, &src, sr, key);
+    let id = sid(c);
+    present_if_primary(c, id);
     ret_stdcall(c, S_OK, 6);
 }
 
@@ -1062,7 +1177,25 @@ static CLIPPER: Interface = Interface {
     ],
 };
 
+const CLSID_DIRECTDRAW: [u8; 16] = com::guid(
+    0xd7b7_0ee0,
+    0x4340,
+    0x11cf,
+    [0xb0, 0x63, 0x00, 0x20, 0xaf, 0xc2, 0xcd, 0x35],
+);
+
+/// `CoCreateInstance(CLSID_DirectDraw)`: the object the game then initialises.
+fn create(c: &mut Cpu, iid: [u8; 16]) -> u32 {
+    let m = c.mem();
+    if iid == IID_IDIRECTDRAW {
+        com::new_object(m, &DDRAW1, 0)
+    } else {
+        com::new_object(m, &DDRAW7, 0)
+    }
+}
+
 pub fn register() {
+    crate::small::register_class(CLSID_DIRECTDRAW, create);
     imports::register(
         "ddraw.dll",
         &[

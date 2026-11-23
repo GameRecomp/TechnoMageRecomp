@@ -57,6 +57,16 @@ debug = 1
 [profile.dev.package.technomage]
 opt-level = 1
 
+# The HLE layer and the runtime do per-pixel and per-access work: optimised even in dev builds.
+[profile.dev.package.rc-hle]
+opt-level = 2
+
+[profile.dev.package.rc-runtime]
+opt-level = 2
+
+[profile.dev.package.rc-abi]
+opt-level = 2
+
 [profile.dev.package.technomage-shard-00]
 opt-level = 0
 

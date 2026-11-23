@@ -29,6 +29,7 @@ pub mod ddraw;
 pub mod dinput;
 pub mod kernel32;
 pub mod mss32;
+pub mod raster;
 pub mod small;
 pub mod user32;
 
@@ -65,6 +66,7 @@ pub(crate) fn frame_done(c: &mut Cpu) {
         rc_runtime::clock::advance_ms(16);
     }
     let n = rc_platform::latest_frame().number;
+    scripted_input(n);
     if let Some(limit) = std::env::var("RC_FRAMES")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -75,6 +77,87 @@ pub(crate) fn frame_done(c: &mut Cpu) {
         }
     }
     yield_point(c);
+}
+
+/// `RC_INPUT="150:esc 400:enter 450:click@320,240"`: at the given frames, a key is pressed for
+/// one frame (DirectInput and window messages) or the left button clicked at a position.
+fn scripted_input(frame: u64) {
+    use std::sync::Mutex;
+    static RELEASE: Mutex<Vec<(u64, u8, u32)>> = Mutex::new(Vec::new());
+    let Ok(script) = std::env::var("RC_INPUT") else {
+        return;
+    };
+    let mut rel = RELEASE.lock().expect("input");
+    rel.retain(|&(f, scan, vk)| {
+        if f <= frame {
+            if scan == 0 {
+                dinput::mouse_button(0, false);
+                user32::post_input(user32::Msg {
+                    hwnd: 0x10010,
+                    msg: user32::WM_LBUTTONUP,
+                    wparam: 0,
+                    lparam: vk,
+                });
+            } else {
+                dinput::key(scan, false);
+                user32::post_input(user32::Msg {
+                    hwnd: 0x10010,
+                    msg: user32::WM_KEYUP,
+                    wparam: vk,
+                    lparam: u32::from(scan) << 16,
+                });
+            }
+            false
+        } else {
+            true
+        }
+    });
+    for item in script.split_whitespace() {
+        let Some((f, what)) = item.split_once(':') else {
+            continue;
+        };
+        if f.parse::<u64>().ok() != Some(frame) {
+            continue;
+        }
+        if let Some(pos) = what.strip_prefix("click@") {
+            let (x, y) = pos.split_once(',').unwrap_or(("0", "0"));
+            let (x, y): (u32, u32) = (x.parse().unwrap_or(0), y.parse().unwrap_or(0));
+            let lp = (y << 16) | (x & 0xffff);
+            user32::post_input(user32::Msg {
+                hwnd: 0x10010,
+                msg: user32::WM_MOUSEMOVE,
+                wparam: 0,
+                lparam: lp,
+            });
+            user32::post_input(user32::Msg {
+                hwnd: 0x10010,
+                msg: user32::WM_LBUTTONDOWN,
+                wparam: 1,
+                lparam: lp,
+            });
+            dinput::mouse_button(0, true);
+            rel.push((frame + 2, 0, lp));
+            continue;
+        }
+        let (scan, vk) = match what {
+            "esc" => (0x01, 0x1b),
+            "enter" => (0x1c, 0x0d),
+            "space" => (0x39, 0x20),
+            "up" => (0xc8, 0x26),
+            "down" => (0xd0, 0x28),
+            "left" => (0xcb, 0x25),
+            "right" => (0xcd, 0x27),
+            _ => continue,
+        };
+        dinput::key(scan, true);
+        user32::post_input(user32::Msg {
+            hwnd: 0x10010,
+            msg: user32::WM_KEYDOWN,
+            wparam: vk,
+            lparam: u32::from(scan) << 16 | 1,
+        });
+        rel.push((frame + 2, scan, vk));
+    }
 }
 
 /// Where a guest thread may give way to another (`Sleep`, waits, the message loop).

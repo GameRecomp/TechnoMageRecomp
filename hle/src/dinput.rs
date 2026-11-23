@@ -28,6 +28,10 @@ const KEYBOARD: u32 = 1;
 const MOUSE: u32 = 2;
 
 struct State {
+    /// Buffered events (`GetDeviceData`): offset, data, time; per device kind.
+    key_events: std::collections::VecDeque<(u32, u32, u32)>,
+    mouse_events: std::collections::VecDeque<(u32, u32, u32)>,
+    sequence: u32,
     keys: [u8; 256],
     dx: i32,
     dy: i32,
@@ -36,6 +40,9 @@ struct State {
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
+    key_events: std::collections::VecDeque::new(),
+    mouse_events: std::collections::VecDeque::new(),
+    sequence: 0,
     keys: [0; 256],
     dx: 0,
     dy: 0,
@@ -45,7 +52,11 @@ static STATE: Mutex<State> = Mutex::new(State {
 
 /// A key (DirectInput scan code `DIK_*`) went down or up.
 pub fn key(scan: u8, down: bool) {
-    STATE.lock().expect("dinput").keys[usize::from(scan)] = if down { 0x80 } else { 0 };
+    let mut s = STATE.lock().expect("dinput");
+    let v = if down { 0x80 } else { 0 };
+    s.keys[usize::from(scan)] = v;
+    let t = rc_runtime::clock::ticks_ms() as u32;
+    s.key_events.push_back((u32::from(scan), u32::from(v), t));
 }
 
 /// The mouse moved (relative, in mickeys).
@@ -54,12 +65,22 @@ pub fn mouse_motion(dx: i32, dy: i32, dz: i32) {
     s.dx += dx;
     s.dy += dy;
     s.dz += dz;
+    let t = rc_runtime::clock::ticks_ms() as u32;
+    for (ofs, d) in [(0u32, dx), (4, dy), (8, dz)] {
+        if d != 0 {
+            s.mouse_events.push_back((ofs, d as u32, t));
+        }
+    }
 }
 
 /// A mouse button (0 left, 1 right, 2 middle) went down or up.
 pub fn mouse_button(b: usize, down: bool) {
     if b < 4 {
-        STATE.lock().expect("dinput").buttons[b] = if down { 0x80 } else { 0 };
+        let mut s = STATE.lock().expect("dinput");
+        let v = if down { 0x80 } else { 0 };
+        s.buttons[b] = v;
+        let t = rc_runtime::clock::ticks_ms() as u32;
+        s.mouse_events.push_back((12 + b as u32, u32::from(v), t));
     }
 }
 
@@ -166,14 +187,123 @@ fn dev_GetDeviceState(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 3);
 }
 
+/// Buffered input: DIDEVICEOBJECTDATA (offset, data, time stamp, sequence) records, as many as
+/// the game has room for; `DIGDD_PEEK` (1) leaves them queued.
 fn dev_GetDeviceData(c: &mut Cpu) {
-    // No buffered events: the games read the state.
     let m = c.mem();
-    let n = c.arg(3);
-    if n != 0 {
-        m.st32(n, 0);
+    let (this, size, out, n_p, flags) = (c.arg(0), c.arg(1), c.arg(2), c.arg(3), c.arg(4));
+    let kind = com::id_of(m, this);
+    let room = if n_p != 0 { m.ld32(n_p) } else { 0 };
+    let mut s = STATE.lock().expect("dinput");
+    let mut given = 0u32;
+    while given < room {
+        let ev = match kind {
+            KEYBOARD => s.key_events.get(given as usize).copied(),
+            MOUSE => s.mouse_events.get(given as usize).copied(),
+            _ => None,
+        };
+        let Some((ofs, data, t)) = ev else {
+            break;
+        };
+        if out != 0 {
+            let p = out + given * size.max(16);
+            s.sequence += 1;
+            m.st32(p, ofs);
+            m.st32(p + 4, data);
+            m.st32(p + 8, t);
+            m.st32(p + 12, s.sequence);
+        }
+        given += 1;
+    }
+    if flags & 1 == 0 {
+        let q = if kind == KEYBOARD {
+            &mut s.key_events
+        } else {
+            &mut s.mouse_events
+        };
+        for _ in 0..given {
+            q.pop_front();
+        }
+    }
+    drop(s);
+    if n_p != 0 {
+        m.st32(n_p, given);
     }
     ret_stdcall(c, S_OK, 5);
+}
+
+/// The name of a key (by DirectInput scan code), as Windows' German/English keyboard names it.
+fn key_name(scan: u32) -> String {
+    const NAMES: &[(u32, &str)] = &[
+        (0x01, "Esc"),
+        (0x0e, "Backspace"),
+        (0x0f, "Tab"),
+        (0x1c, "Enter"),
+        (0x1d, "Ctrl"),
+        (0x2a, "Shift"),
+        (0x36, "Right Shift"),
+        (0x38, "Alt"),
+        (0x39, "Space"),
+        (0x3a, "Caps Lock"),
+        (0xc8, "Up"),
+        (0xd0, "Down"),
+        (0xcb, "Left"),
+        (0xcd, "Right"),
+        (0xc9, "Page Up"),
+        (0xd1, "Page Down"),
+        (0xc7, "Home"),
+        (0xcf, "End"),
+        (0xd2, "Insert"),
+        (0xd3, "Delete"),
+        (0x9d, "Right Ctrl"),
+        (0xb8, "Right Alt"),
+    ];
+    if let Some((_, n)) = NAMES.iter().find(|x| x.0 == scan) {
+        return (*n).to_string();
+    }
+    if (0x3b..=0x44).contains(&scan) {
+        return format!("F{}", scan - 0x3a);
+    }
+    const ROWS: &[(u32, &str)] = &[
+        (0x02, "1234567890-="),
+        (0x10, "QWERTZUIOP"),
+        (0x1e, "ASDFGHJKL"),
+        (0x2c, "YXCVBNM,.-"),
+    ];
+    for (start, keys) in ROWS {
+        if let Some(ch) = scan
+            .checked_sub(*start)
+            .and_then(|i| keys.chars().nth(i as usize))
+        {
+            return ch.to_string();
+        }
+    }
+    format!("Key {scan}")
+}
+
+/// DIDEVICEOBJECTINSTANCEA of a key or mouse object, by offset (`DIPH_BYOFFSET`).
+fn dev_GetObjectInfo(c: &mut Cpu) {
+    let m = c.mem();
+    let (this, p, obj) = (c.arg(0), c.arg(1), c.arg(2));
+    let size = m.ld32(p).clamp(32 + 260, 0x13c);
+    for i in (4..size).step_by(4) {
+        m.st32(p + i, 0);
+    }
+    m.st32(p + 20, obj);
+    let name = if com::id_of(m, this) == KEYBOARD {
+        key_name(obj)
+    } else {
+        match obj {
+            0 => "X".into(),
+            4 => "Y".into(),
+            8 => "Wheel".into(),
+            o => format!("Button {}", o.saturating_sub(11)),
+        }
+    };
+    let mut b = name.into_bytes();
+    b.push(0);
+    m.write(p + 32, &b);
+    ret_stdcall(c, S_OK, 4);
 }
 
 static DINPUT: Interface = Interface {
@@ -209,7 +339,7 @@ static DEVICE: Interface = Interface {
         ("SetDataFormat", Some(ok2)),
         ("SetEventNotification", Some(ok2)),
         ("SetCooperativeLevel", Some(ok3)),
-        ("GetObjectInfo", None),
+        ("GetObjectInfo", Some(dev_GetObjectInfo)),
         ("GetDeviceInfo", None),
         ("RunControlPanel", None),
         ("Initialize", None),
