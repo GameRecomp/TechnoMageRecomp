@@ -160,6 +160,18 @@ pub fn surface_of(m: Mem, obj: u32) -> Option<(u32, u32, u32, u32, u32)> {
     Some((s.buf, s.width, s.height, s.pitch, s.bpp))
 }
 
+/// The z-buffer attached to the surface object `obj`, as [`surface_of`].
+pub fn zbuffer_of(m: Mem, obj: u32) -> Option<(u32, u32, u32, u32, u32)> {
+    let z = surface(com::id_of(m, obj))?.zbuffer?;
+    let s = surface(z)?;
+    Some((s.buf, s.width, s.height, s.pitch, s.bpp))
+}
+
+/// How often the surface object `obj` was locked: a texture's content version.
+pub fn version_of(m: Mem, obj: u32) -> u32 {
+    surface(com::id_of(m, obj)).map_or(0, |s| s.version)
+}
+
 /// The display mode the game set.
 pub fn display_mode() -> (u32, u32, u32) {
     st().mode
@@ -868,6 +880,12 @@ fn s_Flip(c: &mut Cpu) {
     };
     let shown = front.back.and_then(surface).unwrap_or(front);
     let rgba = to_rgba(m, &shown);
+    // The frame's Direct3D commands go to the renderer once it exists (M5); for now they are
+    // counted and dropped.
+    let commands = crate::d3d::take_frame();
+    if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("d3d")) {
+        eprintln!("[d3d] frame: {} commands", commands.len());
+    }
     rc_platform::submit_frame(shown.width, shown.height, rgba);
     crate::frame_done(c);
     ret_stdcall(c, S_OK, 3);
