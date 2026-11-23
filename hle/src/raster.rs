@@ -677,9 +677,10 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     let edge =
         |p: &Vert, q: &Vert, x: f32, y: f32| (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x);
     for y in min_y..=max_y {
-        let py = y as f32 + 0.5;
+        // Direct3D before version 10 puts pixel centres on integer coordinates.
+        let py = y as f32;
         for x in min_x..=max_x {
-            let px = x as f32 + 0.5;
+            let px = x as f32;
             let w0 = edge(b, c, px, py);
             let w1 = edge(c, a, px, py);
             let w2 = edge(a, b, px, py);
