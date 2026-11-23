@@ -34,18 +34,21 @@ mod generated {
 struct Args {
     game_dir: Option<PathBuf>,
     check: bool,
+    headless: bool,
 }
 
 fn args() -> Args {
     let mut a = Args {
         game_dir: std::env::var_os("RC_GAME_DIR").map(PathBuf::from),
         check: false,
+        headless: std::env::var_os("RC_HEADLESS").is_some(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         match x.as_str() {
             "--game-dir" => a.game_dir = it.next().map(PathBuf::from),
             "--check" => a.check = true,
+            "--headless" => a.headless = true,
             _ => {}
         }
     }
@@ -200,7 +203,20 @@ fn user_dir() -> Option<PathBuf> {
 
 fn main() -> ExitCode {
     let a = args();
-    let _ = rc_hle::platform::Backend::default();
+    #[cfg(feature = "window")]
+    if !a.headless && !a.check {
+        let a = Args {
+            game_dir: a.game_dir.clone(),
+            check: false,
+            headless: false,
+        };
+        rc_platform::bevy_app::run("TechnoMage", move || {
+            if let Err(e) = run(&a) {
+                eprintln!("technomage: {e}");
+                std::process::exit(2);
+            }
+        });
+    }
     match run(&a) {
         Ok(c) => c,
         Err(e) => {

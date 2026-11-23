@@ -9,7 +9,61 @@
 //! Nothing above this crate names Bevy or wgpu types. What exists so far is the frame sink both
 //! backends read: the HLE layer submits each finished frame here.
 
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, OnceLock};
+
+#[cfg(feature = "bevy")]
+pub mod bevy_app;
+
+/// Input from the host, in the terms the HLE layer needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Input {
+    /// A key: DirectInput scan code and Windows virtual key.
+    Key { scan: u8, vk: u32, down: bool },
+    /// Relative mouse motion.
+    MouseMotion { dx: i32, dy: i32 },
+    /// Mouse wheel (120 per notch).
+    Wheel { dz: i32 },
+    /// A mouse button: 0 left, 1 right, 2 middle.
+    MouseButton { button: u8, down: bool },
+    /// The pointer's position in the game's frame.
+    Cursor { x: i32, y: i32 },
+}
+
+static INPUT_SINK: OnceLock<fn(Input)> = OnceLock::new();
+
+/// Where input goes (the HLE layer registers it).
+pub fn set_input_sink(f: fn(Input)) {
+    let _ = INPUT_SINK.set(f);
+}
+
+/// Hand input to the HLE layer.
+pub fn input(i: Input) {
+    if let Some(f) = INPUT_SINK.get() {
+        f(i);
+    }
+}
+
+/// The audio mixer's connection: the HLE layer registers a function that fills interleaved
+/// stereo samples at [`audio::RATE`]; the backend calls it from its audio thread.
+pub mod audio {
+    use std::sync::OnceLock;
+
+    pub const RATE: u32 = 44_100;
+
+    static MIXER: OnceLock<fn(&mut [f32])> = OnceLock::new();
+
+    pub fn set_mixer(f: fn(&mut [f32])) {
+        let _ = MIXER.set(f);
+    }
+
+    /// Fill `out` (interleaved stereo); silence without a mixer.
+    pub fn mix(out: &mut [f32]) {
+        match MIXER.get() {
+            Some(f) => f(out),
+            None => out.fill(0.0),
+        }
+    }
+}
 
 /// Which host backend a program runs on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -38,8 +38,61 @@ pub use rc_runtime as runtime;
 
 use rc_runtime::cpu::Cpu;
 
+/// Host input into DirectInput's state and the window's messages.
+fn on_input(i: rc_platform::Input) {
+    use rc_platform::Input;
+    const HWND: u32 = 0x10010;
+    match i {
+        Input::Key { scan, vk, down } => {
+            dinput::key(scan, down);
+            let msg = if down {
+                user32::WM_KEYDOWN
+            } else {
+                user32::WM_KEYUP
+            };
+            let lp = (u32::from(scan) << 16) | 1 | if down { 0 } else { 0xc000_0000 };
+            user32::post_input(user32::Msg {
+                hwnd: HWND,
+                msg,
+                wparam: vk,
+                lparam: lp,
+            });
+        }
+        Input::MouseMotion { dx, dy } => dinput::mouse_motion(dx, dy, 0),
+        Input::Wheel { dz } => dinput::mouse_motion(0, 0, dz),
+        Input::MouseButton { button, down } => {
+            dinput::mouse_button(usize::from(button), down);
+            let msg = match (button, down) {
+                (0, true) => user32::WM_LBUTTONDOWN,
+                (0, false) => user32::WM_LBUTTONUP,
+                (1, true) => user32::WM_RBUTTONDOWN,
+                (1, false) => user32::WM_RBUTTONUP,
+                _ => return,
+            };
+            let (x, y) = user32::cursor();
+            let lp = ((y as u32) << 16) | (x as u32 & 0xffff);
+            user32::post_input(user32::Msg {
+                hwnd: HWND,
+                msg,
+                wparam: u32::from(down),
+                lparam: lp,
+            });
+        }
+        Input::Cursor { x, y } => {
+            let lp = ((y as u32) << 16) | (x as u32 & 0xffff);
+            user32::post_input(user32::Msg {
+                hwnd: HWND,
+                msg: user32::WM_MOUSEMOVE,
+                wparam: 0,
+                lparam: lp,
+            });
+        }
+    }
+}
+
 /// Register every HLE module with the runtime's import table.
 pub fn register_all() {
+    rc_platform::set_input_sink(on_input);
     kernel32::register();
     user32::register();
     small::register();

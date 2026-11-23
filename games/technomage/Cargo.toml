@@ -8,6 +8,11 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["window"]
+# The Bevy window (without it the program runs headless, as with --headless).
+window = ["rc-platform/bevy"]
+
 [[bin]]
 name = "technomage"
 path = "src/main.rs"

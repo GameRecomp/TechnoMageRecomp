@@ -81,6 +81,11 @@ pub fn post_input(m: Msg) {
     s.queue.push_back(m);
 }
 
+/// The pointer's position in the game's frame.
+pub fn cursor() -> (i32, i32) {
+    st().cursor
+}
+
 /// The game window's procedure, 0 before `CreateWindowExA`.
 pub fn wndproc() -> u32 {
     st().wndproc

@@ -8,6 +8,38 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# The game's backend: a Bevy window with the frames, input and audio.
+bevy = ["dep:bevy", "dep:blake3"]
+
+[dependencies]
+bevy = { version = "0.20.1", optional = true, default-features = false, features = [
+  "std",
+  "async_executor",
+  "multi_threaded",
+  "bevy_asset",
+  "bevy_log",
+  "bevy_winit",
+  "bevy_window",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_camera",
+  "bevy_color",
+  "bevy_image",
+  "bevy_sprite",
+  "bevy_sprite_render",
+  "bevy_audio",
+  "keyboard",
+  "mouse",
+  "x11",
+  "wayland",
+] }
+
+# Bevy's asset hashing: the portable Rust implementation, not the C and assembly one that
+# blake3 builds with cc otherwise (Rust only, docs/PLAN.md).
+blake3 = { version = "1", optional = true, default-features = false, features = ["pure", "std"] }
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
