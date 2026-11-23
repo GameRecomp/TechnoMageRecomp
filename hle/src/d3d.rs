@@ -141,6 +141,88 @@ fn next_id() -> u32 {
     id
 }
 
+/// The GPU path: draws of one render target collected until the CPU needs its pixels.
+#[cfg(feature = "gpu")]
+mod batch {
+    use rc_platform::gpu::{Command, Renderer};
+    use rc_runtime::mem::Mem;
+    use std::sync::Mutex;
+
+    static BATCH: Mutex<(u32, Vec<Command>)> = Mutex::new((0, Vec::new()));
+    static RENDERER: Mutex<Option<Option<Renderer>>> = Mutex::new(None);
+
+    /// Whether a GPU renders (created on first use).
+    pub fn available() -> bool {
+        let mut r = RENDERER.lock().expect("renderer");
+        if r.is_none() {
+            let made = Renderer::new();
+            eprintln!(
+                "[d3d] renderer: {}",
+                if made.is_some() {
+                    "GPU (wgpu)"
+                } else {
+                    "software"
+                }
+            );
+            *r = Some(made);
+        }
+        r.as_ref().is_some_and(Option::is_some)
+    }
+
+    pub fn push(m: Mem, target: u32, c: Command) {
+        let other = {
+            let b = BATCH.lock().expect("batch");
+            b.0 != target && !b.1.is_empty()
+        };
+        if other {
+            flush(m);
+        }
+        let mut b = BATCH.lock().expect("batch");
+        b.0 = target;
+        b.1.push(c);
+    }
+
+    /// Render what was collected into the target's pixels in guest memory.
+    pub fn flush(m: Mem) {
+        let (target, commands) = {
+            let mut b = BATCH.lock().expect("batch");
+            if !b.1.iter().any(|c| matches!(c, Command::Draw(_))) {
+                // Only depth clears: they wait for the next draw.
+                return;
+            }
+            (b.0, std::mem::take(&mut b.1))
+        };
+        let Some(info) = crate::ddraw::info(m, target) else {
+            return;
+        };
+        let rgba = crate::raster::to_rgba8(m, &info);
+        let mut r = RENDERER.lock().expect("renderer");
+        if let Some(Some(r)) = r.as_mut() {
+            let out = r.render(info.width, info.height, &rgba, &commands);
+            crate::raster::from_rgba8(m, &info, &out);
+        }
+    }
+
+    /// Flush if `obj` is the surface the collected draws go to.
+    pub fn flush_if(m: Mem, obj: u32) {
+        let pending = {
+            let b = BATCH.lock().expect("batch");
+            b.0 == obj && !b.1.is_empty()
+        };
+        if pending {
+            flush(m);
+        }
+    }
+}
+
+/// Before the CPU touches surface `obj`: the GPU's pending draws into it are done.
+pub fn flush_if_target(m: Mem, obj: u32) {
+    #[cfg(feature = "gpu")]
+    batch::flush_if(m, obj);
+    #[cfg(not(feature = "gpu"))]
+    let _ = (m, obj);
+}
+
 /// The frame's commands so far, handed to the renderer (at `Flip`).
 pub fn take_frame() -> Vec<Command> {
     std::mem::take(&mut g().frame)
@@ -397,8 +479,21 @@ fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16
         return;
     };
     let state = snapshot(d);
-    // The software renderer draws now, into the target in guest memory.
     let t = std::time::Instant::now();
+    #[cfg(feature = "gpu")]
+    if batch::available() {
+        let target = state.target;
+        drop(s);
+        if let Some(d) = crate::raster::gpu_draw(m, &state, primitive, fvf, &vertices, &indices) {
+            batch::push(m, target, rc_platform::gpu::Command::Draw(d));
+        }
+        crate::RASTER_NS.fetch_add(
+            t.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        return;
+    }
+    // The software renderer draws now, into the target in guest memory.
     crate::raster::draw(m, &state, primitive, fvf, &vertices, &indices);
     crate::RASTER_NS.fetch_add(
         t.elapsed().as_nanos() as u64,
@@ -469,6 +564,8 @@ fn dev_GetDirect3D(c: &mut Cpu) {
 
 fn dev_SetRenderTarget(c: &mut Cpu) {
     let t = c.arg(1);
+    let old = with_dev(c, |d| d.state.target).unwrap_or(0);
+    flush_if_target(c.mem(), old);
     with_dev(c, |d| d.state.target = t);
     ret_stdcall(c, S_OK, 3);
 }
@@ -516,7 +613,12 @@ fn dev_Clear(c: &mut Cpu) {
             (vp[1] + vp[3]) as i32,
         ]);
     }
+    #[cfg(feature = "gpu")]
+    let gpu = batch::available();
+    #[cfg(not(feature = "gpu"))]
+    let gpu = false;
     if flags & 1 != 0 {
+        flush_if_target(m, target);
         if let Some((buf, w, h, pitch, bpp)) = ddraw::surface_of(m, target) {
             let v = match bpp {
                 16 => {
@@ -528,7 +630,15 @@ fn dev_Clear(c: &mut Cpu) {
             fill(m, buf, w, h, pitch, bpp, &rects, v);
         }
     }
-    if flags & 2 != 0 {
+    #[cfg(feature = "gpu")]
+    if gpu && flags & 2 != 0 {
+        batch::push(
+            m,
+            target,
+            rc_platform::gpu::Command::ClearDepth(z.clamp(0.0, 1.0)),
+        );
+    }
+    if flags & 2 != 0 && !gpu {
         if let Some((buf, w, h, pitch, bpp)) = ddraw::zbuffer_of(m, target) {
             let max = if bpp == 16 { 0xffff } else { 0x00ff_ffff };
             let v = (z.clamp(0.0, 1.0) * max as f32) as u32;

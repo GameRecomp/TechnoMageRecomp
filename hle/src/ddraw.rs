@@ -759,6 +759,7 @@ fn read_rect(m: Mem, p: u32, s: &Surface) -> Rect {
 fn s_Lock(c: &mut Cpu) {
     let m = c.mem();
     let (rect, d) = (c.arg(1), c.arg(2));
+    crate::d3d::flush_if_target(m, c.arg(0));
     let id = sid(c);
     let Some(s) = surface(id) else {
         return ret_stdcall(c, DDERR_GENERIC, 5);
@@ -874,6 +875,8 @@ const DDBLT_DEPTHFILL: u32 = 0x0200_0000;
 fn s_Blt(c: &mut Cpu) {
     let m = c.mem();
     let (drect, src_obj, srect, flags, fx) = (c.arg(1), c.arg(2), c.arg(3), c.arg(4), c.arg(5));
+    crate::d3d::flush_if_target(m, c.arg(0));
+    crate::d3d::flush_if_target(m, src_obj);
     let Some(dst) = surface(sid(c)) else {
         return ret_stdcall(c, DDERR_GENERIC, 6);
     };
@@ -905,6 +908,8 @@ fn s_Blt(c: &mut Cpu) {
 
 fn s_BltFast(c: &mut Cpu) {
     let m = c.mem();
+    crate::d3d::flush_if_target(m, c.arg(0));
+    crate::d3d::flush_if_target(m, c.arg(3));
     let (x, y, src_obj, srect, trans) = (
         c.arg(1) as i32,
         c.arg(2) as i32,
@@ -993,6 +998,9 @@ fn s_Flip(c: &mut Cpu) {
     let Some(front) = surface(sid(c)) else {
         return ret_stdcall(c, DDERR_GENERIC, 3);
     };
+    if let Some(back) = front.back.and_then(surface) {
+        crate::d3d::flush_if_target(m, back.object);
+    }
     let shown = front.back.and_then(surface).unwrap_or(front);
     let rgba = to_rgba(m, &shown);
     // The frame's Direct3D commands go to the renderer once it exists (M5); for now they are

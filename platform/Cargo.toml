@@ -10,10 +10,15 @@ publish.workspace = true
 
 [features]
 default = []
+# The GPU renderer (wgpu, offscreen): Direct3D's pixel pipeline.
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 # The game's backend: a Bevy window with the frames, input and audio.
 bevy = ["dep:bevy", "dep:blake3"]
 
 [dependencies]
+wgpu = { version = "30.0.2", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", optional = true, features = ["derive"] }
 bevy = { version = "0.20.1", optional = true, default-features = false, features = [
   "std",
   "async_executor",

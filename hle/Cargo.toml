@@ -8,6 +8,11 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+# Direct3D on the GPU (rc-platform's wgpu renderer); the software rasterizer otherwise.
+gpu = ["rc-platform/gpu"]
+
 [dependencies]
 rc-runtime.workspace = true
 rc-platform.workspace = true

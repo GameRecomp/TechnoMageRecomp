@@ -879,6 +879,214 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     }
 }
 
+/// The draw as the GPU renderer takes it: culled screen-space triangles, the textures decoded
+/// (shared with the software path's cache), the stage setup and the pixel state. `None` when
+/// it draws nothing.
+#[cfg(feature = "gpu")]
+pub fn gpu_draw(
+    m: Mem,
+    st: &State,
+    primitive: u32,
+    fvf: u32,
+    data: &[u8],
+    indices: &[u16],
+) -> Option<rc_platform::gpu::Draw> {
+    use rc_platform::gpu;
+    let verts = vertices(m, st, fvf, data);
+    if verts.is_empty() {
+        return None;
+    }
+    let idx: Vec<usize> = if indices.is_empty() {
+        (0..verts.len()).collect()
+    } else {
+        indices
+            .iter()
+            .map(|&i| usize::from(i))
+            .filter(|&i| i < verts.len())
+            .collect()
+    };
+    let mut tris = Vec::new();
+    match primitive {
+        4 => {
+            for t in idx.as_chunks::<3>().0 {
+                tris.push((t[0], t[1], t[2]));
+            }
+        }
+        5 => {
+            for i in 2..idx.len() {
+                if i % 2 == 0 {
+                    tris.push((idx[i - 2], idx[i - 1], idx[i]));
+                } else {
+                    tris.push((idx[i - 1], idx[i - 2], idx[i]));
+                }
+            }
+        }
+        6 => {
+            for i in 2..idx.len() {
+                tris.push((idx[0], idx[i - 1], idx[i]));
+            }
+        }
+        _ => return None,
+    }
+    let cull = rs(st, RS_CULLMODE, 3);
+    let flat = rs(st, RS_SHADEMODE, 2) == 1;
+    let gv = |v: &Vert, first: &Vert| gpu::Vertex {
+        pos: [v.x, v.y, v.z, v.rhw],
+        diffuse: if flat { first.diffuse } else { v.diffuse },
+        specular: if flat { first.specular } else { v.specular },
+        uv0: v.uv[0],
+        uv1: v.uv[1],
+        eye: v.eye_z,
+        _pad: [0.0; 3],
+    };
+    let mut out = Vec::with_capacity(tris.len() * 3);
+    for (a, b, c) in tris {
+        let (va, vb, vc) = (&verts[a], &verts[b], &verts[c]);
+        let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
+        if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
+            continue;
+        }
+        if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
+            continue;
+        }
+        out.push(gv(va, va));
+        out.push(gv(vb, va));
+        out.push(gv(vc, va));
+    }
+    if out.is_empty() {
+        return None;
+    }
+    let mut textures: [Option<gpu::Texture>; 2] = [None, None];
+    for (s, slot) in textures.iter_mut().enumerate() {
+        if let Some((obj, version)) = st.textures[s] {
+            if let Some(info) = ddraw::info(m, obj) {
+                let key = if rs(st, RS_COLORKEYENABLE, 0) != 0 {
+                    info.src_key
+                } else {
+                    None
+                };
+                let version = ddraw::version_of(m, obj).max(version);
+                let d = decoded(m, obj, version, &info, key);
+                *slot = Some(gpu::Texture {
+                    key: (obj, version, key.is_some()),
+                    width: d.w,
+                    height: d.h,
+                    rgba: std::sync::Arc::new(d.texels.clone()),
+                    bilinear: tss(st, s, TSS_MAGFILTER) >= 2,
+                    clamp: (tss(st, s, TSS_ADDRESSU) == 3, tss(st, s, TSS_ADDRESSV) == 3),
+                });
+            }
+        }
+    }
+    let mut stages = Vec::new();
+    for s in 0..2 {
+        let cop = tss(st, s, TSS_COLOROP);
+        if cop == 1 {
+            break;
+        }
+        stages.push(gpu::Stage {
+            cop,
+            ca1: tss(st, s, TSS_COLORARG1),
+            ca2: tss(st, s, TSS_COLORARG2),
+            aop: tss(st, s, TSS_ALPHAOP),
+            aa1: tss(st, s, TSS_ALPHAARG1),
+            aa2: tss(st, s, TSS_ALPHAARG2),
+            coords: tss(st, s, TSS_TEXCOORDINDEX) & 1,
+        });
+    }
+    let keyed = rs(st, RS_COLORKEYENABLE, 0) != 0
+        && st
+            .textures
+            .iter()
+            .take(2)
+            .flatten()
+            .any(|(o, _)| ddraw::info(m, *o).is_some_and(|i| i.src_key.is_some()));
+    let zbuffer = rs(st, RS_ZENABLE, 1) != 0 && ddraw::zbuffer_info(m, st.target).is_some();
+    Some(gpu::Draw {
+        vertices: out,
+        textures,
+        stages,
+        factor: argb(rs(st, RS_TEXTUREFACTOR, 0xffff_ffff)),
+        specular_add: rs(st, 29, 0) != 0,
+        keyed,
+        alpha_test: (rs(st, RS_ALPHATESTENABLE, 0) != 0).then(|| {
+            (
+                rs(st, RS_ALPHAFUNC, 8),
+                rs(st, RS_ALPHAREF, 0) as f32 / 255.0,
+            )
+        }),
+        blend: (rs(st, RS_ALPHABLENDENABLE, 0) != 0)
+            .then(|| (rs(st, RS_SRCBLEND, 2), rs(st, RS_DESTBLEND, 1))),
+        depth: zbuffer.then(|| (rs(st, RS_ZFUNC, 4), rs(st, RS_ZWRITEENABLE, 1) != 0)),
+        fog: (rs(st, RS_FOGENABLE, 0) != 0).then(|| {
+            (
+                argb(rs(st, RS_FOGCOLOR, 0)),
+                (rs(st, RS_FOGTABLEMODE, 0) == 3)
+                    .then(|| (rsf(st, RS_FOGSTART, 0.0), rsf(st, RS_FOGEND, 1.0))),
+            )
+        }),
+    })
+}
+
+/// Pixels of a surface as RGBA8, and back.
+pub fn to_rgba8(m: Mem, s: &SurfaceInfo) -> Vec<u8> {
+    let mut out = Vec::with_capacity((s.width * s.height * 4) as usize);
+    let k = s.masks;
+    let to8 = |v: u32, mask: u32| -> u8 {
+        if mask == 0 {
+            return 255;
+        }
+        let shift = mask.trailing_zeros();
+        let max = mask >> shift;
+        (((v & mask) >> shift) * 255 / max) as u8
+    };
+    let bytes = s.bpp / 8;
+    let mut row = vec![0u8; (s.width * bytes) as usize];
+    for y in 0..s.height {
+        m.read(s.buf + y * s.pitch, &mut row);
+        for x in 0..s.width as usize {
+            let v = match bytes {
+                2 => u32::from(u16::from_le_bytes([row[2 * x], row[2 * x + 1]])),
+                _ => {
+                    u32::from_le_bytes([row[4 * x], row[4 * x + 1], row[4 * x + 2], row[4 * x + 3]])
+                }
+            };
+            out.extend_from_slice(&[
+                to8(v, k[0]),
+                to8(v, k[1]),
+                to8(v, k[2]),
+                if k[3] != 0 { to8(v, k[3]) } else { 255 },
+            ]);
+        }
+    }
+    out
+}
+
+pub fn from_rgba8(m: Mem, s: &SurfaceInfo, rgba: &[u8]) {
+    let k = s.masks;
+    let pack = |v: u8, mask: u32| -> u32 {
+        if mask == 0 {
+            return 0;
+        }
+        let shift = mask.trailing_zeros();
+        let max = mask >> shift;
+        ((u32::from(v) * max + 127) / 255) << shift
+    };
+    let bytes = s.bpp / 8;
+    let mut row = vec![0u8; (s.width * bytes) as usize];
+    for y in 0..s.height as usize {
+        for x in 0..s.width as usize {
+            let p = &rgba[4 * (y * s.width as usize + x)..];
+            let v = pack(p[0], k[0]) | pack(p[1], k[1]) | pack(p[2], k[2]) | pack(p[3], k[3]);
+            match bytes {
+                2 => row[2 * x..2 * x + 2].copy_from_slice(&(v as u16).to_le_bytes()),
+                _ => row[4 * x..4 * x + 4].copy_from_slice(&v.to_le_bytes()),
+            }
+        }
+        m.write(s.buf + y as u32 * s.pitch, &row);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

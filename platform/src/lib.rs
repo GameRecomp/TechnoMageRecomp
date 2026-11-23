@@ -13,6 +13,8 @@ use std::sync::{Condvar, Mutex, OnceLock};
 
 #[cfg(feature = "bevy")]
 pub mod bevy_app;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 /// Input from the host, in the terms the HLE layer needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
