@@ -18,10 +18,14 @@
 //! signature of lifted code, `fn(&mut Cpu)`, reads its arguments from the guest stack and pops
 //! them (`stdcall`). See docs/ARCHITECTURE.md.
 //!
-//! Done: `kernel32`. The others follow in M4–M6 (docs/PLAN.md).
+//! Done: `kernel32`, `user32`, `gdi32`, `ole32`, `winmm` (`small`), `mss32` (state, no mixer). The others follow in M4–M6
+//! (docs/PLAN.md).
 
 pub mod codepage;
 pub mod kernel32;
+pub mod mss32;
+pub mod small;
+pub mod user32;
 
 pub use rc_platform as platform;
 pub use rc_runtime as runtime;
@@ -31,6 +35,9 @@ use rc_runtime::cpu::Cpu;
 /// Register every HLE module with the runtime's import table.
 pub fn register_all() {
     kernel32::register();
+    user32::register();
+    small::register();
+    mss32::register();
     rc_runtime::dispatch::set_import_resolver(rc_runtime::imports::resolve);
 }
 

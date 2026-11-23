@@ -17,6 +17,23 @@ rc-runtime.workspace = true
 rc-hle.workspace = true
 rc-platform.workspace = true
 sha2.workspace = true
+technomage-shard-00 = { path = "lifted/shard00" }
+technomage-shard-01 = { path = "lifted/shard01" }
+technomage-shard-02 = { path = "lifted/shard02" }
+technomage-shard-03 = { path = "lifted/shard03" }
+technomage-shard-04 = { path = "lifted/shard04" }
+technomage-shard-05 = { path = "lifted/shard05" }
+technomage-shard-06 = { path = "lifted/shard06" }
+technomage-shard-07 = { path = "lifted/shard07" }
+technomage-shard-08 = { path = "lifted/shard08" }
+technomage-shard-09 = { path = "lifted/shard09" }
+technomage-shard-10 = { path = "lifted/shard10" }
+technomage-shard-11 = { path = "lifted/shard11" }
+technomage-shard-12 = { path = "lifted/shard12" }
+technomage-shard-13 = { path = "lifted/shard13" }
+technomage-shard-14 = { path = "lifted/shard14" }
+technomage-shard-15 = { path = "lifted/shard15" }
 
-[lints]
-workspace = true
+# The generated dispatch tables declare the shards' functions in unsafe extern blocks.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

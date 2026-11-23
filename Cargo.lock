@@ -879,6 +879,134 @@ dependencies = [
  "rc-platform",
  "rc-runtime",
  "sha2",
+ "technomage-shard-00",
+ "technomage-shard-01",
+ "technomage-shard-02",
+ "technomage-shard-03",
+ "technomage-shard-04",
+ "technomage-shard-05",
+ "technomage-shard-06",
+ "technomage-shard-07",
+ "technomage-shard-08",
+ "technomage-shard-09",
+ "technomage-shard-10",
+ "technomage-shard-11",
+ "technomage-shard-12",
+ "technomage-shard-13",
+ "technomage-shard-14",
+ "technomage-shard-15",
+]
+
+[[package]]
+name = "technomage-shard-00"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-01"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-02"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-03"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-04"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-05"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-06"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-07"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-08"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-09"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-10"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-11"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-12"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-13"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-14"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
+]
+
+[[package]]
+name = "technomage-shard-15"
+version = "0.0.1"
+dependencies = [
+ "rc-runtime",
 ]
 
 [[package]]

@@ -236,3 +236,25 @@ pub fn rdtsc(eax: &mut u32, edx: &mut u32) {
     *eax = t as u32;
     *edx = (t >> 32) as u32;
 }
+
+/// Where a callback the host makes into guest code returns to: never executed, the lifted
+/// function's `ret` pops it and returns to the host.
+pub const CALLBACK_RETURN: u32 = 0xefff_fff0;
+
+/// Call the guest function at `addr` with stdcall/cdecl arguments `args` (first argument first)
+/// and return `eax`. The callee-saved registers survive as on Windows; `esp` is restored for
+/// cdecl callees too.
+pub fn call_guest(c: &mut Cpu, addr: u32, args: &[u32]) -> u32 {
+    let saved = c.r;
+    for &a in args.iter().rev() {
+        c.push32(a);
+    }
+    c.push32(CALLBACK_RETURN);
+    dispatch(c, addr);
+    let eax = c.r[crate::cpu::EAX];
+    let edx = c.r[crate::cpu::EDX];
+    c.r = saved;
+    c.r[crate::cpu::EAX] = eax;
+    c.r[crate::cpu::EDX] = edx;
+    eax
+}

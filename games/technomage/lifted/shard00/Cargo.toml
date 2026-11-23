@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "technomage-shard-00"
+description = "Part 00 of TechnoMage's lifted code (generated/, see rc-emit-rust)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+build = "../shard-build.rs"
+
+[dependencies]
+rc-runtime.workspace = true
+
+# Generated code defines #[no_mangle] functions and declares the other shards' ones in
+# unsafe extern blocks (rc-emit-rust explains why that is sound).
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

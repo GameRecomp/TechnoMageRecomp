@@ -8,6 +8,24 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+// The shards hold the lifted functions; naming them links them in.
+use technomage_shard_00 as _;
+use technomage_shard_01 as _;
+use technomage_shard_02 as _;
+use technomage_shard_03 as _;
+use technomage_shard_04 as _;
+use technomage_shard_05 as _;
+use technomage_shard_06 as _;
+use technomage_shard_07 as _;
+use technomage_shard_08 as _;
+use technomage_shard_09 as _;
+use technomage_shard_10 as _;
+use technomage_shard_11 as _;
+use technomage_shard_12 as _;
+use technomage_shard_13 as _;
+use technomage_shard_14 as _;
+use technomage_shard_15 as _;
+
 #[allow(clippy::all)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));

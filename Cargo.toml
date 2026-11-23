@@ -9,6 +9,7 @@ members = [
   "hle",
   "platform",
   "games/technomage",
+  "games/technomage/lifted/shard*",
 ]
 
 [workspace.package]
@@ -53,3 +54,52 @@ debug = 1
 # game runs too slowly to test (decision log).
 [profile.dev.package.technomage]
 opt-level = 1
+
+[profile.dev.package.technomage-shard-00]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-01]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-02]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-03]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-04]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-05]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-06]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-07]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-08]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-09]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-10]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-11]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-12]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-13]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-14]
+opt-level = 1
+
+[profile.dev.package.technomage-shard-15]
+opt-level = 1
+

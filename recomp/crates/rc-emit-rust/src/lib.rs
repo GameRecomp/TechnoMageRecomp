@@ -21,9 +21,9 @@
 //! block and continues the loop; falling into the next block does the same. A function entered
 //! above its lowest instruction simply starts in the entry's block.
 //!
-//! Output layout (`generated/<game>/<binary>-<variant>/`, git-ignored): `code_XXXX.rs` per 64 KiB
-//! of guest address space (by the function's middle instruction) and `mod.rs`, which declares them, re-exports every function and holds
-//! the sorted dispatch table `TABLE`. The output is a function of the input only.
+//! Output layout (`generated/<game>/<binary>-<variant>/`, git-ignored): `shard_NN.rs`, the
+//! functions spread over [`SHARDS`] crates that build in parallel (see [`binary`]), and `mod.rs`
+//! with the sorted dispatch table `TABLE`. The output is a function of the input only.
 
 #![forbid(unsafe_code)]
 
@@ -886,23 +886,80 @@ const ALLOW: &str = "#![allow(unused_mut, unused_variables, unused_assignments, 
 /// One binary of a program that links several: one file per 64 KiB of guest code and `mod.rs`
 /// with the module declarations, the re-exports and `TABLE`, the sorted `(address, function)`
 /// pairs the dispatcher searches. `functions` must be sorted by address.
+/// How many shard crates the functions are spread over (`games/<id>/lifted/shardNN`).
+pub const SHARDS: usize = 16;
+
+/// The function names (`<prefix>` and eight hex digits) that `src` mentions, sorted.
+fn named_functions<'a>(prefix: &str, src: &'a str) -> BTreeSet<&'a str> {
+    let mut out = BTreeSet::new();
+    let ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = src.as_bytes();
+    let mut from = 0;
+    while let Some(i) = src[from..].find(prefix) {
+        let at = from + i;
+        let end = at + prefix.len() + 8;
+        from = at + prefix.len();
+        if at > 0 && ident(bytes[at - 1]) {
+            continue;
+        }
+        if end > src.len() || (end < src.len() && ident(bytes[end])) {
+            continue;
+        }
+        if src[at + prefix.len()..end]
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit())
+        {
+            out.insert(&src[at..end]);
+        }
+    }
+    out
+}
+
+/// One binary of a program that links several. Its functions are spread over [`SHARDS`] files
+/// `shard_NN.rs`, balanced by size in address order, each compiled in a crate of its own so the
+/// shards build in parallel. Every function is `#[no_mangle]`; a shard declares the ones of other
+/// shards it calls in an `unsafe extern "Rust"` block of `safe fn`s, which is sound because the
+/// declarations and the definitions come from the same list here. `mod.rs` declares them all
+/// for the dispatch table `TABLE` (sorted by guest address). `functions` must be sorted by
+/// address.
 pub fn binary(p: &Entries, functions: &[Function], opts: Options) -> Tree {
     let mut tree = Tree::new();
-    let mut buckets: BTreeMap<u32, String> = BTreeMap::new();
-    for f in functions {
-        // By where the body is, not the entry: an entry is often a jump thunk far from it, and
-        // its lowest instruction may be that thunk too. The middle instruction is in the body.
-        let middle = f.insns.get(f.insns.len() / 2).map_or(f.addr, |i| i.addr);
-        let b = buckets.entry(middle >> 16).or_default();
-        b.push_str(&function(p, f, opts));
-        b.push('\n');
+    let bodies: Vec<String> = functions.iter().map(|f| function(p, f, opts)).collect();
+    // Greedy in address order: each function goes to the shard with the fewest bytes so far
+    // (ties to the lower number), so the result depends on the input only.
+    let mut shards: Vec<(String, BTreeSet<String>)> =
+        vec![(String::new(), BTreeSet::new()); SHARDS];
+    for (f, body) in functions.iter().zip(&bodies) {
+        let k = (0..SHARDS)
+            .min_by_key(|&k| (shards[k].0.len(), k))
+            .unwrap_or(0);
+        shards[k].0.push_str("#[no_mangle]\n");
+        shards[k].0.push_str(body);
+        shards[k].0.push('\n');
+        shards[k].1.insert(p.name(f.addr));
+    }
+    for (k, (body, own)) in shards.iter().enumerate() {
+        let mut src = format!("{HEADER}{ALLOW}\nuse rc_runtime::lifted::*;\n\n");
+        let called: Vec<&str> = named_functions(&p.prefix, body)
+            .into_iter()
+            .filter(|n| !own.contains(*n))
+            .collect();
+        if !called.is_empty() {
+            src.push_str("// SAFETY: every name is defined with exactly this signature in another shard\n// of this binary, generated from the same function list.\nunsafe extern \"Rust\" {\n");
+            for n in called {
+                let _ = writeln!(src, "    safe fn {n}(c: &mut Cpu);");
+            }
+            src.push_str("}\n\n");
+        }
+        src.push_str(body);
+        tree.insert(format!("shard_{k:02}.rs"), src);
     }
     let mut module = format!("{HEADER}{ALLOW}\nuse rc_runtime::lifted::Cpu;\n\n");
-    for (k, body) in buckets {
-        let _ = writeln!(module, "mod code_{k:04x};\npub use code_{k:04x}::*;");
-        let src = format!("{HEADER}{ALLOW}\nuse super::*;\nuse rc_runtime::lifted::*;\n\n{body}");
-        tree.insert(format!("code_{k:04x}.rs"), src);
+    module.push_str("// SAFETY: the shards define every name with exactly this signature (same list).\nunsafe extern \"Rust\" {\n");
+    for f in functions {
+        let _ = writeln!(module, "    safe fn {}(c: &mut Cpu);", p.name(f.addr));
     }
+    module.push_str("}\n");
     let _ = writeln!(
         module,
         "\n/// Every lifted function of this binary, sorted by guest address.\npub static TABLE: [(u32, fn(&mut Cpu)); {}] = [",
@@ -1014,6 +1071,7 @@ mod tests {
         };
         let t = binary(&names(&[0x401000]), &[f], Options::default());
         assert!(t["mod.rs"].contains("(0x00401000, f_00401000),"));
-        assert!(t.contains_key("code_0040.rs"));
+        assert!(t["shard_00.rs"].contains("#[no_mangle]\npub fn f_00401000"));
+        assert_eq!(t.len(), SHARDS + 1);
     }
 }

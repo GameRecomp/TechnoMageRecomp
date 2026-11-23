@@ -159,24 +159,40 @@ Binary treatment:
 
 - [ ] `rc-emit-rust`: functions, blocks as `loop { match }`, the dispatch table, the binary record; rustfmt-clean,
       warning-free output; module split so `rustc` stays within memory (per 64 KiB, `codegen-units`)
-- [ ] `games/technomage` includes `generated/` through `build.rs` when present
-- [ ] Build time and binary size measured (target: a full release build under 10 minutes on 16 cores)
+- [x] `games/technomage` includes `generated/` through `build.rs` when present; the shell maps the executable
+      and calls its entry point (`--check` lists missing imports)
+- [x] First measurements: 2 936 functions, 363 297 instructions, 82 MB of Rust (109 MB before the flag
+      liveness and the grouping by body). One crate builds in more than 20 minutes on 8 cores with `opt-level
+      = 1`: `rustc`'s front end runs on one core, and only code generation uses more than two
+- [ ] **Shards**: the functions spread over 16 fixed shard crates (`games/technomage/lifted/shardNN`, each
+      including its part of `generated/` through `build.rs`), balanced by size, so cargo builds them in parallel.
+      A call into another shard goes through an `unsafe extern "Rust"` block of `safe fn` declarations with
+      `#[no_mangle]` names, generated from the same table as the definitions (the one place generated code says
+      `unsafe`). Target: a full build under 10 minutes on 8 cores, an incremental one in a minute
+- [ ] For quick turns while developing: `recomp convert --system linux` (Cranelift, no `rustc`) with the Rust
+      shell as the template (M8's path, brought forward)
 - [ ] Difftests pass (Rust reference side)
 
 ### M3r – Runtime in Rust
 
-- [ ] `mem`: 4 GiB reservation (native), linear-memory region (wasm), VM and heap layer
-- [ ] `cpu`, `x87` (fast mode), `cpuid`, `rdtsc`, the helper table for native and wasm code (same layout as the
-      sister projects' `rc_cpu`)
-- [ ] `dispatch`, traps, patches; `loader` (PE mapping, relocations for lifted DLLs, import binding, TIB/PEB)
+- [x] `mem`: 4 GiB reservation (native, pages committed on first touch), a checked region elsewhere; `vm`:
+      page regions and heaps (Windows still commits the whole block: a reserve/commit scheme is to do)
+- [x] `cpu` (the `rc_cpu` layout, checked by a test), `x87` (fast mode), `mmx`, `cpuid`, `rdtsc`
+- [ ] the helper table for native and wasm code
+- [x] `dispatch` (patches, lifted tables, import resolver, per-thread cache), traps, unwind claim/begin,
+      callbacks into guest code; `process` (PE mapping, packed executables restored, relocations, import
+      binding, TIB/PEB, the module list); `imports` (reserved addresses, the HLE registry, `RC_TRACE=imports`)
 - [ ] `seh` (`_except_handler3`, unwinding), `threads` (baton over OS threads; JSPI in the browser)
-- [ ] `clock` (real/virtual), `vfs` (case-insensitive, the virtual CD drive, user directory for writes)
+- [x] `clock` (real/virtual), `vfs` (case-insensitive, the virtual CD drive, user directory for writes), `handles`
 - [ ] `native`: the Cranelift blob loaded into executable memory (the converter's path)
 - [ ] The sister projects' runtime tests ported
 
 ### M4 – Boots
 
-- [ ] kernel32 for the static CRT start-up, heap, files, `FindFirstFile`, synchronisation objects
+- [x] kernel32: all 81 imports (CRT start-up, heap, files, `FindFirstFile`, code pages, synchronisation objects,
+      `LoadLibraryA`/`GetProcAddress` for HLE DLLs); SEH (`RtlUnwind`, `RaiseException`) still stops
+- [x] user32 (the window, message queue, cursor; 32 imports), gdi32 (gamma ramp), ole32 (COM class registry),
+      winmm; mss32 state without a mixer (45 imports)
 - [ ] The CD check passes on the virtual drive (no patch, if possible)
 - [ ] `TechnoMage.ini` read (defaults when missing: written by `TM_Setup.exe` normally)
 - [ ] user32 window and message loop; ole32 `CoCreateInstance(CLSID_DirectDraw)`; `LoadLibraryA("ddraw.dll")`
@@ -294,7 +310,7 @@ How the recompiled game fits into it:
 | Risk | Impact | Plan |
 |------|--------|------|
 | Runtime, HLE and platform rewritten in Rust (first in the family) | months of work before the first picture; fixes no longer copy 1:1 between the repositories | port module for module with the same names and tests; keep the `Cpu` layout and helper table identical, so the shared back ends stay shared |
-| Lifted code as Rust: `rustc` on ~1.3 MiB of x86 | long builds, high memory, huge functions | split per 64 KiB, `opt-level = 1` for dev, measure in M3; the end-user path uses Cranelift and needs no `rustc` |
+| Lifted code as Rust: `rustc` on ~1.3 MiB of x86 | measured: more than 20 minutes for one crate, 4 GB of memory | dead flag settings dropped, functions grouped by body, shards built in parallel (M3), Cranelift for quick turns; the end-user path uses Cranelift and needs no `rustc` |
 | Direct3D 7 fixed function on wgpu | wrong blending, fog, texture combiners; z-fighting | state-keyed WGSL generator, unit tests per state, screenshot comparisons with a reference capture from Windows (by hand) |
 | Mixed 2D/3D (locks of the back buffer, blits onto 3D) | GPU read-backs per frame, slow in the browser | track which surfaces are CPU- or GPU-resident; read back only when the game locks |
 | UPX unpacking | wrong image | byte-identical to `upx -d`; both hashes pinned |
