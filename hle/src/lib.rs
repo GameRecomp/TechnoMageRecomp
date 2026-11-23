@@ -28,6 +28,7 @@ pub mod d3d;
 pub mod ddraw;
 pub mod dinput;
 pub mod kernel32;
+pub mod mixer;
 pub mod mss32;
 pub mod raster;
 pub mod small;
@@ -93,6 +94,7 @@ fn on_input(i: rc_platform::Input) {
 /// Register every HLE module with the runtime's import table.
 pub fn register_all() {
     rc_platform::set_input_sink(on_input);
+    rc_platform::audio::set_mixer(mixer::mix);
     kernel32::register();
     user32::register();
     small::register();

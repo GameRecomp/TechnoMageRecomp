@@ -24,6 +24,13 @@ const PROVIDER_NAME: &[u8] = b"DirectSound3D 7+ Software - Pan and Volume\0";
 
 #[derive(Debug, Default, Clone)]
 struct Sample {
+    /// The decoded sound, once the game handed it over.
+    pcm: Option<std::sync::Arc<crate::mixer::Pcm>>,
+    /// Format of raw data (`AIL_set_sample_type`): DIG_F_* (0 mono 8, 1 mono 16, 2 stereo 8,
+    /// 3 stereo 16).
+    raw_format: u32,
+    /// 3D distances: (maximum, minimum).
+    distances: (f32, f32),
     /// A 3D sample (positioned in the listener's space by the mixer, M6).
     #[allow(dead_code)]
     three_d: bool,
@@ -39,17 +46,61 @@ struct Sample {
     started_ms: u64,
 }
 
+/// The listener: position, facing and up vectors.
+static LISTENER_POS: Mutex<([f32; 3], [f32; 3], [f32; 3])> =
+    Mutex::new(([0.0; 3], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]));
+
 impl Sample {
-    /// The status, with "playing" ending when the data's time has passed (no mixer yet).
-    fn status(&mut self) -> u32 {
-        if self.status == SMP_PLAYING && self.loops != 0 {
-            let rate = self.rate.max(8000) as u64;
-            let ms = u64::from(self.len) * 1000 / (rate * 2).max(1);
-            if clock::ticks_ms().saturating_sub(self.started_ms) > ms * u64::from(self.loops) {
-                self.status = SMP_DONE;
-            }
+    fn status(&mut self, h: u32) -> u32 {
+        if self.status == SMP_PLAYING && !crate::mixer::playing(h) {
+            self.status = SMP_DONE;
         }
         self.status
+    }
+
+    /// Gain and pan: the 2D settings, and for a 3D sample its place relative to the listener.
+    fn gain_pan(&self) -> (f32, f32) {
+        let volume = (self.volume.min(127) as f32 / 127.0).powf(1.5);
+        if !self.three_d {
+            return (volume, (self.pan.min(127) as f32 - 64.0) / 64.0);
+        }
+        let (lp, face, up) = *LISTENER_POS.lock().expect("listener");
+        let d = [
+            self.position[0] - lp[0],
+            self.position[1] - lp[1],
+            self.position[2] - lp[2],
+        ];
+        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let (max, min) = self.distances;
+        let min = if min > 0.0 { min } else { 1.0 };
+        let mut g = if dist <= min { 1.0 } else { min / dist };
+        if max > 0.0 && dist > max {
+            g = 0.0;
+        }
+        // Right = up × facing.
+        let right = [
+            up[1] * face[2] - up[2] * face[1],
+            up[2] * face[0] - up[0] * face[2],
+            up[0] * face[1] - up[1] * face[0],
+        ];
+        let rl = (right[0] * right[0] + right[1] * right[1] + right[2] * right[2]).sqrt();
+        let pan = if dist > 1e-3 && rl > 1e-6 {
+            (d[0] * right[0] + d[1] * right[1] + d[2] * right[2]) / (dist * rl)
+        } else {
+            0.0
+        };
+        (volume * g, pan.clamp(-1.0, 1.0) * 0.8)
+    }
+}
+
+/// Apply a sample's current gain and pan to its playing voice.
+fn update_voice(h: u32) {
+    let gp = st().samples.get(&h).map(|s| s.gain_pan());
+    if let Some((g, p)) = gp {
+        crate::mixer::set(h, |v| {
+            v.volume = g;
+            v.pan = p;
+        });
     }
 }
 
@@ -88,7 +139,9 @@ fn new_handle(m: Mem, three_d: bool) -> u32 {
 }
 
 fn with<R>(h: u32, f: impl FnOnce(&mut Sample) -> R) -> Option<R> {
-    st().samples.get_mut(&h).map(f)
+    let r = st().samples.get_mut(&h).map(f);
+    update_voice(h);
+    r
 }
 
 /// The WAV data's length and rate, from a RIFF file in guest memory.
@@ -158,6 +211,7 @@ fn AIL_allocate_sample_handle(c: &mut Cpu) {
 fn AIL_release_sample_handle(c: &mut Cpu) {
     let h = c.arg(0);
     st().samples.remove(&h);
+    crate::mixer::remove(h);
     vm::heap_free(h);
     ret_stdcall(c, 0, 1);
 }
@@ -175,10 +229,16 @@ fn AIL_set_sample_file(c: &mut Cpu) {
     let m = c.mem();
     let (h, p) = (c.arg(0), c.arg(1));
     let (len, rate) = wav_info(m, p);
+    // The whole RIFF file: its size is in the header.
+    let size = m.ld32(p + 4).saturating_add(8).min(64 << 20);
+    let mut file = vec![0u8; size as usize];
+    m.read(p, &mut file);
+    let pcm = crate::mixer::decode_wav(&file).map(std::sync::Arc::new);
     let ok = with(h, |s| {
         s.data = p;
         s.len = len;
-        s.rate = rate;
+        s.rate = pcm.as_ref().map_or(rate, |x| x.rate);
+        s.pcm = pcm;
         s.status = SMP_DONE;
     })
     .is_some();
@@ -186,15 +246,31 @@ fn AIL_set_sample_file(c: &mut Cpu) {
 }
 
 fn AIL_set_sample_address(c: &mut Cpu) {
+    let m = c.mem();
     let (h, p, len) = (c.arg(0), c.arg(1), c.arg(2));
+    let mut data = vec![0u8; len.min(64 << 20) as usize];
+    m.read(p, &mut data);
     with(h, |s| {
         s.data = p;
         s.len = len;
+        let (bits, channels) = match s.raw_format & 3 {
+            0 => (8, 1),
+            1 => (16, 1),
+            2 => (8, 2),
+            _ => (16, 2),
+        };
+        s.pcm = Some(std::sync::Arc::new(crate::mixer::Pcm {
+            samples: crate::mixer::decode_raw(&data, 1, bits, channels, 0),
+            channels,
+            rate: s.rate,
+        }));
     });
     ret_stdcall(c, 0, 3);
 }
 
 fn AIL_set_sample_type(c: &mut Cpu) {
+    let (h, f) = (c.arg(0), c.arg(1));
+    with(h, |s| s.raw_format = f);
     ret_stdcall(c, 0, 3);
 }
 
@@ -231,10 +307,17 @@ fn AIL_sample_position(c: &mut Cpu) {
 }
 
 fn start(h: u32) {
-    with(h, |s| {
+    let voice = st().samples.get_mut(&h).and_then(|s| {
         s.status = SMP_PLAYING;
         s.started_ms = clock::ticks_ms();
+        s.pcm.clone().map(|p| (p, s.rate, s.loops, s.gain_pan()))
     });
+    match voice {
+        Some((pcm, rate, loops, (g, p))) => crate::mixer::play(h, pcm, rate, loops, g, p),
+        None => {
+            with(h, |s| s.status = SMP_DONE);
+        }
+    }
 }
 
 fn AIL_resume_sample(c: &mut Cpu) {
@@ -243,12 +326,18 @@ fn AIL_resume_sample(c: &mut Cpu) {
 }
 
 fn AIL_end_sample(c: &mut Cpu) {
+    crate::mixer::stop(c.arg(0));
     with(c.arg(0), |s| s.status = SMP_DONE);
     ret_stdcall(c, 0, 1);
 }
 
 fn AIL_sample_status(c: &mut Cpu) {
-    let r = with(c.arg(0), |s| s.status()).unwrap_or(SMP_FREE);
+    let h = c.arg(0);
+    let r = st()
+        .samples
+        .get_mut(&h)
+        .map(|s| s.status(h))
+        .unwrap_or(SMP_FREE);
     ret_stdcall(c, r, 1);
 }
 
@@ -316,6 +405,7 @@ fn AIL_allocate_3D_sample_handle(c: &mut Cpu) {
 fn AIL_release_3D_sample_handle(c: &mut Cpu) {
     let h = c.arg(0);
     st().samples.remove(&h);
+    crate::mixer::remove(h);
     vm::heap_free(h);
     ret_stdcall(c, 0, 1);
 }
@@ -324,11 +414,31 @@ fn AIL_set_3D_sample_info(c: &mut Cpu) {
     let m = c.mem();
     let (h, info) = (c.arg(0), c.arg(1));
     // AILSOUNDINFO: format, data_ptr, data_len, rate, bits, channels, samples, block, initial_ptr.
-    let (data, len, rate) = (m.ld32(info + 4), m.ld32(info + 8), m.ld32(info + 12));
+    let (tag, data, len, rate) = (
+        m.ld32(info),
+        m.ld32(info + 4),
+        m.ld32(info + 8),
+        m.ld32(info + 12),
+    );
+    let (bits, channels, block) = (m.ld32(info + 16), m.ld32(info + 20), m.ld32(info + 28));
+    let mut raw = vec![0u8; len.min(64 << 20) as usize];
+    m.read(data, &mut raw);
+    let pcm = crate::mixer::Pcm {
+        samples: crate::mixer::decode_raw(
+            &raw,
+            tag as u16,
+            bits as u16,
+            channels as u16,
+            block as usize,
+        ),
+        channels: (channels as u16).max(1),
+        rate,
+    };
     let ok = with(h, |s| {
         s.data = data;
         s.len = len;
         s.rate = rate;
+        s.pcm = Some(std::sync::Arc::new(pcm));
         s.status = SMP_DONE;
     })
     .is_some();
@@ -366,6 +476,8 @@ fn AIL_set_3D_sample_obstruction(c: &mut Cpu) {
 }
 
 fn AIL_set_3D_sample_distances(c: &mut Cpu) {
+    let (h, max, min) = (c.arg(0), f32::from_bits(c.arg(1)), f32::from_bits(c.arg(2)));
+    with(h, |s| s.distances = (max, min));
     ret_stdcall(c, 0, 3);
 }
 
@@ -376,7 +488,15 @@ fn AIL_set_3D_position(c: &mut Cpu) {
         f32::from_bits(c.arg(2)),
         f32::from_bits(c.arg(3)),
     ];
-    with(h, |s| s.position = p);
+    if h == LISTENER {
+        LISTENER_POS.lock().expect("listener").0 = p;
+        let all: Vec<u32> = st().samples.keys().copied().collect();
+        for s in all {
+            update_voice(s);
+        }
+    } else {
+        with(h, |s| s.position = p);
+    }
     ret_stdcall(c, 0, 4);
 }
 
@@ -385,6 +505,13 @@ fn AIL_set_3D_velocity_vector(c: &mut Cpu) {
 }
 
 fn AIL_set_3D_orientation(c: &mut Cpu) {
+    let h = c.arg(0);
+    let v: Vec<f32> = (1..7).map(|i| f32::from_bits(c.arg(i))).collect();
+    if h == LISTENER {
+        let mut l = LISTENER_POS.lock().expect("listener");
+        l.1 = [v[0], v[1], v[2]];
+        l.2 = [v[3], v[4], v[5]];
+    }
     ret_stdcall(c, 0, 7);
 }
 
@@ -394,6 +521,7 @@ fn AIL_resume_3D_sample(c: &mut Cpu) {
 }
 
 fn AIL_end_3D_sample(c: &mut Cpu) {
+    crate::mixer::stop(c.arg(0));
     with(c.arg(0), |s| s.status = SMP_DONE);
     ret_stdcall(c, 0, 1);
 }
