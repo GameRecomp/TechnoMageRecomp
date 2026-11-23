@@ -18,11 +18,15 @@
 //! signature of lifted code, `fn(&mut Cpu)`, reads its arguments from the guest stack and pops
 //! them (`stdcall`). See docs/ARCHITECTURE.md.
 //!
-//! Done: `kernel32`, `user32`, `gdi32`, `ole32`, `winmm` (`small`), `mss32` (state, no mixer). The others follow in M4–M6
+//! Done: `kernel32`, `user32`, `gdi32`, `ole32`, `winmm` (`small`), `mss32` (state, no mixer),
+//! `ddraw` (software surfaces, frames to the platform). `dinput` (keyboard and mouse state). Missing: `d3d`, `dsound`. The others follow in M4–M6
 //! (docs/PLAN.md).
 
 pub mod codepage;
 pub mod com;
+pub mod d3d;
+pub mod ddraw;
+pub mod dinput;
 pub mod kernel32;
 pub mod mss32;
 pub mod small;
@@ -39,6 +43,8 @@ pub fn register_all() {
     user32::register();
     small::register();
     mss32::register();
+    ddraw::register();
+    dinput::register();
     rc_runtime::dispatch::set_import_resolver(rc_runtime::imports::resolve);
 }
 
@@ -50,6 +56,25 @@ pub(crate) fn lifted_module_base(name: &str) -> Option<u32> {
 /// An export of a lifted DLL, by its module handle (its base).
 pub(crate) fn lifted_export(base: u32, name: &str) -> Option<u32> {
     rc_runtime::process::module_export(base, name)
+}
+
+/// After each frame the game shows (`Flip`): the virtual clock moves on a frame, a scripted run
+/// ends after `RC_FRAMES` frames, and the other guest threads get their turn.
+pub(crate) fn frame_done(c: &mut Cpu) {
+    if rc_runtime::clock::is_virtual() {
+        rc_runtime::clock::advance_ms(16);
+    }
+    let n = rc_platform::latest_frame().number;
+    if let Some(limit) = std::env::var("RC_FRAMES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        if n >= limit {
+            eprintln!("[hle] {n} frames shown: the scripted run ends");
+            std::process::exit(0);
+        }
+    }
+    yield_point(c);
 }
 
 /// Where a guest thread may give way to another (`Sleep`, waits, the message loop).

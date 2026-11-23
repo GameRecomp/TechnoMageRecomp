@@ -66,6 +66,11 @@ pub fn id_of(m: Mem, this: u32) -> u32 {
     m.ld32(this + 8)
 }
 
+/// One more reference to `this` (an interface handed out again).
+pub fn add_ref_raw(m: Mem, this: u32) {
+    m.st32(this + 4, m.ld32(this + 4) + 1);
+}
+
 /// `AddRef` for every interface: count up, return the count.
 pub fn add_ref(c: &mut Cpu) {
     let m = c.mem();
