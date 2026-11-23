@@ -243,7 +243,8 @@ pub const CALLBACK_RETURN: u32 = 0xefff_fff0;
 
 /// Call the guest function at `addr` with stdcall/cdecl arguments `args` (first argument first)
 /// and return `eax`. The callee-saved registers survive as on Windows; `esp` is restored for
-/// cdecl callees too.
+/// cdecl callees too. While an exception unwinds (`c.unwind`), the registers are left as the
+/// callee set them.
 pub fn call_guest(c: &mut Cpu, addr: u32, args: &[u32]) -> u32 {
     let saved = c.r;
     for &a in args.iter().rev() {
@@ -252,6 +253,11 @@ pub fn call_guest(c: &mut Cpu, addr: u32, args: &[u32]) -> u32 {
     c.push32(CALLBACK_RETURN);
     dispatch(c, addr);
     let eax = c.r[crate::cpu::EAX];
+    if c.unwind != 0 {
+        // The callee continues in a frame further up (an exception): the registers are that
+        // frame's now, and the lifted functions return until it takes over.
+        return eax;
+    }
     let edx = c.r[crate::cpu::EDX];
     c.r = saved;
     c.r[crate::cpu::EAX] = eax;

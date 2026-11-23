@@ -426,6 +426,68 @@ fn EndPaint(c: &mut Cpu) {
     ret_stdcall(c, 1, 2);
 }
 
+fn IsWindowVisible(c: &mut Cpu) {
+    let v = u32::from(st().window);
+    ret_stdcall(c, v, 1);
+}
+
+fn put_rect(c: &Cpu, p: u32) {
+    let (w, h) = window_size();
+    let m = c.mem();
+    m.st32(p, 0);
+    m.st32(p + 4, 0);
+    m.st32(p + 8, w);
+    m.st32(p + 12, h);
+}
+
+fn GetClientRect(c: &mut Cpu) {
+    put_rect(c, c.arg(1));
+    ret_stdcall(c, 1, 2);
+}
+
+fn GetWindowRect(c: &mut Cpu) {
+    put_rect(c, c.arg(1));
+    ret_stdcall(c, 1, 2);
+}
+
+fn GetClassLongA(c: &mut Cpu) {
+    ret_stdcall(c, 0, 2);
+}
+
+fn GetWindowLongA(c: &mut Cpu) {
+    let r = match c.arg(1) as i32 {
+        -4 => st().wndproc,               // GWL_WNDPROC
+        -16 => 0x1000_0000 | 0x8000_0000, // GWL_STYLE: WS_VISIBLE | WS_POPUP
+        _ => 0,
+    };
+    ret_stdcall(c, r, 2);
+}
+
+fn ChangeDisplaySettingsA(c: &mut Cpu) {
+    ret_stdcall(c, 0, 2); // DISP_CHANGE_SUCCESSFUL
+}
+
+fn GetWindowThreadProcessId(c: &mut Cpu) {
+    let p = c.arg(1);
+    if p != 0 {
+        c.mem().st32(p, 1);
+    }
+    ret_stdcall(c, 1, 2);
+}
+
+fn GetWindow(c: &mut Cpu) {
+    ret_stdcall(c, 0, 2);
+}
+
+fn GetTopWindow(c: &mut Cpu) {
+    let w = if st().window { HWND } else { 0 };
+    ret_stdcall(c, w, 1);
+}
+
+fn ScreenToClient(c: &mut Cpu) {
+    ret_stdcall(c, 1, 2);
+}
+
 macro_rules! table {
     ($($f:ident),* $(,)?) => {
         &[$((stringify!($f), $f as rc_runtime::dispatch::GuestFn)),*]
@@ -468,6 +530,16 @@ pub fn register() {
             ClientToScreen,
             MapVirtualKeyA,
             GetActiveWindow,
+            IsWindowVisible,
+            GetClientRect,
+            GetWindowRect,
+            GetClassLongA,
+            GetWindowLongA,
+            ChangeDisplaySettingsA,
+            GetWindowThreadProcessId,
+            GetWindow,
+            GetTopWindow,
+            ScreenToClient,
         ],
     );
 }

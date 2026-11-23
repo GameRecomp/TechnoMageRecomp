@@ -138,6 +138,7 @@ fn run(a: &Args) -> Result<ExitCode, String> {
         });
     }
 
+    rc_runtime::threads::init_main();
     let mut cpu = rc_runtime::Cpu::new(mem);
     rc_runtime::process::main_thread(&mut cpu, module.base);
     rc_runtime::dispatch::dispatch(&mut cpu, module.entry);

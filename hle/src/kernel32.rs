@@ -267,6 +267,64 @@ fn GetCurrentProcess(c: &mut Cpu) {
     ret_stdcall(c, 0xffff_ffff, 0);
 }
 
+fn CreateThread(c: &mut Cpu) {
+    let m = c.mem();
+    let (stack, start, param, tid) = (arg(c, 1), arg(c, 2), arg(c, 3), arg(c, 5));
+    let id = rc_runtime::threads::spawn(m, start, param, stack);
+    if tid != 0 {
+        m.st32(tid, id);
+    }
+    let h = handles::insert(Object::Thread(id));
+    ret_stdcall(c, h, 6);
+}
+
+fn ExitThread(c: &mut Cpu) {
+    let code = arg(c, 0);
+    let me = rc_runtime::threads::current();
+    if me == 1 {
+        std::process::exit(code as i32);
+    }
+    rc_runtime::threads::finish(me, code);
+    // The host thread of an ended guest thread never runs guest code again.
+    loop {
+        std::thread::park();
+    }
+}
+
+fn GetExitCodeThread(c: &mut Cpu) {
+    let m = c.mem();
+    let (h, out) = (arg(c, 0), arg(c, 1));
+    let code = handles::with(h, |o| match o {
+        Object::Thread(id) => Some(rc_runtime::threads::exit_code(*id).unwrap_or(0x103)),
+        _ => None,
+    })
+    .flatten();
+    if let Some(v) = code {
+        m.st32(out, v);
+    }
+    ret_stdcall(c, u32::from(code.is_some()), 2);
+}
+
+fn GetCurrentThreadId(c: &mut Cpu) {
+    ret_stdcall(c, rc_runtime::threads::current(), 0);
+}
+
+fn GetCurrentProcessId(c: &mut Cpu) {
+    ret_stdcall(c, 1, 0);
+}
+
+fn GetSystemDirectoryA(c: &mut Cpu) {
+    let (buf, cap) = (arg(c, 0), arg(c, 1));
+    let n = put_str(c.mem(), buf, cap, "C:\\WINDOWS\\SYSTEM32");
+    ret_stdcall(c, n, 2);
+}
+
+fn GetWindowsDirectoryA(c: &mut Cpu) {
+    let (buf, cap) = (arg(c, 0), arg(c, 1));
+    let n = put_str(c.mem(), buf, cap, "C:\\WINDOWS");
+    ret_stdcall(c, n, 2);
+}
+
 fn GetCurrentThread(c: &mut Cpu) {
     ret_stdcall(c, 0xffff_fffe, 0);
 }
@@ -327,16 +385,198 @@ fn UnhandledExceptionFilter(c: &mut Cpu) {
     ret_stdcall(c, 1, 1); // EXCEPTION_EXECUTE_HANDLER
 }
 
+// --- structured exceptions -------------------------------------------------------------------
+//
+// Win32 SEH on the guest's own registration records (fs:[0], a chain on the stack): the handlers
+// are the program's own lifted code (`__except_handler3` of the static CRT). When a handler
+// continues in an outer frame (it jumps there with the stack cut back), the runtime unwinds the
+// lifted functions to that frame (`dispatch_jump`, `unwind_claim`). As SackedRecomp's
+// `hle/kernel32/process.c`.
+
+const EXCEPTION_NONCONTINUABLE: u32 = 0x1;
+const EXCEPTION_UNWINDING: u32 = 0x2;
+const EXCEPTION_EXIT_UNWIND: u32 = 0x4;
+const EXCEPTION_NESTED_CALL: u32 = 0x10;
+const DISPOSITION_NESTED: u32 = 2;
+const CHAIN_END: u32 = 0xffff_ffff;
+const EXCEPTION_RECORD_SIZE: u32 = 0x50;
+const CONTEXT_SIZE: u32 = 0x2cc;
+
+/// EXCEPTION_RECORD and CONTEXT at `rec` and `ctx` for an exception raised by the caller of the
+/// current import (registers as they will be after it returns, `args` bytes of arguments).
+#[allow(clippy::too_many_arguments)]
+fn fill_exception(
+    c: &Cpu,
+    rec: u32,
+    ctx: u32,
+    code: u32,
+    flags: u32,
+    n: u32,
+    info: u32,
+    args: u32,
+) {
+    let m = c.mem();
+    let ret = m.ld32(c.r[rc_runtime::cpu::ESP]);
+    for i in (0..EXCEPTION_RECORD_SIZE).step_by(4) {
+        m.st32(rec + i, 0);
+    }
+    m.st32(rec, code);
+    m.st32(rec + 4, flags);
+    m.st32(rec + 12, ret);
+    let n = n.min(15);
+    m.st32(rec + 16, n);
+    for i in 0..n {
+        let v = if info != 0 { m.ld32(info + 4 * i) } else { 0 };
+        m.st32(rec + 20 + 4 * i, v);
+    }
+    for i in (0..CONTEXT_SIZE).step_by(4) {
+        m.st32(ctx + i, 0);
+    }
+    let r = &c.r;
+    m.st32(ctx, 0x1003f);
+    for (off, v) in [
+        (0x9c, r[7]),
+        (0xa0, r[6]),
+        (0xa4, r[3]),
+        (0xa8, r[2]),
+        (0xac, r[1]),
+        (0xb0, r[0]),
+        (0xb4, r[5]),
+        (0xb8, ret),
+        (0xbc, 0x1b),
+        (0xc0, c.eflags()),
+        (0xc4, r[4] + 4 + args),
+        (0xc8, 0x23),
+    ] {
+        m.st32(ctx + off, v);
+    }
+}
+
+/// The handler of the dispatcher's own registration record: an exception raised while a handler
+/// runs reaches it as nested; it names the frame whose handler was running.
+fn rc_NestedExceptionHandler(c: &mut Cpu) {
+    let m = c.mem();
+    let (rec, frame, dc) = (arg(c, 0), arg(c, 1), arg(c, 3));
+    if m.ld32(rec + 4) & (EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND) != 0 {
+        return imports::ret_cdecl(c, 1);
+    }
+    m.st32(dc, m.ld32(frame + 8));
+    imports::ret_cdecl(c, DISPOSITION_NESTED);
+}
+
+/// Call a handler (cdecl: handler(record, frame, context, dispatcher context)) with the stack
+/// below `low`: its result, or `None` when the exception continues elsewhere (unwinding).
+fn call_handler(
+    c: &mut Cpu,
+    handler: u32,
+    low: u32,
+    rec: u32,
+    frame: u32,
+    ctx: u32,
+    dc: u32,
+) -> Option<u32> {
+    let m = c.mem();
+    let mine = low;
+    m.st32(mine, m.ld32(c.fs_base));
+    m.st32(
+        mine + 4,
+        imports::address("kernel32.dll", "rc_NestedExceptionHandler"),
+    );
+    m.st32(mine + 8, frame);
+    m.st32(c.fs_base, mine);
+    c.r[rc_runtime::cpu::ESP] = mine - 16;
+    m.st32(dc, 0);
+    let r = rc_runtime::dispatch::call_guest(c, handler, &[rec, frame, ctx, dc]);
+    if c.unwind != 0 {
+        return None;
+    }
+    m.st32(c.fs_base, m.ld32(mine));
+    Some(r)
+}
+
+fn frames(c: &Cpu) -> (u32, u32, u32, u32, u32) {
+    let entry = c.r[rc_runtime::cpu::ESP];
+    let ctx = (entry - 0x40 - CONTEXT_SIZE) & !0xf;
+    let rec = ctx - EXCEPTION_RECORD_SIZE;
+    let dc = rec - 16;
+    (entry, ctx, rec, dc, dc - 64)
+}
+
 fn RaiseException(c: &mut Cpu) {
-    let code = arg(c, 0);
+    let m = c.mem();
+    let (code, flags) = (arg(c, 0), arg(c, 1) & EXCEPTION_NONCONTINUABLE);
+    let (n, info) = (arg(c, 2), arg(c, 3));
+    let (entry, ctx, rec, dc, low) = frames(c);
+    fill_exception(c, rec, ctx, code, flags, n, info, 16);
+    let saved_eh_esp = c.eh_esp;
+    let mut nested = 0;
+    c.eh_depth += 1;
+    c.eh_esp = entry;
+    let mut frame = m.ld32(c.fs_base);
+    while frame != CHAIN_END && frame != 0 {
+        let handler = m.ld32(frame + 4);
+        let Some(r) = call_handler(c, handler, low, rec, frame, ctx, dc) else {
+            c.eh_depth -= 1;
+            c.eh_esp = saved_eh_esp;
+            return; // continues in an outer frame
+        };
+        if r == 0 {
+            c.eh_depth -= 1;
+            c.eh_esp = saved_eh_esp;
+            if flags & EXCEPTION_NONCONTINUABLE != 0 {
+                rc_runtime::dispatch::fatal(&format!(
+                    "RaiseException({code:#x}): a handler continued a noncontinuable exception"
+                ));
+            }
+            c.r[rc_runtime::cpu::ESP] = entry;
+            return ret_stdcall(c, 0, 4);
+        }
+        if frame == nested {
+            m.st32(rec + 4, m.ld32(rec + 4) & !EXCEPTION_NESTED_CALL);
+            nested = 0;
+        }
+        if r == DISPOSITION_NESTED {
+            m.st32(rec + 4, m.ld32(rec + 4) | EXCEPTION_NESTED_CALL);
+            nested = nested.max(m.ld32(dc));
+        }
+        frame = m.ld32(frame);
+    }
     rc_runtime::dispatch::fatal(&format!(
-        "RaiseException({code:#x}): structured exceptions are not dispatched yet (M3r)"
+        "unhandled exception {code:#x} raised from {:#010x}",
+        m.ld32(entry)
     ));
 }
 
 fn RtlUnwind(c: &mut Cpu) {
-    let _ = c;
-    rc_runtime::dispatch::fatal("RtlUnwind: SEH unwinding is not implemented yet (M3r)");
+    let m = c.mem();
+    let (target, given, value) = (arg(c, 0), arg(c, 2), arg(c, 3));
+    let (entry, ctx, rec, dc, low) = frames(c);
+    fill_exception(c, rec, ctx, 0xc000_0027, 0, 0, 0, 16);
+    if given != 0 {
+        for i in (0..EXCEPTION_RECORD_SIZE).step_by(4) {
+            m.st32(rec + i, m.ld32(given + i));
+        }
+    }
+    let exit = if target == 0 {
+        EXCEPTION_EXIT_UNWIND
+    } else {
+        0
+    };
+    m.st32(rec + 4, m.ld32(rec + 4) | EXCEPTION_UNWINDING | exit);
+    let mut frame = m.ld32(c.fs_base);
+    while frame != CHAIN_END && frame != 0 && frame != target {
+        let handler = m.ld32(frame + 4);
+        if call_handler(c, handler, low, rec, frame, ctx, dc).is_none() {
+            return;
+        }
+        frame = m.ld32(frame);
+        m.st32(c.fs_base, frame);
+    }
+    if given != 0 {
+        m.st32(given + 4, m.ld32(rec + 4));
+    }
+    c.r[rc_runtime::cpu::ESP] = entry;
+    ret_stdcall(c, value, 4);
 }
 
 // --- time ----------------------------------------------------------------------------------
@@ -1221,7 +1461,8 @@ fn try_take(h: u32) -> Option<bool> {
             }
             true
         }
-        Object::Thread(_) | Object::Process => true,
+        Object::Thread(id) => rc_runtime::threads::exit_code(*id).is_some(),
+        Object::Process => true,
         _ => false,
     })
 }
@@ -1357,6 +1598,14 @@ pub fn register() {
             DeleteFileA,
             HeapFree,
             HeapAlloc,
+            CreateThread,
+            ExitThread,
+            GetExitCodeThread,
+            GetCurrentThreadId,
+            GetCurrentProcessId,
+            GetSystemDirectoryA,
+            GetWindowsDirectoryA,
+            rc_NestedExceptionHandler,
         ],
     );
     imports::register(

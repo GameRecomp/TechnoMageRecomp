@@ -22,6 +22,7 @@
 //! (docs/PLAN.md).
 
 pub mod codepage;
+pub mod com;
 pub mod kernel32;
 pub mod mss32;
 pub mod small;
@@ -51,7 +52,8 @@ pub(crate) fn lifted_export(base: u32, name: &str) -> Option<u32> {
     rc_runtime::process::module_export(base, name)
 }
 
-/// Where a guest thread may give way to another (`Sleep`, waits). Guest threads come in M4.
+/// Where a guest thread may give way to another (`Sleep`, waits, the message loop).
 pub(crate) fn yield_point(c: &mut Cpu) {
     let _ = c;
+    rc_runtime::threads::yield_now();
 }

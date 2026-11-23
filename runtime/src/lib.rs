@@ -10,12 +10,13 @@
 //! - [`handles`]: kernel objects (files, searches, synchronisation objects).
 //! - [`imports`]: reserved addresses for imported functions, the HLE registry.
 //! - [`process`]: the PE loader (packed executables restored first), stack, TIB and PEB.
+//! - [`threads`]: cooperative guest threads (one host thread each, a baton).
 //! - [`vfs`]: Windows paths onto the install, the virtual CD drive, the user directory.
 //! - [`vm`]: page regions and heaps in guest memory.
 //! - [`clock`]: real and virtual time.
 //! - [`lifted`]: what generated code imports.
 //!
-//! Still to come (docs/PLAN.md, M3r): SEH and threads.
+//! Still to come (docs/PLAN.md, M3r): SEH.
 //!
 //! See docs/ARCHITECTURE.md.
 
@@ -28,6 +29,7 @@ pub mod lifted;
 pub mod mem;
 pub mod mmx;
 pub mod process;
+pub mod threads;
 pub mod vfs;
 pub mod vm;
 pub mod x87;

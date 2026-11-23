@@ -69,6 +69,10 @@ pub struct Mem {
     len: u64,
 }
 
+// SAFETY: guest memory is never unmapped, and the guest threads that share it run one at a
+// time (`threads`), as on the single-CPU machines the games were made for.
+unsafe impl Send for Mem {}
+
 macro_rules! access {
     ($ld:ident, $st:ident, $t:ty, $n:expr) => {
         #[inline(always)]
