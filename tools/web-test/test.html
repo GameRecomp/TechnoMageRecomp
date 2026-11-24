@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: MIT -->
 <!-- The browser player without the converter's storage: the game over HTTP (serve.py), settings
-     from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM). -->
+     from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM;
+     runtime=path of the runtime module in the checkout). -->
 <meta charset="utf-8"><canvas id="c" width="640" height="480"></canvas>
 <script type="module">
 import { run } from '/player.js';
@@ -76,7 +77,7 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let frames = 0; const t0 = performance.now(); let tl = t0;
 const player = await run({
-  runtime: await (await fetch('/repo/target/web/wasm32-unknown-unknown/release/technomage_web.wasm')).arrayBuffer(),
+  runtime: await (await fetch(`/repo/${params.get('runtime') || 'target/wasm32-unknown-unknown/release/technomage_web.wasm'}`)).arrayBuffer(),
   code: await (await fetch('/webgame/code.wasm')).arrayBuffer(),
   fs, env, log,
   present(rgba, w, h) {

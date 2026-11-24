@@ -212,7 +212,7 @@ Binary treatment:
 - [x] The Bevy window: frames scaled with the aspect kept, keyboard, mouse, wheel, pointer mapping
 - [x] Gamma ramp in the frame conversion
 - [ ] Full screen toggle (Alt+Enter) and the `TECHMAGE.CFG` options (`WINDOWED`, `LO-RES`) checked by hand
-- [ ] Near-plane clipping of triangles behind the eye (now dropped whole)
+- [x] Near-plane clipping of transformed triangles (z = 0 in clip space), for both renderers
 
 ### M6 – Sound and video
 
@@ -226,7 +226,11 @@ Binary treatment:
 
 - [x] A new game starts in German and English; dialogue, tutorial, the first room
 - [x] Scripted runs: `RC_INPUT` (keys and clicks at frames), `RC_FRAMES`, `RC_SCREENSHOT`, `RC_TRACE=fps`
-- [ ] All eight worlds played through; save and load; a one-hour soak
+- [x] Scripted soak: 20,000 frames of clicks and keys in the first room without a trap (RESEARCH.md)
+- [x] Leaving through the main menu writes `TechnoMage.ini`; the next start reads it; the save book opens
+- [x] English through the converter (the German CD's executable as supplement) runs to the first room in the
+      browser player
+- [ ] All eight worlds played through by hand; saving and loading a game; a one-hour soak
 
 ### M8 – Converter and platforms
 

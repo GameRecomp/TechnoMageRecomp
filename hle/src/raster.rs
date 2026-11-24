@@ -101,6 +101,70 @@ struct Vert {
     uv: [[f32; 2]; 2],
     /// Distance from the eye, for table fog.
     eye_z: f32,
+    /// Clip-space position of a vertex the runtime transformed (none for pre-transformed ones).
+    clip: Option<[f32; 4]>,
+}
+
+/// Screen position of a clip-space position through the viewport.
+fn project(v: &mut Vert, c: [f32; 4], vp: &[f32; 6]) {
+    let w = if c[3].abs() < 1e-7 { 1e-7 } else { c[3] };
+    v.rhw = 1.0 / w;
+    v.x = vp[0] + (c[0] / w + 1.0) * 0.5 * vp[2];
+    v.y = vp[1] + (1.0 - c[1] / w) * 0.5 * vp[3];
+    v.z = vp[4] + (c[2] / w) * (vp[5] - vp[4]);
+}
+
+fn lerp_vert(a: &Vert, b: &Vert, t: f32, vp: &[f32; 6]) -> Vert {
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    let l4 =
+        |x: [f32; 4], y: [f32; 4]| [l(x[0], y[0]), l(x[1], y[1]), l(x[2], y[2]), l(x[3], y[3])];
+    let ca = a.clip.unwrap_or_default();
+    let cb = b.clip.unwrap_or_default();
+    let c = l4(ca, cb);
+    let mut v = Vert {
+        diffuse: l4(a.diffuse, b.diffuse),
+        specular: l4(a.specular, b.specular),
+        uv: [
+            [l(a.uv[0][0], b.uv[0][0]), l(a.uv[0][1], b.uv[0][1])],
+            [l(a.uv[1][0], b.uv[1][0]), l(a.uv[1][1], b.uv[1][1])],
+        ],
+        eye_z: l(a.eye_z, b.eye_z),
+        clip: Some(c),
+        ..Vert::default()
+    };
+    project(&mut v, c, vp);
+    v
+}
+
+/// A triangle clipped at the near plane (z = 0 in clip space, as Direct3D clips): none, itself,
+/// or the pieces of the part in front, as a fan. Pre-transformed triangles are not clipped.
+fn clip_near(t: [Vert; 3], vp: &[f32; 6]) -> Vec<[Vert; 3]> {
+    let z = |v: &Vert| v.clip.map(|c| c[2]);
+    let (Some(za), Some(zb), Some(zc)) = (z(&t[0]), z(&t[1]), z(&t[2])) else {
+        return vec![t];
+    };
+    if za >= 0.0 && zb >= 0.0 && zc >= 0.0 {
+        return vec![t];
+    }
+    if za < 0.0 && zb < 0.0 && zc < 0.0 {
+        return Vec::new();
+    }
+    let zs = [za, zb, zc];
+    let mut poly: Vec<Vert> = Vec::with_capacity(4);
+    for i in 0..3 {
+        let j = (i + 1) % 3;
+        let (a, b) = (&t[i], &t[j]);
+        if zs[i] >= 0.0 {
+            poly.push(*a);
+        }
+        if (zs[i] >= 0.0) != (zs[j] >= 0.0) {
+            let k = zs[i] / (zs[i] - zs[j]);
+            poly.push(lerp_vert(a, b, k, vp));
+        }
+    }
+    (1..poly.len().saturating_sub(1))
+        .map(|i| [poly[0], poly[i], poly[i + 1]])
+        .collect()
 }
 
 fn transform(v: [f32; 4], mx: &[f32; 16]) -> [f32; 4] {
@@ -249,11 +313,8 @@ fn vertices(m: Mem, st: &State, fvf: u32, data: &[u8]) -> Vec<Vert> {
             v.diffuse = diffuse.unwrap_or([1.0; 4]);
         } else {
             let c = transform([pos[0], pos[1], pos[2], 1.0], &wvp);
-            let w = if c[3].abs() < 1e-7 { 1e-7 } else { c[3] };
-            v.rhw = 1.0 / w;
-            v.x = vp[0] + (c[0] / w + 1.0) * 0.5 * vp[2];
-            v.y = vp[1] + (1.0 - c[1] / w) * 0.5 * vp[3];
-            v.z = vp[4] + (c[2] / w) * (vp[5] - vp[4]);
+            project(&mut v, c, &vp);
+            v.clip = Some(c);
             v.eye_z = transform([pos[0], pos[1], pos[2], 1.0], &wv)[2];
             v.diffuse = if lighting {
                 let mdiff = if colorvertex && rs(st, RS_DIFFUSEMATERIALSOURCE, 1) == 1 {
@@ -713,25 +774,26 @@ pub fn draw(m: Mem, st: &State, primitive: u32, fvf: u32, data: &[u8], indices: 
         fogrange: (rsf(st, RS_FOGSTART, 0.0), rsf(st, RS_FOGEND, 1.0)),
     };
     for (a, b, c) in tris {
-        let (mut va, mut vb, mut vc) = (verts[a], verts[b], verts[c]);
-        let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
-        if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
-            continue;
-        }
+        let (va, mut vb, mut vc) = (verts[a], verts[b], verts[c]);
         if flat {
             vb.diffuse = va.diffuse;
             vc.diffuse = va.diffuse;
             vb.specular = va.specular;
             vc.specular = va.specular;
         }
-        if area < 0.0 {
-            std::mem::swap(&mut vb, &mut vc);
+        for [va, mut vb, mut vc] in clip_near([va, vb, vc], &st.viewport) {
+            let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
+            if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
+                continue;
+            }
+            if area < 0.0 {
+                std::mem::swap(&mut vb, &mut vc);
+            }
+            if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
+                continue;
+            }
+            triangle(&ctx, &va, &vb, &vc);
         }
-        if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
-            continue; // behind the eye: no near-plane clipping yet
-        }
-        triangle(&ctx, &va, &vb, &vc);
-        let _ = &mut va;
     }
 }
 
@@ -930,10 +992,10 @@ pub fn gpu_draw(
     }
     let cull = rs(st, RS_CULLMODE, 3);
     let flat = rs(st, RS_SHADEMODE, 2) == 1;
-    let gv = |v: &Vert, first: &Vert| gpu::Vertex {
+    let gv = |v: &Vert| gpu::Vertex {
         pos: [v.x, v.y, v.z, v.rhw],
-        diffuse: if flat { first.diffuse } else { v.diffuse },
-        specular: if flat { first.specular } else { v.specular },
+        diffuse: v.diffuse,
+        specular: v.specular,
         uv0: v.uv[0],
         uv1: v.uv[1],
         eye: v.eye_z,
@@ -941,17 +1003,23 @@ pub fn gpu_draw(
     };
     let mut out = Vec::with_capacity(tris.len() * 3);
     for (a, b, c) in tris {
-        let (va, vb, vc) = (&verts[a], &verts[b], &verts[c]);
-        let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
-        if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
-            continue;
+        let (va, mut vb, mut vc) = (verts[a], verts[b], verts[c]);
+        if flat {
+            vb.diffuse = va.diffuse;
+            vc.diffuse = va.diffuse;
+            vb.specular = va.specular;
+            vc.specular = va.specular;
         }
-        if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
-            continue;
+        for [va, vb, vc] in clip_near([va, vb, vc], &st.viewport) {
+            let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
+            if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
+                continue;
+            }
+            if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
+                continue;
+            }
+            out.extend([gv(&va), gv(&vb), gv(&vc)]);
         }
-        out.push(gv(va, va));
-        out.push(gv(vb, va));
-        out.push(gv(vc, va));
     }
     if out.is_empty() {
         return None;
@@ -1090,6 +1158,56 @@ pub fn from_rgba8(m: Mem, s: &SurfaceInfo, rgba: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn vert(c: [f32; 4]) -> Vert {
+        let vp = [0.0, 0.0, 640.0, 480.0, 0.0, 1.0];
+        let mut v = Vert {
+            clip: Some(c),
+            ..Vert::default()
+        };
+        project(&mut v, c, &vp);
+        v
+    }
+
+    #[test]
+    fn near_plane_clipping() {
+        let vp = [0.0, 0.0, 640.0, 480.0, 0.0, 1.0];
+        let front = [
+            vert([0.0, 0.0, 0.5, 1.0]),
+            vert([1.0, 0.0, 0.5, 1.0]),
+            vert([0.0, 1.0, 0.5, 1.0]),
+        ];
+        assert_eq!(clip_near(front, &vp).len(), 1);
+        let behind = [
+            vert([0.0, 0.0, -0.5, 1.0]),
+            vert([1.0, 0.0, -0.5, 1.0]),
+            vert([0.0, 1.0, -0.1, 1.0]),
+        ];
+        assert!(clip_near(behind, &vp).is_empty());
+        // One vertex behind: a quad in front, two triangles, all on the plane or in front of it.
+        let one = [
+            vert([0.0, 0.0, -1.0, 1.0]),
+            vert([1.0, 0.0, 1.0, 1.0]),
+            vert([0.0, 1.0, 1.0, 1.0]),
+        ];
+        let pieces = clip_near(one, &vp);
+        assert_eq!(pieces.len(), 2);
+        for t in &pieces {
+            for v in t {
+                assert!(v.clip.unwrap()[2] >= -1e-6);
+            }
+        }
+        // Two behind: one smaller triangle.
+        let two = [
+            vert([0.0, 0.0, 1.0, 1.0]),
+            vert([1.0, 0.0, -1.0, 1.0]),
+            vert([0.0, 1.0, -1.0, 1.0]),
+        ];
+        assert_eq!(clip_near(two, &vp).len(), 1);
+        // Pre-transformed vertices are left alone.
+        let raw = [Vert::default(); 3];
+        assert_eq!(clip_near(raw, &vp).len(), 1);
+    }
 
     #[test]
     fn colour_operations() {

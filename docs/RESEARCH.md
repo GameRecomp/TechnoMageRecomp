@@ -114,3 +114,18 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
 `.TPL` graphics, `.cmp` levels/maps, `.LVL`, `.RUL`, `.SBK` sound banks, `.PCK` speech, `.dlg` dialogue text,
 `DATA.OVL`, `resource.cmp`, `default.pal`: all read by the game's own code; nothing to implement unless a
 format needs a host service **(open)**.
+
+## Behaviour seen in scripted runs
+
+- After a new game the first room opens with tutorial dialogues that `Strg` (Ctrl) scrolls and closes; the
+  first ones teach `Z`/`X` to turn the view.
+- `Esc` in the game opens a pause menu (resume, options, input devices, the logo animation, back to the main
+  menu) without saving. The main menu offers a new game, loading and the way back to Windows.
+- Loading and saving share one book: nine slots and a quick-save slot (`SCHNELLSPEICHERN`), with load, save,
+  delete and back. In the game it is reached through the HUD's load/save entry (the control card,
+  `Steuerung.pdf`, shows it beside the quest log). Which key opens it, and whether saving is free or tied to
+  places, is **(open)**: the card's key legend is a picture.
+- "Zurück zu Windows" ends the process through `ExitProcess(0)` and writes `TechnoMage.ini` (378 bytes) into the
+  user directory; the next start reads it.
+- A soak of 20,000 frames (clicks and keys every 15 to 40 frames in the first room) ran without a trap or an
+  unimplemented call, natively at about 65 frames a second.
