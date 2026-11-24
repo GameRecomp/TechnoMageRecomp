@@ -211,7 +211,8 @@ Binary treatment:
 - [x] DirectInput 7 keyboard and mouse, state and buffered events, object names; window messages
 - [x] The Bevy window: frames scaled with the aspect kept, keyboard, mouse, wheel, pointer mapping
 - [x] Gamma ramp in the frame conversion
-- [ ] Full screen toggle (Alt+Enter) and the `TECHMAGE.CFG` options (`WINDOWED`, `LO-RES`) checked by hand
+- [x] Full screen toggle in the Bevy window (Alt+Enter, F11); the page's full screen button in the browser
+- [ ] The `TECHMAGE.CFG` options (`WINDOWED`, `LO-RES`) checked by hand
 - [x] Near-plane clipping of transformed triangles (z = 0 in clip space), for both renderers
 
 ### M6 – Sound and video
@@ -220,7 +221,7 @@ Binary treatment:
 - [x] Miles 2D and 3D samples (distance attenuation and pan by the listener), music by `AIL_set_sample_file`
 - [x] DirectSound with streaming buffers for Bink's sound (through `AIL_get_DirectSound_info`)
 - [ ] Heard on a machine with an audio device (this development machine has none in its session)
-- [ ] Speech (`Spc/*.PCK`): which path the game takes **(open)**
+- [x] Speech (`Spc/*.PCK`): the game falls back to `D:\SPC\` and reads it from the virtual drive (RESEARCH.md)
 
 ### M7 – In game
 

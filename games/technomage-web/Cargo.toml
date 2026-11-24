@@ -11,7 +11,8 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[dependencies]
+# Only the browser build has anything to link; natively the crate is empty.
+[target.'cfg(target_family = "wasm")'.dependencies]
 rc-runtime.workspace = true
 rc-hle = { workspace = true, features = ["gpu"] }
 rc-platform.workspace = true

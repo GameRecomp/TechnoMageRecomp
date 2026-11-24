@@ -127,5 +127,9 @@ format needs a host service **(open)**.
   places, is **(open)**: the card's key legend is a picture.
 - "Zurück zu Windows" ends the process through `ExitProcess(0)` and writes `TechnoMage.ini` (378 bytes) into the
   user directory; the next start reads it.
+- Files on the CD: videos from `D:\MOV\`, music from `D:\MUS\` (by `Music.cfg`), speech as `SPC\<WORLD>.PCK`
+  in the install directory first and then `D:\SPC\<WORLD>.PCK` (one archive per world), which the virtual
+  drive answers; so the speech question is settled. `TECHMAGE.CFG` is optional (the German release has none),
+  `C:\TECHMAGE.REC` and `MATRIX.TGA` are looked for and not needed.
 - A soak of 20,000 frames (clicks and keys every 15 to 40 frames in the first room) ran without a trap or an
   unimplemented call, natively at about 65 frames a second.

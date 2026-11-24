@@ -12,7 +12,7 @@ use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use bevy::window::{CursorMoved, WindowCloseRequested};
+use bevy::window::{CursorMoved, MonitorSelection, WindowCloseRequested, WindowMode};
 use std::num::NonZero;
 
 /// The game's frame on screen.
@@ -175,8 +175,29 @@ fn show_frame(
     }
 }
 
-fn keyboard(mut keys: MessageReader<KeyboardInput>) {
+fn keyboard(
+    mut keys: MessageReader<KeyboardInput>,
+    held: Res<ButtonInput<KeyCode>>,
+    mut windows: Query<&mut Window>,
+) {
     for k in keys.read() {
+        // Alt+Enter and F11 switch between the window and full screen (not passed to the game).
+        let alt = held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight);
+        if (k.key_code == KeyCode::F11 || (alt && k.key_code == KeyCode::Enter))
+            && k.state == ButtonState::Pressed
+        {
+            if !k.repeat {
+                if let Ok(mut w) = windows.single_mut() {
+                    w.mode = match w.mode {
+                        WindowMode::Windowed => {
+                            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+                        }
+                        _ => WindowMode::Windowed,
+                    };
+                }
+            }
+            continue;
+        }
         if let Some((scan, vk)) = key_codes(k.key_code) {
             input(Input::Key {
                 scan,

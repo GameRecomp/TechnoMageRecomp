@@ -1036,6 +1036,7 @@ fn CreateFileA(c: &mut Cpu) {
     };
     match result {
         Ok((file, path)) => {
+            log::trace_files(&format!("CreateFileA({name}) = {}", path.display()));
             let h = handles::insert(Object::File { file, path });
             set_error(0);
             ret_stdcall(c, h, 7);
