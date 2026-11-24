@@ -338,8 +338,10 @@ async function start() {
     let image = null;
     const params = new URLSearchParams(location.search);
     const env = {};
-    // ?trace=imports,files,fps (as RC_TRACE) logs to the console.
+    // ?trace=imports,files,fps (as RC_TRACE) logs to the console; RC_… settings in the address
+    // are the runtime's as natively (RC_INPUT, RC_FRAMES, RC_RENDERER=soft, for tests).
     if (params.get('trace')) env.RC_TRACE = params.get('trace');
+    for (const [k, v] of params) if (k.startsWith('RC_')) env[k] = v;
     startAudio();
     player = await run({
       runtime,

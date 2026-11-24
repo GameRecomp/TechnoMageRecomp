@@ -63,6 +63,31 @@ cargo run -p rc-cli --release -- convert orig/2004-03.BIN --templates templates 
 writes a zip that runs on its own: the program, `data/game/` (the installed files and the CD's folders) and
 the code.
 
+## The browser (converter page and player)
+
+```sh
+tools/build-web out/site templates            # rc-web and technomage-web for wasm32, the page; templates optional
+python3 -m http.server -d out/site 8000       # then http://localhost:8000/
+```
+
+The page converts in a worker and stores the game in the browser (OPFS); `play.html` plays it. Settings in the
+player's address are the runtime's (`?RC_TRACE=fps`, `?RC_RENDERER=soft`).
+
+Without a browser, the player runs in Node (software rendering) or in headless Firefox (WebGL2) on a game
+converted for the browser (a directory with `game/…` and `code.wasm`):
+
+```sh
+cargo build --release --target wasm32-unknown-unknown -p technomage-web
+RC_FRAMES=1100 RC_INPUT="…" RC_SCREENSHOT=room.ppm RC_SCREENSHOT_FRAME=1090 \
+  node --experimental-wasm-jspi tools/play-node.mjs \
+  target/wasm32-unknown-unknown/release/technomage_web.wasm GAME_DIR
+tools/web-test/run GAME_DIR out "RC_FRAMES=1100&RC_TRACE=fps&shots=1090&RC_INPUT=…"
+```
+
+Node needs version 24 (JSPI behind `--experimental-wasm-jspi`), Firefox 139 or later. `tools/web-test/flow.html`
+runs the page's own flow from a built site: the release from `orig/` converted by `worker.js` into the browser's
+storage, then `play.html` started in a frame (serve the site with `tools/web-test/serve.py SITE GAME OUT PORT`).
+
 ## Checks
 
 ```sh

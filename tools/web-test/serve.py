@@ -11,6 +11,8 @@ class H(http.server.SimpleHTTPRequestHandler):
         p = urllib.parse.unquote(urllib.parse.urlparse(path).path)
         if p.startswith('/webgame/'):
             return os.path.join(GAME, p[len('/webgame/'):])
+        if p.startswith('/orig/'):
+            return os.path.join(os.getcwd(), 'orig', p[len('/orig/'):])
         if p.startswith('/t/'):
             return os.path.join(os.path.dirname(os.path.abspath(__file__)), p[3:])
         if p.startswith('/repo/'):

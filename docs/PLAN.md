@@ -237,8 +237,14 @@ Binary treatment:
       (Linux, Windows); Pages workflow
 - [x] `recomp convert --system linux` end to end: a template built here, the German CD converted (supplements,
       CD folders), the package runs to the first room on its Cranelift code
-- [ ] Browser player: the Rust runtime for `wasm32-unknown-unknown`, guest code from `rc-emit-wasm`, frames on
-      a canvas, input, Web Audio; converter page; read-ahead and buffered reads as SackedRecomp learned
+- [x] Converter page: languages downloaded from archive.org with their supplements, or local copies; the wasm
+      converter in a worker writes the same package as `recomp convert` (checked in Node)
+- [x] Browser player: the Rust runtime for `wasm32-unknown-unknown`, guest code from `rc-emit-wasm`, guest
+      threads on JSPI, frames on a canvas, Direct3D on WebGL2, input, Web Audio, the game's writes kept in the
+      browser's storage, reads in blocks; runs to the first room in Node (software) and headless Firefox (WebGL2);
+      the page's whole flow (worker → OPFS → `play.html`) scripted in headless Firefox (`tools/web-test/flow.html`)
+- [x] Windows: the shell and `recomp` check for `x86_64-pc-windows-msvc` (cross, without linking)
+- [ ] The page's flow checked in a real browser with a person at the keyboard (sound, input, saving)
 - [ ] Windows build checked on Windows
 
 ### M9 – Release v0.1
@@ -269,15 +275,14 @@ directly.
 
 How the recompiled game fits into it:
 
-- **Who owns the loop.** Bevy does. The guest (the game's own message loop and frame) runs on its own thread
-  natively, and as a JSPI coroutine in the browser. Each Bevy frame, a system hands the guest the input of that
-  frame and takes the finished guest frame; natively through channels, in the browser by resuming the guest until
-  it gives way at `Flip`/`PeekMessage`.
-- **Drawing.** Direct3D 7 and DirectDraw are immediate APIs. The HLE layer records the guest's draws of one frame
-  (vertices, state, texture uploads) into a command list; Bevy's render world extracts it and replays it in a
-  custom render-graph node on Bevy's `RenderDevice`/`RenderQueue` (wgpu) into the guest's frame texture: a
-  pipeline cache keyed by the fixed-function state, WGSL generated per key. A camera shows that texture scaled
-  to the window (integer or aspect), with the gamma ramp in the final shader. `Lock` of a GPU surface reads back.
+- **Who owns the loop.** Natively Bevy does: the guest (the game's own message loop and frame) runs on its own
+  thread, hands over finished frames and takes input through the HLE layer's queues. In the browser there is no
+  Bevy (decision log): the guest is a JSPI coroutine on the page's thread that gives way at every frame.
+- **Drawing.** As built (decision log): DirectDraw surfaces live in guest memory; Direct3D's transform and
+  lighting run on the CPU and the triangles of a render target are drawn by a renderer of their own offscreen
+  (wgpu natively, WebGL2 in the browser) over the target's pixels, which are read back into guest memory when
+  the CPU needs them. The Bevy window shows the finished frame as a sprite scaled with its aspect kept; the gamma
+  ramp is applied in the frame conversion.
 - **Audio.** The HLE mixer (Miles samples, DirectSound buffers, the music and speech streams) is one custom
   `bevy_audio` source that pulls PCM from the guest side's ring buffer.
 - **Input.** Bevy's keyboard, mouse-motion and button events become window messages and DirectInput state for the
@@ -336,6 +341,9 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-23 | The German cover CD's 20 damaged sound banks come from the German retail CD 1.00's cabinet (archive.org serves `TechnoMage.iso/data1.cab` on its own, 167 MB), not from the English CD (840 MB) or the RAR patch. `HBoss.SBK` is therefore version 1.00's: patch 1.04 changed it, but taking it from the patch would need a RAR 2.0 reader. Accepted as a documented deviation. |
 | 2026-11-23 | **Direct3D on its own wgpu device, offscreen, read back into guest memory**, not in a Bevy render-graph node: the guest's surfaces stay the one truth (2D `Lock`/`Blt` work mixes with 3D as on Windows), the null backend and CI use the same path, and the Bevy window only shows finished frames. Transform and lighting stay on the CPU (a few thousand vertices a frame). The software rasterizer remains as reference and fallback (`RC_RENDERER=soft`). |
 | 2026-11-23 | Lifted Rust in **16 shard crates** that depend only on **`rc-abi`** (CPU state, memory, x87, MMX; the runtime's entry points as `extern` declarations defined by `rc-runtime`): a full build takes about 5 minutes (dev, unoptimised shards) or 7 (release) instead of more than 40, and runtime changes do not rebuild it. |
+| 2026-11-24 | **The browser player has no Bevy**: the runtime and the HLE layer build for `wasm32-unknown-unknown` with plain imports (`rc_js`) from a small JavaScript core (`web/player.js`) instead of wasm-bindgen and Bevy's web backend. JSPI needs the imports wrapped (`WebAssembly.Suspending`) and the entries made `promising`, which wasm-bindgen's glue does not do; the page needs only a canvas, input events and Web Audio. Each guest thread gets a JSPI stack and its own shadow stack (`__stack_pointer` is exported and swapped around every wait). |
+| 2026-11-24 | **Direct3D in the browser on WebGL2 from JavaScript** (`web/gl.js`), fed the same batches as the wgpu renderer: WebGL2's `readPixels` reads back synchronously, so the guest's surfaces stay in guest memory as natively; wgpu on WebGPU would need an asynchronous map per batch. 35 frames a second in the first room in headless Firefox, 4.5 in software. |
+| 2026-11-24 | **Guest memory tops out at 768 MiB in the browser** (`GUEST_TOP`): the runtime's own memory and the game's 4 GiB address space do not both fit WebAssembly's 4 GiB; the heaps, stacks and information blocks go below the top instead of below 2 GiB. |
 | 2026-11-23 | **English runs on the German cover CD's executable.** The English CD's executable is wrapped in SecuROM with part of it encrypted; undoing copy protection is not done here. The cover CD's 1.04 executable has none and reads its language from `techmage.cfg`, so the English variant downloads the cover CD image as a supplement for its executable. |
 | 2026-11-23 | From SackedRecomp `0dbd1df`: `rc-emit-wasm`'s flag liveness (`flags.rs`, now public and also used by `rc-emit-rust`) and its MMX in WebAssembly SIMD. The browser lessons (frames paced by `requestAnimationFrame`, read-ahead of the game's files, buffered small reads) are requirements for M8. |
 | 2026-11-22 | German needs no patch: the cover CD is 1.04, the last official patch, without SecuROM. There is no English patch. Patch 1.04 is kept in TARGETS as a reference only. |

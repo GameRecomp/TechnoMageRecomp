@@ -1,0 +1,76 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- The page's own flow, scripted: the release from orig/ (as if downloaded) converted for the
+     browser by worker.js into this origin's storage, then play.html in a frame, started and run
+     with the settings in this page's address (RC_…); shots=second,… posts the canvas at those seconds after the start. Served from
+     a built site (tools/build-web) by serve.py. -->
+<meta charset="utf-8">
+<body>
+<iframe id="f" width="660" height="520"></iframe>
+<script type="module">
+const post = (path, body) => fetch(path, { method: 'POST', body });
+const log = (t) => { console.log(t); post('/log', String(t)); };
+window.onerror = (m, s, l, c, e) => log(`error: ${m} ${e && e.stack}`);
+window.onunhandledrejection = (e) => log(`rejection: ${e.reason && (e.reason.stack || e.reason)}`);
+const params = new URLSearchParams(location.search);
+const shots = (params.get('shots') || '').split(',').filter(Boolean).map(Number);
+const { GAMES } = await import('/games.js');
+const lang = GAMES.technomage.languages.find((l) => l.code === (params.get('lang') || 'de'));
+const get = async (name) => new File([await (await fetch(`/orig/${name}`)).blob()], name);
+if (!params.has('noconvert')) {
+  log(`fetching ${lang.file} and ${(lang.supplements || []).length} supplements`);
+  const file = await get(lang.file);
+  const extras = [];
+  for (const s of lang.supplements || []) extras.push(await get(s.file));
+  const t0 = performance.now();
+  await new Promise((resolve, reject) => {
+    const w = new Worker('/worker.js', { type: 'module' });
+    let stage = '';
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'progress' && m.stage !== stage) { stage = m.stage; log(`stage ${stage}`); }
+      if (m.type === 'done') { log(`converted: ${m.summary} in ${((performance.now() - t0) / 1000).toFixed(0)} s`); w.terminate(); resolve(); }
+      if (m.type === 'error') { log(`convert error: ${m.message}`); reject(new Error(m.message)); }
+    };
+    w.onerror = (e) => reject(new Error(e.message));
+    w.postMessage({ file, extras, mode: 'web', game: 'technomage' });
+  });
+}
+const rc = [...params].filter(([k]) => k.startsWith('RC_')).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+const f = document.getElementById('f');
+f.src = `/play.html?game=technomage&${rc}`;
+await new Promise((r) => { f.onload = r; });
+const win = f.contentWindow;
+const orig = win.console.log.bind(win.console);
+win.console.log = (...a) => { orig(...a); post('/log', a.join(' ')); };
+win.console.warn = (...a) => post('/log', `warn: ${a.join(' ')}`);
+const start = win.document.getElementById('start');
+for (let i = 0; i < 100 && start.hidden; i += 1) await new Promise((r) => setTimeout(r, 100));
+log(`player: ${win.document.getElementById('status').textContent}`);
+start.click();
+const canvas = win.document.getElementById('canvas');
+
+const tick = () => {
+  const s = win.document.getElementById('status').textContent;
+  if (!win.document.getElementById('overlay').hidden && s.includes('ended')) { log(`exit: ${s}`); return; }
+  const err = win.document.getElementById('error');
+  if (!err.hidden) { log(`exit: error ${err.textContent}`); return; }
+  setTimeout(tick, 500);
+};
+tick();
+// Frames as the page shows them (the canvas), at the times asked for.
+const t1 = performance.now();
+for (const n of shots) {
+  await new Promise((r) => setTimeout(r, Math.max(0, n * 1000 - (performance.now() - t1))));
+  const c = document.createElement('canvas');
+  c.width = canvas.width; c.height = canvas.height;
+  c.getContext('2d').drawImage(canvas, 0, 0);
+  const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const head = new TextEncoder().encode(`P6\n${c.width} ${c.height}\n255\n`);
+  const out = new Uint8Array(head.length + c.width * c.height * 3);
+  out.set(head);
+  for (let i = 0; i < c.width * c.height; i += 1) out.set(px.subarray(4 * i, 4 * i + 3), head.length + 3 * i);
+  post(`/shot${n}s.ppm`, out);
+
+}
+</script>
