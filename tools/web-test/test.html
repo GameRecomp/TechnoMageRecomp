@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- The browser player without the converter's storage: the game over HTTP (serve.py), settings
+     from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM). -->
+<meta charset="utf-8"><canvas id="c" width="640" height="480"></canvas>
+<script type="module">
+import { run } from '/player.js';
+const post = (path, body) => fetch(path, { method: 'POST', body });
+const log = (t) => { console.log(t); post('/log', String(t)); };
+window.onerror = (m, s, l, c, e) => log(`error: ${m} ${e && e.stack}`);
+window.onunhandledrejection = (e) => log(`rejection: ${e.reason && (e.reason.stack || e.reason)}`);
+const params = new URLSearchParams(location.search);
+const env = Object.fromEntries([...params].filter(([k]) => k.startsWith('RC_')));
+const shots = (params.get('shots') || '').split(',').filter(Boolean).map(Number);
+log(`start: JSPI ${'Suspending' in WebAssembly}, ${navigator.userAgent}`);
+const index = await (await fetch('/index.json')).json();
+const tree = new Map();
+const kids = new Map();
+for (const [p, size] of index) {
+  const path = '/' + p;
+  tree.set(path.toLowerCase(), { path, size, dir: size < 0 });
+  const parent = path.slice(0, path.lastIndexOf('/'));
+  if (!kids.has(parent.toLowerCase())) kids.set(parent.toLowerCase(), []);
+  if (path !== '/game') kids.get(parent.toLowerCase()).push(path.slice(path.lastIndexOf('/') + 1));
+}
+tree.set('/user', { path: '/user', dir: true, size: 0 });
+const user = new Map();
+const fds = new Map(); let next = 1;
+const fs = {
+  stat(p) {
+    if (p.startsWith('/user/')) { const f = user.get(p.toLowerCase()); return f ? { size: f.length, dir: false } : null; }
+    const e = tree.get(p.toLowerCase()); return e ? { size: Math.max(0, e.size), dir: e.dir } : null;
+  },
+  list(p) {
+    if (p === '/user') return [...user.keys()].map((k) => k.slice(6));
+    return tree.has(p.toLowerCase()) ? (kids.get(p.toLowerCase()) || []) : null;
+  },
+  open(p, flags) {
+    if (p.startsWith('/user/')) {
+      const k = p.toLowerCase();
+      if (!user.has(k)) { if (!(flags & 2)) return -1; user.set(k, new Uint8Array(0)); }
+      if (flags & 8) user.set(k, new Uint8Array(0));
+      fds.set(next, { user: k }); return next++;
+    }
+    const e = tree.get(p.toLowerCase());
+    if (!e || e.dir) return -1;
+    if (flags & 1) return -3;
+    fds.set(next, { url: '/webgame/' + e.path.slice(1), size: e.size, block: -1, data: null }); return next++;
+  },
+  read(fd, at, len) {
+    const h = fds.get(fd);
+    if (h.user) { const d = user.get(h.user); return d.slice(at, at + len); }
+    const end = Math.min(h.size, at + len);
+    if (end <= at) return new Uint8Array(0);
+    const B = 1 << 18; const b = Math.floor(at / B);
+    if (h.block === b && end <= b * B + h.data.length) return h.data.slice(at - b * B, end - b * B);
+    const from = end - at > B ? at : b * B;
+    const to = end - at > B ? end : Math.min(h.size, from + 2 * B);
+    return fetch(h.url, { headers: { Range: `bytes=${from}-${to - 1}` } }).then((r) => r.arrayBuffer()).then((x) => {
+      const d = new Uint8Array(x);
+      if (end - at <= B) { h.block = b; h.data = d; }
+      return d.slice(at - from, end - from);
+    });
+  },
+  write(fd, at, bytes) {
+    const h = fds.get(fd); if (!h.user) return -1;
+    let d = user.get(h.user);
+    if (at + bytes.length > d.length) { const g = new Uint8Array(at + bytes.length); g.set(d); d = g; }
+    d.set(bytes, at); user.set(h.user, d); return bytes.length;
+  },
+  size: (fd) => { const h = fds.get(fd); return h.user ? user.get(h.user).length : h.size; },
+  truncate(fd, size) { const h = fds.get(fd); if (h.user) user.set(h.user, user.get(h.user).slice(0, size)); },
+  flush() {}, close(fd) { fds.delete(fd); }, mkdir() { return true; }, remove(p) { return user.delete(p.toLowerCase()); },
+};
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let frames = 0; const t0 = performance.now(); let tl = t0;
+const player = await run({
+  runtime: await (await fetch('/repo/target/web/wasm32-unknown-unknown/release/technomage_web.wasm')).arrayBuffer(),
+  code: await (await fetch('/webgame/code.wasm')).arrayBuffer(),
+  fs, env, log,
+  present(rgba, w, h) {
+    frames += 1;
+    if (shots.includes(frames)) {
+      const out = new Uint8Array(w * h * 3 + 15);
+      const head = new TextEncoder().encode(`P6\n${w} ${h}\n255\n`);
+      out.set(head);
+      for (let i = 0; i < w * h; i += 1) { out[head.length + 3 * i] = rgba[4 * i]; out[head.length + 3 * i + 1] = rgba[4 * i + 1]; out[head.length + 3 * i + 2] = rgba[4 * i + 2]; }
+      post(`/shot${frames}.ppm`, out.subarray(0, head.length + w * h * 3));
+    }
+    if (frames % 100 === 0) { const t = performance.now(); log(`frame ${frames}: ${(100000 / (t - tl)).toFixed(1)} frames/s`); tl = t; }
+  },
+  frame: () => new Promise((r) => setTimeout(r, 0)),
+  exit: (c) => log(`exit ${c} after ${frames} frames, ${((performance.now() - t0) / 1000).toFixed(0)} s`),
+});
+log('running');
+const code = await player.start();
+log(`returned ${code}`);
+</script>

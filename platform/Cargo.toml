@@ -16,8 +16,6 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 bevy = ["dep:bevy", "dep:blake3"]
 
 [dependencies]
-wgpu = { version = "30.0.2", optional = true }
-pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", optional = true, features = ["derive"] }
 bevy = { version = "0.20.1", optional = true, default-features = false, features = [
   "std",
@@ -50,3 +48,8 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "warn"
+
+# The GPU renderer's wgpu backend (in a browser the player's WebGL2 renders instead).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+wgpu = { version = "30.0.2", optional = true }
+pollster = { version = "0.4", optional = true }

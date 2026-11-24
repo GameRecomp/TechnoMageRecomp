@@ -155,14 +155,11 @@ mod batch {
     pub fn available() -> bool {
         let mut r = RENDERER.lock().expect("renderer");
         if r.is_none() {
-            let made = Renderer::new();
+            let made =
+                Renderer::new(rc_runtime::host::env("RC_RENDERER").is_some_and(|v| v == "soft"));
             rc_runtime::log!(
                 "[d3d] renderer: {}",
-                if made.is_some() {
-                    "GPU (wgpu)"
-                } else {
-                    "software"
-                }
+                if made.is_some() { "GPU" } else { "software" }
             );
             *r = Some(made);
         }

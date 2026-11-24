@@ -9,6 +9,7 @@
 //   table slots too (rc_helpers).
 // - Waiting is JSPI: the imports that wait (opening and reading files, sleeping, a frame, a
 //   thread switch) are WebAssembly.Suspending, the runtime's entries WebAssembly.promising.
+// - Direct3D's batches are drawn by WebGL2 (gl.js), read back into guest memory.
 // - Each guest thread has a JSPI stack and a shadow stack (Rust's `__stack_pointer`, in linear
 //   memory) of its own. The shadow stack pointer is saved and set again around every wait, as
 //   another thread may run meanwhile.
@@ -24,6 +25,8 @@
  *   env: { RC_…: value }
  *   log(text), exit(code)
  */
+import { createGL } from './gl.js';
+
 export async function run({ runtime, code, fs, present, frame, env = {}, log = console.log, exit }) {
   let ex = null;
   const enc = new TextEncoder();
@@ -68,8 +71,11 @@ export async function run({ runtime, code, fs, present, frame, env = {}, log = c
   // ---- files: handles hold a position-free view; reads may wait ----
   const outF64 = (p, a, b) => { const v = new Float64Array(ex.memory.buffer, p, 2); v[0] = a; v[1] = b; };
 
+  // Direct3D on WebGL2 (none in Node: the runtime draws in software there).
+  const gl = createGL(() => ex.memory);
   const imports = {
     rc_js: {
+      ...gl,
       fs_stat: (p, n, out) => {
         const s = fs.stat(str(p, n));
         if (!s) return 0;

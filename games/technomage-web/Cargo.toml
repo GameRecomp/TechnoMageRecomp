@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rc-runtime.workspace = true
-rc-hle.workspace = true
+rc-hle = { workspace = true, features = ["gpu"] }
 rc-platform.workspace = true
 
 [lints.rust]
