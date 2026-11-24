@@ -8,6 +8,7 @@
 //! - Files the game writes (settings, saves) go to the user directory, mirroring the
 //!   install's layout; reads look there first.
 
+use crate::host;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -29,10 +30,10 @@ static VFS: RwLock<Option<Vfs>> = RwLock::new(None);
 /// Set up the file system for an install in `game_dir`.
 pub fn init(game_dir: &Path, user_dir: Option<PathBuf>) {
     let cd = game_dir.join("cd");
-    let cd_dir = cd.is_dir().then_some(cd);
+    let cd_dir = host::is_dir(&cd).then_some(cd);
     let cd_label = cd_dir
         .as_ref()
-        .and_then(|d| std::fs::read_to_string(d.join("volume-label.txt")).ok())
+        .and_then(|d| host::read_to_string(&d.join("volume-label.txt")))
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     *VFS.write().expect("vfs") = Some(Vfs {
@@ -53,7 +54,7 @@ pub fn get() -> Vfs {
 
 pub fn set_cwd(dir: &str) -> bool {
     let full = absolute(dir);
-    if host_path(&full).is_some_and(|p| p.is_dir()) {
+    if host_path(&full).is_some_and(|p| host::is_dir(&p)) {
         if let Some(v) = VFS.write().expect("vfs").as_mut() {
             v.cwd = full.trim_end_matches('\\').to_string();
         }
@@ -124,14 +125,15 @@ fn walk(root: &Path, parts: &[String], allow_new: bool) -> Option<PathBuf> {
     let mut p = root.to_path_buf();
     for (i, part) in parts.iter().enumerate() {
         let exact = p.join(part);
-        if exact.exists() {
+        if host::exists(&exact) {
             p = exact;
             continue;
         }
-        let found = std::fs::read_dir(&p).ok().and_then(|d| {
-            d.filter_map(Result::ok)
-                .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))
-                .map(|e| e.path())
+        let found = host::read_dir(&p).and_then(|names| {
+            names
+                .into_iter()
+                .find(|n| n.eq_ignore_ascii_case(part))
+                .map(|n| p.join(n))
         });
         match found {
             Some(f) => p = f,
@@ -169,8 +171,8 @@ pub fn host_path_for_write(path: &str) -> Option<PathBuf> {
         let mut d = base.clone();
         for part in parent {
             let next = walk(&d, std::slice::from_ref(part), true)?;
-            if !next.exists() {
-                std::fs::create_dir_all(&next).ok()?;
+            if !host::exists(&next) && !host::create_dir_all(&next) {
+                return None;
             }
             d = next;
         }

@@ -9,8 +9,8 @@ use rc_runtime::cpu::Cpu;
 use rc_runtime::handles::{self, Object, INVALID, STD_ERROR, STD_INPUT, STD_OUTPUT};
 use rc_runtime::imports::{self, ret_stdcall};
 use rc_runtime::mem::Mem;
-use rc_runtime::{clock, process, vfs, vm};
-use std::io::{Read, Seek, SeekFrom, Write};
+use rc_runtime::{clock, host, process, vfs, vm};
+use std::io::{SeekFrom, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
@@ -282,13 +282,9 @@ fn ExitThread(c: &mut Cpu) {
     let code = arg(c, 0);
     let me = rc_runtime::threads::current();
     if me == 1 {
-        std::process::exit(code as i32);
+        rc_runtime::host::exit(code as i32);
     }
-    rc_runtime::threads::finish(me, code);
-    // The host thread of an ended guest thread never runs guest code again.
-    loop {
-        std::thread::park();
-    }
+    rc_runtime::threads::end_current(me, code);
 }
 
 fn GetExitCodeThread(c: &mut Cpu) {
@@ -348,13 +344,13 @@ fn GetThreadPriority(c: &mut Cpu) {
 fn ExitProcess(c: &mut Cpu) {
     let code = arg(c, 0);
     log::info(&format!("ExitProcess({code})"));
-    std::process::exit(code as i32);
+    rc_runtime::host::exit(code as i32);
 }
 
 fn TerminateProcess(c: &mut Cpu) {
     let code = arg(c, 1);
     log::info(&format!("TerminateProcess({code})"));
-    std::process::exit(code as i32);
+    rc_runtime::host::exit(code as i32);
 }
 
 fn SetErrorMode(c: &mut Cpu) {
@@ -585,10 +581,8 @@ fn Sleep(c: &mut Cpu) {
     let ms = arg(c, 0);
     if clock::is_virtual() {
         clock::advance_ms(u64::from(ms));
-    } else if ms > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
     } else {
-        std::thread::yield_now();
+        host::sleep_ms(ms);
     }
     crate::yield_point(c);
     ret_stdcall(c, 0, 1);
@@ -665,13 +659,9 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// A host time as a FILETIME.
-fn filetime(t: std::time::SystemTime) -> u64 {
-    let s = t
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() / 100)
-        .unwrap_or(0);
-    s as u64 + 116_444_736_000_000_000
+/// A host time (milliseconds since 1970) as a FILETIME.
+fn filetime(ms: u64) -> u64 {
+    ms * 10_000 + 116_444_736_000_000_000
 }
 
 // --- memory --------------------------------------------------------------------------------
@@ -1011,7 +1001,9 @@ fn CreateFileA(c: &mut Cpu) {
     let existing = vfs::host_path(&name);
     let result = if !write {
         match &existing {
-            Some(p) if p.is_file() => std::fs::File::open(p).map(|f| (f, p.clone())),
+            Some(p) if host::is_file(p) => {
+                host::File::open(p, host::Open::default()).map(|f| (f, p.clone()))
+            }
             _ => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
         }
     } else {
@@ -1019,21 +1011,26 @@ fn CreateFileA(c: &mut Cpu) {
             None => Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
             Some(target) => {
                 // A file of the install opened for update is copied to the user directory first.
-                if !target.exists() && matches!(disposition, 3 | 4) {
+                if !host::exists(&target) && matches!(disposition, 3 | 4) {
                     if let Some(src) = existing.as_ref().filter(|p| **p != target) {
-                        let _ = std::fs::copy(src, &target);
+                        let _ = host::copy(src, &target);
                     }
                 }
-                let mut o = std::fs::OpenOptions::new();
-                o.read(true).write(true);
-                match disposition {
-                    1 => o.create_new(true),
-                    2 => o.create(true).truncate(true),
-                    3 => &mut o,
-                    4 => o.create(true),
-                    _ => o.truncate(true),
+                let mut o = host::Open {
+                    write: true,
+                    ..host::Open::default()
                 };
-                o.open(&target).map(|f| (f, target.clone()))
+                match disposition {
+                    1 => o.create_new = true,
+                    2 => {
+                        o.create = true;
+                        o.truncate = true;
+                    }
+                    3 => {}
+                    4 => o.create = true,
+                    _ => o.truncate = true,
+                }
+                host::File::open(&target, o).map(|f| (f, target.clone()))
             }
         }
     };
@@ -1151,7 +1148,7 @@ fn SetFilePointer(c: &mut Cpu) {
 fn SetEndOfFile(c: &mut Cpu) {
     let h = arg(c, 0);
     let ok = handles::with(h, |o| match o {
-        Object::File { file, .. } => file.stream_position().and_then(|p| file.set_len(p)).is_ok(),
+        Object::File { file, .. } => file.truncate_here().is_ok(),
         _ => false,
     })
     .unwrap_or(false);
@@ -1200,7 +1197,7 @@ fn CloseHandle(c: &mut Cpu) {
 
 fn DeleteFileA(c: &mut Cpu) {
     let name = guest_str(c.mem(), arg(c, 0));
-    let ok = vfs::host_path_for_write(&name).is_some_and(|p| std::fs::remove_file(p).is_ok());
+    let ok = vfs::host_path_for_write(&name).is_some_and(|p| host::remove_file(&p));
     if !ok {
         set_error(ERROR_FILE_NOT_FOUND);
     }
@@ -1210,10 +1207,10 @@ fn DeleteFileA(c: &mut Cpu) {
 fn CreateDirectoryA(c: &mut Cpu) {
     let name = guest_str(c.mem(), arg(c, 0));
     let ok = vfs::host_path_for_write(&name).is_some_and(|p| {
-        if p.is_dir() {
+        if host::is_dir(&p) {
             false
         } else {
-            std::fs::create_dir_all(p).is_ok()
+            host::create_dir_all(&p)
         }
     });
     if !ok {
@@ -1270,19 +1267,19 @@ fn wildcard(pattern: &str, name: &str) -> bool {
 }
 
 fn fill_find_data(m: Mem, out: u32, path: &std::path::Path) {
-    let meta = std::fs::metadata(path).ok();
+    let meta = host::metadata(path);
     for i in 0..320 {
         m.st8(out + i, 0);
     }
-    let is_dir = meta.as_ref().is_some_and(|x| x.is_dir());
+    let is_dir = meta.is_some_and(|x| x.is_dir);
     m.st32(out, if is_dir { 0x10 } else { 0x20 });
     if let Some(md) = &meta {
-        let t = md.modified().map(filetime).unwrap_or(0);
+        let t = filetime(md.modified_ms);
         for off in [4, 12, 20] {
             m.st64(out + off, t);
         }
-        m.st32(out + 28, (md.len() >> 32) as u32);
-        m.st32(out + 32, md.len() as u32);
+        m.st32(out + 28, (md.len >> 32) as u32);
+        m.st32(out + 32, md.len as u32);
     }
     let name = path
         .file_name()
@@ -1305,11 +1302,13 @@ fn FindFirstFileA(c: &mut Cpu) {
         dir.to_string()
     };
     let mut found: Vec<std::path::PathBuf> = vfs::host_path(&dir)
-        .and_then(|d| std::fs::read_dir(d).ok())
+        .and_then(|d| host::read_dir_paths(&d))
         .map(|rd| {
-            rd.filter_map(Result::ok)
-                .filter(|e| wildcard(mask, &e.file_name().to_string_lossy()))
-                .map(|e| e.path())
+            rd.into_iter()
+                .filter(|p| {
+                    p.file_name()
+                        .is_some_and(|n| wildcard(mask, &n.to_string_lossy()))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -1492,19 +1491,19 @@ fn WaitForSingleObject(c: &mut Cpu) {
 /// A minimal log; the shell's `RC_TRACE` selects what is printed.
 pub mod log {
     pub fn info(s: &str) {
-        eprintln!("[kernel32] {s}");
+        rc_runtime::log!("[kernel32] {s}");
     }
     pub fn warn(s: &str) {
-        eprintln!("[kernel32] warning: {s}");
+        rc_runtime::log!("[kernel32] warning: {s}");
     }
     pub fn debug(s: &str) {
-        if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("debug")) {
-            eprintln!("[kernel32] {s}");
+        if rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("debug")) {
+            rc_runtime::log!("[kernel32] {s}");
         }
     }
     pub fn trace_files(s: &str) {
-        if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("files")) {
-            eprintln!("[kernel32] {s}");
+        if rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("files")) {
+            rc_runtime::log!("[kernel32] {s}");
         }
     }
 }

@@ -9,7 +9,9 @@
 //! Nothing above this crate names Bevy or wgpu types. What exists so far is the frame sink both
 //! backends read: the HLE layer submits each finished frame here.
 
-use std::sync::{Condvar, Mutex, OnceLock};
+#[cfg(not(target_family = "wasm"))]
+use std::sync::Condvar;
+use std::sync::{Mutex, OnceLock};
 
 #[cfg(feature = "bevy")]
 pub mod bevy_app;
@@ -93,7 +95,15 @@ static FRAME: Mutex<Frame> = Mutex::new(Frame {
     rgba: Vec::new(),
     number: 0,
 });
+#[cfg(not(target_family = "wasm"))]
 static NEW_FRAME: Condvar = Condvar::new();
+
+static PRESENT: OnceLock<fn(&Frame)> = OnceLock::new();
+
+/// A backend that shows frames as they come (the browser player) instead of reading the latest.
+pub fn set_present_hook(f: fn(&Frame)) {
+    let _ = PRESENT.set(f);
+}
 
 /// Hand over a finished frame (the game's `Flip`).
 pub fn submit_frame(width: u32, height: u32, rgba: Vec<u8>) {
@@ -103,9 +113,18 @@ pub fn submit_frame(width: u32, height: u32, rgba: Vec<u8>) {
     f.rgba = rgba;
     f.number += 1;
     let n = f.number;
+    if let Some(p) = PRESENT.get() {
+        p(&f);
+    }
     drop(f);
+    #[cfg(not(target_family = "wasm"))]
     NEW_FRAME.notify_all();
     screenshot_if_asked(n);
+}
+
+/// How many frames were submitted.
+pub fn frame_number() -> u64 {
+    FRAME.lock().expect("frame").number
 }
 
 /// The latest frame.

@@ -4,16 +4,20 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::time::Instant;
 
 static VIRTUAL: AtomicBool = AtomicBool::new(false);
 static VIRTUAL_MS: AtomicU64 = AtomicU64::new(0);
-static START: OnceLock<Instant> = OnceLock::new();
+static START: OnceLock<u64> = OnceLock::new();
+
+fn since_start() -> u64 {
+    let s = *START.get_or_init(crate::host::monotonic_ns);
+    crate::host::monotonic_ns().saturating_sub(s)
+}
 
 /// Read `RC_CLOCK` once at start-up.
 pub fn init_from_env() {
-    START.get_or_init(Instant::now);
-    if std::env::var("RC_CLOCK").is_ok_and(|v| v == "virtual") {
+    START.get_or_init(crate::host::monotonic_ns);
+    if crate::host::env("RC_CLOCK").is_some_and(|v| v == "virtual") {
         VIRTUAL.store(true, Ordering::Relaxed);
     }
 }
@@ -31,7 +35,7 @@ pub fn ticks_ms() -> u64 {
     if is_virtual() {
         VIRTUAL_MS.load(Ordering::Relaxed)
     } else {
-        START.get_or_init(Instant::now).elapsed().as_millis() as u64
+        since_start() / 1_000_000
     }
 }
 
@@ -40,7 +44,7 @@ pub fn ticks_ns() -> u64 {
     if is_virtual() {
         VIRTUAL_MS.load(Ordering::Relaxed) * 1_000_000
     } else {
-        START.get_or_init(Instant::now).elapsed().as_nanos() as u64
+        since_start()
     }
 }
 

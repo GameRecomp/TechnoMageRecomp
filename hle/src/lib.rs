@@ -124,39 +124,39 @@ pub(crate) static RASTER_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::A
 fn fps_trace(n: u64) {
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
-    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-    if !n.is_multiple_of(100) || !std::env::var("RC_TRACE").is_ok_and(|v| v.contains("fps")) {
+    static LAST: Mutex<Option<rc_runtime::host::Stamp>> = Mutex::new(None);
+    if !n.is_multiple_of(100)
+        || !rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("fps"))
+    {
         return;
     }
     let mut last = LAST.lock().expect("fps");
     if let Some(t) = *last {
-        let secs = t.elapsed().as_secs_f64();
+        let secs = t.elapsed_secs();
         let raster = RASTER_NS.swap(0, Ordering::Relaxed) as f64 / 1e9;
-        eprintln!(
+        rc_runtime::log!(
             "[fps] frame {n}: {:.1} frames/s, rasterizer {:.0} %",
             100.0 / secs,
             100.0 * raster / secs
         );
     }
-    *last = Some(std::time::Instant::now());
+    *last = Some(rc_runtime::host::Stamp::now());
 }
 
 pub(crate) fn frame_done(c: &mut Cpu) {
     if rc_runtime::clock::is_virtual() {
         rc_runtime::clock::advance_ms(16);
     }
-    let n = rc_platform::latest_frame().number;
+    let n = rc_platform::frame_number();
     fps_trace(n);
     scripted_input(n);
-    if let Some(limit) = std::env::var("RC_FRAMES")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-    {
+    if let Some(limit) = rc_runtime::host::env("RC_FRAMES").and_then(|v| v.parse::<u64>().ok()) {
         if n >= limit {
-            eprintln!("[hle] {n} frames shown: the scripted run ends");
-            std::process::exit(0);
+            rc_runtime::log!("[hle] {n} frames shown: the scripted run ends");
+            rc_runtime::host::exit(0);
         }
     }
+    rc_runtime::host::frame_yield();
     yield_point(c);
 }
 
@@ -165,7 +165,7 @@ pub(crate) fn frame_done(c: &mut Cpu) {
 fn scripted_input(frame: u64) {
     use std::sync::Mutex;
     static RELEASE: Mutex<Vec<(u64, u8, u32)>> = Mutex::new(Vec::new());
-    let Ok(script) = std::env::var("RC_INPUT") else {
+    let Some(script) = rc_runtime::host::env("RC_INPUT") else {
         return;
     };
     let mut rel = RELEASE.lock().expect("input");

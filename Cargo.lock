@@ -4819,6 +4819,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "technomage-web"
+version = "0.0.1"
+dependencies = [
+ "rc-hle",
+ "rc-platform",
+ "rc-runtime",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

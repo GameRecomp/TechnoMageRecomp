@@ -12,6 +12,16 @@ use std::sync::OnceLock;
 const GUARD: u64 = 16;
 const FULL: u64 = (1 << 32) + GUARD;
 
+/// The top of the guest memory the runtime hands out (heaps, stacks, the threads' and the
+/// process's information blocks), as on Windows (2 GiB) where the whole address space is
+/// reserved; in a browser below 768 MiB, so that guest memory fits the 4 GiB of WebAssembly
+/// memory beside the runtime.
+pub const GUEST_TOP: u32 = if cfg!(target_pointer_width = "64") {
+    0x8000_0000
+} else {
+    0x3000_0000
+};
+
 /// The memory a process's guest code runs on. It lives for the rest of the program.
 pub struct GuestMemory {
     base: *mut u8,

@@ -119,7 +119,7 @@ fn traced(c: &mut Cpu) {
     };
     let m = c.mem();
     let sp = c.r[ESP];
-    eprintln!(
+    crate::log!(
         "[import] {dll}!{name}({:#x}, {:#x}, {:#x}, {:#x}) from {:#010x}",
         m.ld32(sp + 4),
         m.ld32(sp + 8),
@@ -130,7 +130,7 @@ fn traced(c: &mut Cpu) {
     if let Some(f) = f {
         f(c);
     }
-    eprintln!("[import]   = {:#x}", c.r[EAX]);
+    crate::log!("[import]   = {:#x}", c.r[EAX]);
 }
 
 /// The dispatcher's resolver for reserved addresses.

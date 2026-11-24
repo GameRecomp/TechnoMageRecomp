@@ -13,8 +13,8 @@ pub const PROC_DATA_SIZE: u32 = 0x0001_0000;
 /// The main thread's stack.
 pub const STACK_LO: u32 = 0x0011_0000;
 pub const STACK_SIZE: u32 = 0x0010_0000;
-pub const TIB_ADDR: u32 = 0x7ffd_e000;
-pub const PEB_ADDR: u32 = 0x7ffd_f000;
+pub const TIB_ADDR: u32 = rc_abi::mem::GUEST_TOP - 0x2_2000;
+pub const PEB_ADDR: u32 = rc_abi::mem::GUEST_TOP - 0x2_1000;
 /// Where the entry point returns to: the runtime ends the process there.
 pub const EXIT_RETURN: u32 = 0xefff_fff8;
 

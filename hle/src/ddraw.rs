@@ -393,7 +393,7 @@ fn dd_QueryInterface(c: &mut Cpu) {
             None => E_NOINTERFACE,
         }
     } else {
-        eprintln!("[ddraw] IDirectDraw7::QueryInterface({g:02x?}): not provided");
+        rc_runtime::log!("[ddraw] IDirectDraw7::QueryInterface({g:02x?}): not provided");
         m.st32(out, 0);
         E_NOINTERFACE
     };
@@ -414,14 +414,14 @@ fn ok3(c: &mut Cpu) {
 fn dd_SetDisplayMode1(c: &mut Cpu) {
     let (w, h, bpp) = (c.arg(1), c.arg(2), c.arg(3));
     st().mode = (w, h, bpp);
-    eprintln!("[ddraw] display mode {w}x{h}x{bpp}");
+    rc_runtime::log!("[ddraw] display mode {w}x{h}x{bpp}");
     ret_stdcall(c, S_OK, 4);
 }
 
 fn dd_SetDisplayMode(c: &mut Cpu) {
     let (w, h, bpp) = (c.arg(1), c.arg(2), c.arg(3));
     st().mode = (w, h, bpp);
-    eprintln!("[ddraw] display mode {w}x{h}x{bpp}");
+    rc_runtime::log!("[ddraw] display mode {w}x{h}x{bpp}");
     ret_stdcall(c, S_OK, 6);
 }
 
@@ -649,7 +649,7 @@ fn s_QueryInterface(c: &mut Cpu) {
         m.st32(out, this);
         S_OK
     } else {
-        eprintln!("[ddraw] IDirectDrawSurface7::QueryInterface({g:02x?}): not provided");
+        rc_runtime::log!("[ddraw] IDirectDrawSurface7::QueryInterface({g:02x?}): not provided");
         m.st32(out, 0);
         E_NOINTERFACE
     };
@@ -1006,8 +1006,8 @@ fn s_Flip(c: &mut Cpu) {
     // The frame's Direct3D commands go to the renderer once it exists (M5); for now they are
     // counted and dropped.
     let commands = crate::d3d::take_frame();
-    if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("d3d")) {
-        eprintln!("[d3d] frame: {} commands", commands.len());
+    if rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("d3d")) {
+        rc_runtime::log!("[d3d] frame: {} commands", commands.len());
     }
     rc_platform::submit_frame(shown.width, shown.height, rgba);
     crate::frame_done(c);

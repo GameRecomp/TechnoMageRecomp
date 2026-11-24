@@ -498,7 +498,7 @@ function applyChoices() {
 const playerChecked = new Map();
 function checkPlayer(g) {
   if (!playerChecked.has(g.id)) {
-    playerChecked.set(g.id, fetch(`player/${g.web}.js`, { method: 'HEAD' })
+    playerChecked.set(g.id, fetch('player/technomage.wasm', { method: 'HEAD' })
       .then((r) => { if (!r.ok) offForGame.get(g.id).set('web', 'not available on this site yet'); })
       .catch(() => {}));
   }

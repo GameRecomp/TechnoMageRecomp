@@ -2,8 +2,8 @@
 //! Kernel object handles the HLE layer gives the guest: files, searches, synchronisation
 //! objects, modules. Handle values are small multiples of 4 above `HANDLE_BASE`.
 
+use crate::host::File;
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Mutex;
 

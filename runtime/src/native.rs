@@ -16,7 +16,9 @@ pub type NativeFn = unsafe extern "C" fn(*mut Cpu);
 
 /// The target this runtime runs native code for, as the blob numbers them.
 pub fn host_target() -> u32 {
-    if cfg!(all(target_arch = "x86_64", windows)) {
+    if cfg!(target_family = "wasm") {
+        5
+    } else if cfg!(all(target_arch = "x86_64", windows)) {
         2
     } else if cfg!(target_arch = "x86_64") {
         1
@@ -255,6 +257,12 @@ static HELPERS: Helpers = Helpers([
     h_unwind_begin as *const (),
 ]);
 
+/// The helper table (in a browser its entries are function table slots, which the page hands
+/// the game's WebAssembly module as its `rc` imports).
+pub fn helper_table() -> &'static [*const (); 11] {
+    &HELPERS.0
+}
+
 /// Give a CPU the helper table, so native code can run on it.
 pub fn bind(c: &mut Cpu) {
     c.helpers = HELPERS.0.as_ptr();
@@ -271,7 +279,48 @@ pub struct Loaded {
 }
 
 /// Load a blob of native code: map it executable and add its functions to the dispatcher.
+#[cfg(not(target_family = "wasm"))]
 pub fn load(b: &[u8]) -> Result<Loaded, String> {
+    if b.len() < 48 {
+        return Err("not native code from recomp".into());
+    }
+    let (code_at, csize) = (rd32(b, 36) as usize, rd32(b, 40) as usize);
+    if code_at.saturating_add(csize) > b.len() {
+        return Err("native code is damaged (sizes)".into());
+    }
+    let mut map = memmap2::MmapMut::map_anon(csize.max(1)).map_err(|e| e.to_string())?;
+    map[..csize].copy_from_slice(&b[code_at..code_at + csize]);
+    let exec = map.make_exec().map_err(|e| e.to_string())?;
+    let base = exec.as_ptr();
+    let loaded = read_tables(b, csize, &mut |off| {
+        // SAFETY: `off` lies inside the executable mapping, which is never unmapped (it is
+        // leaked below), and the converter put a function of this signature there.
+        unsafe { std::mem::transmute::<*const u8, NativeFn>(base.add(off)) }
+    })?;
+    // The mapping stays for the rest of the process.
+    Box::leak(Box::new(exec));
+    Ok(loaded)
+}
+
+/// The tables of the WebAssembly module of the game's code (its `rc.code` section, the blob's
+/// format with an empty code part): function `i` is slot `table_base + i` of the function table
+/// the module was instantiated with (its functions are `(cpu: i32) -> ()`, as `NativeFn` is
+/// here).
+#[cfg(target_family = "wasm")]
+pub fn load_wasm(b: &[u8], table_base: u32) -> Result<Loaded, String> {
+    read_tables(b, usize::MAX, &mut |off| {
+        // SAFETY: on wasm32 a function pointer is a table slot; the page put the module's
+        // function `off` at `table_base + off`, with this signature.
+        unsafe { std::mem::transmute::<usize, NativeFn>(table_base as usize + off) }
+    })
+}
+
+/// Check a blob's header and read its tables; `func(offset)` makes a function of an entry.
+fn read_tables(
+    b: &[u8],
+    csize: usize,
+    func: &mut dyn FnMut(usize) -> NativeFn,
+) -> Result<Loaded, String> {
     if b.len() < 48 || &b[..8] != b"RCNATIVE" {
         return Err("not native code from recomp".into());
     }
@@ -298,14 +347,10 @@ pub fn load(b: &[u8]) -> Result<Loaded, String> {
         rd32(b, 28) as usize,
         rd32(b, 32) as usize,
     );
-    let (code_at, csize) = (rd32(b, 36) as usize, rd32(b, 40) as usize);
-    if code_at + csize > b.len() || code_at < 48 || nfuncs == 0 {
+    let code_at = rd32(b, 36) as usize;
+    if code_at > b.len() || code_at < 48 || nfuncs == 0 {
         return Err("native code is damaged (sizes)".into());
     }
-    let mut map = memmap2::MmapMut::map_anon(csize.max(1)).map_err(|e| e.to_string())?;
-    map[..csize].copy_from_slice(&b[code_at..code_at + csize]);
-    let exec = map.make_exec().map_err(|e| e.to_string())?;
-    let base = exec.as_ptr();
     let mut p = 48;
     let need = |p: usize, n: usize| -> Result<(), String> {
         if p + n > code_at {
@@ -322,10 +367,7 @@ pub fn load(b: &[u8]) -> Result<Loaded, String> {
         if off >= csize || table.last().is_some_and(|l| l.0 >= addr) {
             return Err("native code is damaged (function table)".into());
         }
-        // SAFETY: `off` lies inside the executable mapping, which is never unmapped (it is
-        // leaked below), and the converter put a function of this signature there.
-        let f: NativeFn = unsafe { std::mem::transmute::<*const u8, NativeFn>(base.add(off)) };
-        table.push((addr, f));
+        table.push((addr, func(off)));
     }
     let mut traps = TRAPS.lock().expect("traps");
     for _ in 0..ntraps {
@@ -348,7 +390,6 @@ pub fn load(b: &[u8]) -> Result<Loaded, String> {
         modules.push(String::from_utf8_lossy(&b[p + 4..p + 4 + len]).into());
         p += 4 + len;
     }
-    std::mem::forget(exec);
     let functions = table.len();
     dispatch::add_native(Box::leak(table.into_boxed_slice()));
     Ok(Loaded { modules, functions })

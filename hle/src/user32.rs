@@ -240,7 +240,7 @@ fn MessageBoxA(c: &mut Cpu) {
     let m = c.mem();
     let text = crate::codepage::decode(&m.cstr(c.arg(1), 4096));
     let caption = crate::codepage::decode(&m.cstr(c.arg(2), 256));
-    eprintln!("[user32] MessageBox \"{caption}\": {text}");
+    rc_runtime::log!("[user32] MessageBox \"{caption}\": {text}");
     ret_stdcall(c, 1, 4); // IDOK
 }
 

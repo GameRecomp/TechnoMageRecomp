@@ -15,6 +15,7 @@
 //! - [`vfs`]: Windows paths onto the install, the virtual CD drive, the user directory.
 //! - [`vm`]: page regions and heaps in guest memory.
 //! - [`clock`]: real and virtual time.
+//! - [`host`]: files, clocks and sleeping from the host (`std`, or the browser player's imports).
 //! - [`lifted`]: what generated code imports.
 //!
 //! Still to come (docs/PLAN.md, M3r): SEH.
@@ -24,6 +25,7 @@
 pub mod clock;
 pub mod dispatch;
 pub mod handles;
+pub mod host;
 pub mod imports;
 pub mod native;
 pub mod process;

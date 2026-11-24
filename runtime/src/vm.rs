@@ -9,7 +9,7 @@ pub const PAGE: u32 = 0x1000;
 pub const GRANULE: u32 = 0x10000;
 /// Dynamic allocations go here: above the executable's image, below the TIB.
 pub const DYN_LO: u32 = 0x0200_0000;
-pub const DYN_HI: u32 = 0x7f00_0000;
+pub const DYN_HI: u32 = rc_abi::mem::GUEST_TOP - 0x100_0000;
 
 struct Space {
     /// Reserved regions: base → size (granule aligned).

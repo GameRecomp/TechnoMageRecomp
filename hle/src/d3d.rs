@@ -156,7 +156,7 @@ mod batch {
         let mut r = RENDERER.lock().expect("renderer");
         if r.is_none() {
             let made = Renderer::new();
-            eprintln!(
+            rc_runtime::log!(
                 "[d3d] renderer: {}",
                 if made.is_some() {
                     "GPU (wgpu)"
@@ -479,7 +479,7 @@ fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16
         return;
     };
     let state = snapshot(d);
-    let t = std::time::Instant::now();
+    let t = rc_runtime::host::Stamp::now();
     #[cfg(feature = "gpu")]
     if batch::available() {
         let target = state.target;
@@ -487,18 +487,12 @@ fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16
         if let Some(d) = crate::raster::gpu_draw(m, &state, primitive, fvf, &vertices, &indices) {
             batch::push(m, target, rc_platform::gpu::Command::Draw(d));
         }
-        crate::RASTER_NS.fetch_add(
-            t.elapsed().as_nanos() as u64,
-            std::sync::atomic::Ordering::Relaxed,
-        );
+        crate::RASTER_NS.fetch_add(t.elapsed_ns(), std::sync::atomic::Ordering::Relaxed);
         return;
     }
     // The software renderer draws now, into the target in guest memory.
     crate::raster::draw(m, &state, primitive, fvf, &vertices, &indices);
-    crate::RASTER_NS.fetch_add(
-        t.elapsed().as_nanos() as u64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    crate::RASTER_NS.fetch_add(t.elapsed_ns(), std::sync::atomic::Ordering::Relaxed);
     s.frame.push(Command::Draw {
         primitive,
         fvf,

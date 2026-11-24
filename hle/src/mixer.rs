@@ -6,9 +6,9 @@
 //! Without an audio device (headless) nothing pulls the mixer; voices then end by the clock, so
 //! the game's waits for a sound still end.
 
+use rc_runtime::host::Stamp;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 /// Decoded audio: interleaved 16-bit samples.
 #[derive(Debug, Clone, Default)]
@@ -40,7 +40,7 @@ pub struct Voice {
     pub pan: f32,
     pub playing: bool,
     /// When it started, for the clock fallback.
-    pub started: Instant,
+    pub started: Stamp,
     /// A streaming buffer (DirectSound): played round and round from this shared copy, which
     /// the game refills ahead of the play position.
     pub stream: Option<Arc<Mutex<Vec<i16>>>>,
@@ -49,7 +49,7 @@ pub struct Voice {
 struct Mixer {
     voices: BTreeMap<u32, Voice>,
     /// When the audio device last pulled samples.
-    pulled: Option<Instant>,
+    pulled: Option<Stamp>,
 }
 
 static MIXER: Mutex<Mixer> = Mutex::new(Mixer {
@@ -73,7 +73,7 @@ pub fn play(id: u32, pcm: Arc<Pcm>, rate: u32, loops: u32, volume: f32, pan: f32
             volume,
             pan,
             playing: true,
-            started: Instant::now(),
+            started: Stamp::now(),
             stream: None,
         },
     );
@@ -102,7 +102,7 @@ pub fn play_stream(
             volume,
             pan,
             playing: true,
-            started: Instant::now(),
+            started: Stamp::now(),
             stream: Some(buf),
         },
     );
@@ -112,7 +112,7 @@ pub fn play_stream(
 /// would be without one.
 pub fn position(id: u32) -> Option<f64> {
     let m = mx();
-    let live = m.pulled.is_some_and(|t| t.elapsed().as_millis() < 500);
+    let live = m.pulled.is_some_and(|t| t.elapsed_ms() < 500);
     let v = m.voices.get(&id)?;
     if live {
         Some(v.pos)
@@ -122,7 +122,7 @@ pub fn position(id: u32) -> Option<f64> {
         } else {
             v.pcm.rate.max(1)
         };
-        Some(v.started.elapsed().as_secs_f64() * f64::from(rate))
+        Some(v.started.elapsed_secs() * f64::from(rate))
     }
 }
 
@@ -146,7 +146,7 @@ pub fn set(id: u32, f: impl FnOnce(&mut Voice)) {
 /// Whether voice `id` is still playing.
 pub fn playing(id: u32) -> bool {
     let mut m = mx();
-    let live = m.pulled.is_some_and(|t| t.elapsed().as_millis() < 500);
+    let live = m.pulled.is_some_and(|t| t.elapsed_ms() < 500);
     let Some(v) = m.voices.get_mut(&id) else {
         return false;
     };
@@ -161,7 +161,7 @@ pub fn playing(id: u32) -> bool {
             v.pcm.rate.max(1)
         };
         let secs = v.pcm.frames() as f64 / f64::from(rate) * f64::from(v.loops);
-        if v.started.elapsed().as_secs_f64() >= secs {
+        if v.started.elapsed_secs() >= secs {
             v.playing = false;
         }
     }
@@ -172,7 +172,7 @@ pub fn playing(id: u32) -> bool {
 pub fn mix(out: &mut [f32]) {
     out.fill(0.0);
     let mut m = mx();
-    m.pulled = Some(Instant::now());
+    m.pulled = Some(Stamp::now());
     let out_rate = f64::from(rc_platform::audio::RATE);
     for v in m.voices.values_mut() {
         if !v.playing {

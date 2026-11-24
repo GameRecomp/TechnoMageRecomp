@@ -159,7 +159,7 @@ fn run(a: &Args) -> Result<ExitCode, String> {
     if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("imports")) {
         rc_runtime::imports::set_trace(true);
     }
-    let mem = rc_runtime::mem::GuestMemory::get(1 << 30).mem();
+    let mem = rc_runtime::mem::GuestMemory::get(u64::from(rc_runtime::mem::GUEST_TOP)).mem();
     // The lifted DLLs beside the executable first (binkw32.dll): matched by hash (Rust), or the
     // ones a native blob holds, at their preferred base.
     let mut dlls = Vec::new();

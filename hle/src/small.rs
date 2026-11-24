@@ -80,7 +80,7 @@ fn CoCreateInstance(c: &mut Cpu) {
         }
         None => {
             m.st32(out, 0);
-            eprintln!("[ole32] CoCreateInstance: class {clsid:02x?} not provided");
+            rc_runtime::log!("[ole32] CoCreateInstance: class {clsid:02x?} not provided");
             0x8004_0154 // REGDB_E_CLASSNOTREG
         }
     };
