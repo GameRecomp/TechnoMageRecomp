@@ -1,22 +1,29 @@
 # TechnoMageRecomp – orientation for a new working session
 
 Static recompilation of Sunflowers' action RPG *TechnoMage: Return of Eternity* (German: *TechnoMage – Die
-Rückkehr der Ewigkeit*, 2000/2001) into **Rust**, on a Rust runtime with a Bevy platform layer (Direct3D on its wgpu device). Fifth project on
-the toolchain of `../TropicoRecomp`, `../CulturesRecomp`, `../HoMM4Recomp` and `../SackedRecomp`
+Rückkehr der Ewigkeit*, 2000/2001) into **Rust**, on a Rust runtime with a Bevy platform layer (Direct3D on
+wgpu). Fifth project on the toolchain of `../TropicoRecomp`, `../CulturesRecomp`, `../HoMM4Recomp` and `../SackedRecomp`
 (github.com/GameRecomp); SackedRecomp is the template for the shared recompiler crates. Unlike the sister
 projects there is **no C anywhere** (not even for lifted code) and **no SDL**. Start here, then read
 `docs/PLAN.md` (milestones, checklists, decision log), `docs/RESEARCH.md` and `docs/TARGETS.md`.
 
-## State (2026-11-22)
+## State (2026-11-24)
 
-M0 started: plan, docs, manifest for the German CD, workspace skeleton (stub crates). Next: import the shared
-recompiler crates from SackedRecomp at the pinned commit, `rc-unpack` (UPX 1.07), InstallShield 7 (see
-`docs/PLAN.md`).
+M0–M4 done; M5–M8 nearly (docs/PLAN.md). The game boots natively (Bevy window, Direct3D on wgpu) and in the
+browser (`technomage-web` + `web/player.js`, JSPI, WebGL2), German and English, intro to the first rooms; the
+converter (CLI and page) builds packages from the archive.org media. Open: playing through by hand, saving and
+loading, sound by ear, Windows by hand, the v0.1 tag (draft notes in `docs/RELEASE-NOTES.md`).
 
 ```sh
-cargo build                                   # the workspace (stubs until M3)
-tools/audit.sh                                # what the pre-commit hook runs
+cargo run -p rc-cli --release -- lift technomage cd-de      # generated/ (16 shards), then:
+cargo build --release -p technomage                         # ~7 min
+target/release/technomage --game-dir orig/technomage/cd-de  # RC_* options: docs/DEVELOPMENT.md
+tools/audit.sh                                              # what the pre-commit hook runs
 ```
+
+Scripted runs (`RC_HEADLESS`, `RC_INPUT`, `RC_FRAMES`, `RC_SCREENSHOT`) and the headless browser tests
+(`tools/play-node.mjs`, `tools/web-test/`) are in docs/DEVELOPMENT.md. `/tmp` is a RAM disk: large artifacts go
+under `target/`.
 
 ## Facts that matter
 
