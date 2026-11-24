@@ -254,8 +254,9 @@ Binary treatment:
 
 ### M9 – Release v0.1
 
-- [ ] Played through on Linux, Windows and in the browser, in both languages
-- [ ] Release notes with the known issues; README for players
+- [ ] Played through on Linux, Windows and in the browser, in both languages (by hand)
+- [x] Release notes with the known issues (`docs/RELEASE-NOTES.md`, a draft until the tag); README for players
+- [ ] Tag `v0.1.0` and publish the release (the release workflow attaches the converter)
 
 ## Patches
 

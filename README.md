@@ -26,8 +26,9 @@ Each is pinned by its checksum ([docs/TARGETS.md](docs/TARGETS.md)).
 
 ## State
 
-Early but playable on Linux: the intro, the menus and a new game in German or English run, Direct3D on the GPU.
-The browser build and checked Windows builds are still to come. See [docs/PLAN.md](docs/PLAN.md).
+Early: the intro, the menus and the beginning of a new game in German or English run on Linux and in the browser,
+Direct3D on the GPU (WebGL2 in the browser). Not played through yet; Windows builds are made but not played by
+hand. See [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md) and [docs/PLAN.md](docs/PLAN.md).
 
 ## Playing
 
@@ -36,6 +37,9 @@ The browser build and checked Windows builds are still to come. See [docs/PLAN.m
    checks it.
 3. Run `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`): it writes a zip with
    the game ready to run. Unpack it and start `technomage`.
+
+Or play in the browser: on the converter page, choose "Browser" and a language; the game is stored in the browser
+and runs on its page (a current Chrome, Edge or Firefox).
 
 ## For developers
 
