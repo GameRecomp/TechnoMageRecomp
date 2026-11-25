@@ -41,6 +41,20 @@ hand. See [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md) and [docs/PLAN.md](docs
 Or play in the browser: on the converter page, choose "Browser" and a language; the game is stored in the browser
 and runs on its page (a current Chrome, Edge or Firefox).
 
+## Improvements over the original
+
+The game logic is the original's; around it, the program adds a few things. They are changes to how the game is
+run and shown, made by the project's patches ([docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)), not edits to the game's
+files:
+
+- **Pause menu:** "Configure graphics" shows the render resolution; "Show information" shows the program's
+  version, build time and commit, the platform, the game's version and its language. Both speak the game's
+  language (German, English, French, Italian, Spanish, Dutch).
+- **Hardware cursor:** the game's stone pointer is the system's mouse cursor, so it follows the mouse without
+  delay, at the size it had in the picture. It keeps turning towards the hero as in the game, without the glow
+  around it (a system cursor can cover, not add light). In the browser the game still draws its own.
+- **Window:** any size, the picture scaled with its proportions kept; Alt+Enter or F11 switches to full screen.
+
 ## For developers
 
 How it works and how to build it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
