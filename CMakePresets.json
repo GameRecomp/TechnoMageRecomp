@@ -1,0 +1,47 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "release",
+      "displayName": "Release (cargo release: optimised, line tables), German",
+      "inherits": "base",
+      "cacheVariables": { "RC_CARGO_PROFILE": "release", "RC_LANGUAGE": "de" }
+    },
+    {
+      "name": "dev",
+      "displayName": "Dev (cargo dev: full debug info, lifted code unoptimised), German",
+      "inherits": "base",
+      "cacheVariables": { "RC_CARGO_PROFILE": "dev", "RC_LANGUAGE": "de" }
+    },
+    {
+      "name": "release-en",
+      "displayName": "Release, English",
+      "inherits": "base",
+      "cacheVariables": { "RC_CARGO_PROFILE": "release", "RC_LANGUAGE": "en" }
+    },
+    {
+      "name": "template",
+      "displayName": "Converter template (no lifted code, cargo release)",
+      "inherits": "base",
+      "cacheVariables": { "RC_CARGO_PROFILE": "release", "RC_NO_GENERATED": "ON",
+                        "RC_CARGO_TARGET_DIR": "${sourceDir}/target/template" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "release" },
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "release-en", "configurePreset": "release-en" },
+    { "name": "template", "configurePreset": "template" }
+  ],
+  "testPresets": [
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }
+  ]
+}

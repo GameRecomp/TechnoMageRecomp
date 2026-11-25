@@ -21,6 +21,7 @@ target/release/technomage --game-dir orig/technomage/cd-de  # RC_* options: docs
 tools/audit.sh                                              # what the pre-commit hook runs
 ```
 
+VS Code: `CMakeLists.txt` + `.vscode/` wrap the same cargo commands (lift, build, debug; docs/DEVELOPMENT.md).
 Scripted runs (`RC_HEADLESS`, `RC_INPUT`, `RC_FRAMES`, `RC_SCREENSHOT`) and the headless browser tests
 (`tools/play-node.mjs`, `tools/web-test/`) are in docs/DEVELOPMENT.md. `/tmp` is a RAM disk: large artifacts go
 under `target/`.

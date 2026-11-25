@@ -8,7 +8,12 @@
 /out/
 /web/pkg/
 # Editors / OS
-.vscode/
+# The shared VS Code setup is tracked (docs/DEVELOPMENT.md); personal files are not.
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 .DS_Store

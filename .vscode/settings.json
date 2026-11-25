@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: MIT
+// CMake Tools drives cargo through CMakeLists.txt (docs/DEVELOPMENT.md, "VS Code").
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "cmake.buildBeforeRun": true,
+  // The project has no C: keep the C/C++ extension's IntelliSense from asking CMake for it.
+  "C_Cpp.default.configurationProvider": "",
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "rust-analyzer.cargo.buildScripts.enable": true,
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/build/**": true,
+    "**/generated/**": true,
+    "**/orig/**": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/build": true,
+    "**/generated": true,
+    "**/orig": true
+  }
+}

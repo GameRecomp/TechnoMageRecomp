@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: MIT
+{
+  "recommendations": [
+    "ms-vscode.cmake-tools",
+    "ms-vscode.cpptools",
+    "rust-lang.rust-analyzer"
+  ]
+}

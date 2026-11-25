@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: MIT
+// Debugging with the C/C++ extension (gdb on Linux, the Visual Studio debugger on Windows).
+// Each configuration builds the active CMake preset first and starts <build dir>/bin/, which
+// is that preset's cargo build. "dev" has full debug information; "release" has line tables.
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TechnoMage (German)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build game",
+      "program": "${command:cmake.buildDirectory}/bin/technomage",
+      "args": ["--game-dir", "${workspaceFolder}/orig/technomage/cd-de"],
+      "cwd": "${workspaceFolder}",
+      "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }],
+      "MIMode": "gdb",
+      "miDebuggerPath": "rust-gdb",
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "text": "set breakpoint pending on", "ignoreFailures": true }
+      ],
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${command:cmake.buildDirectory}/bin/technomage.exe",
+        "console": "integratedTerminal"
+      }
+    },
+    {
+      "name": "TechnoMage (English)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build game",
+      "program": "${command:cmake.buildDirectory}/bin/technomage",
+      "args": ["--game-dir", "${workspaceFolder}/orig/technomage/cd-en"],
+      "cwd": "${workspaceFolder}",
+      "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }],
+      "MIMode": "gdb",
+      "miDebuggerPath": "rust-gdb",
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "text": "set breakpoint pending on", "ignoreFailures": true }
+      ],
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${command:cmake.buildDirectory}/bin/technomage.exe",
+        "console": "integratedTerminal"
+      }
+    },
+    {
+      "name": "TechnoMage, scripted to the first room (headless, virtual clock)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build game",
+      "program": "${command:cmake.buildDirectory}/bin/technomage",
+      "args": ["--game-dir", "${workspaceFolder}/orig/technomage/cd-de"],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        { "name": "RUST_BACKTRACE", "value": "1" },
+        { "name": "RC_HEADLESS", "value": "1" },
+        { "name": "RC_CLOCK", "value": "virtual" },
+        { "name": "RC_FRAMES", "value": "1100" },
+        { "name": "RC_TRACE", "value": "fps" },
+        { "name": "RC_SCREENSHOT", "value": "${workspaceFolder}/target/room.ppm" },
+        {
+          "name": "RC_INPUT",
+          "value": "20:esc 60:esc 100:esc 140:esc 180:esc 220:esc 300:enter 360:esc 420:esc 480:esc 540:esc 600:esc 900:ctrl 960:ctrl"
+        }
+      ],
+      "MIMode": "gdb",
+      "miDebuggerPath": "rust-gdb",
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "text": "set breakpoint pending on", "ignoreFailures": true }
+      ],
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${command:cmake.buildDirectory}/bin/technomage.exe",
+        "console": "integratedTerminal"
+      }
+    },
+    {
+      "name": "recomp lift (German)",
+      "type": "cppdbg",
+      "request": "launch",
+      "preLaunchTask": "build recomp",
+      "program": "${command:cmake.buildDirectory}/bin/recomp",
+      "args": ["lift", "${workspaceFolder}/orig/technomage/cd-de"],
+      "cwd": "${workspaceFolder}",
+      "environment": [{ "name": "RUST_BACKTRACE", "value": "1" }],
+      "MIMode": "gdb",
+      "miDebuggerPath": "rust-gdb",
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true },
+        { "text": "set breakpoint pending on", "ignoreFailures": true }
+      ],
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${command:cmake.buildDirectory}/bin/recomp.exe",
+        "console": "integratedTerminal"
+      }
+    },
+    {
+      "name": "Attach to a running game",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${command:cmake.buildDirectory}/bin/technomage",
+      "processId": "${command:pickProcess}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "rust-gdb",
+      "setupCommands": [{ "text": "-enable-pretty-printing", "ignoreFailures": true }],
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${command:cmake.buildDirectory}/bin/technomage.exe"
+      }
+    }
+  ]
+}

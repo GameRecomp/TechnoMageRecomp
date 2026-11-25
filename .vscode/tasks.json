@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: MIT
+// The CMake targets (CMakeLists.txt) for the active preset. Ctrl+Shift+B builds the game.
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build game",
+      "type": "cmake",
+      "command": "build",
+      "targets": ["technomage"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build recomp",
+      "type": "cmake",
+      "command": "build",
+      "targets": ["recomp"],
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "lift",
+      "type": "cmake",
+      "command": "build",
+      "targets": ["lift"],
+      "problemMatcher": []
+    },
+    {
+      "label": "lift and build game",
+      "dependsOn": ["lift", "build game"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "download and extract the media",
+      "type": "cmake",
+      "command": "build",
+      "targets": ["inputs"],
+      "problemMatcher": []
+    },
+    {
+      "label": "run game",
+      "type": "cmake",
+      "command": "build",
+      "targets": ["run"],
+      "problemMatcher": []
+    },
+    {
+      "label": "checks (audit, fmt, clippy, test)",
+      "type": "cmake",
+      "command": "test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}

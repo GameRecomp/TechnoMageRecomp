@@ -3,7 +3,7 @@
 ## Requirements
 
 - Rust stable (`rust-toolchain.toml` installs `rustfmt`, `clippy` and the `wasm32-unknown-unknown` target).
-- Nothing else: no C compiler, no CMake, no SDL. On Linux Bevy needs the usual system libraries (Vulkan or GL driver,
+- Nothing else: no C compiler, no SDL. CMake (3.25) and Ninja only for the optional IDE front end below. On Linux Bevy needs the usual system libraries (Vulkan or GL driver,
   X11 or Wayland, ALSA or PulseAudio/PipeWire, udev for gamepads) and their development packages to build.
 - For the difftests (M3): the `i686-unknown-linux-gnu` target.
 - For the browser build (M8): `wasm-bindgen-cli` matching the crate version.
@@ -87,6 +87,39 @@ tools/web-test/run GAME_DIR out "RC_FRAMES=1100&RC_TRACE=fps&shots=1090&RC_INPUT
 Node needs version 24 (JSPI behind `--experimental-wasm-jspi`), Firefox 139 or later. `tools/web-test/flow.html`
 runs the page's own flow from a built site: the release from `orig/` converted by `worker.js` into the browser's
 storage, then `play.html` started in a frame (serve the site with `tools/web-test/serve.py SITE GAME OUT PORT`).
+
+## VS Code (CMake)
+
+`CMakeLists.txt` is a front end over cargo for IDEs; it compiles nothing itself (`LANGUAGES NONE`) and the
+commands above stay the reference. With the CMake Tools and C/C++ extensions (`.vscode/extensions.json`),
+VS Code picks a preset from `CMakePresets.json`, and `.vscode/` has the tasks and debug configurations:
+
+| Preset | Cargo profile | For |
+|---|---|---|
+| `release` | `release` (optimised, line tables) | playing, profiling, stepping by line |
+| `dev` | `dev` (full debug information; the lifted shards unoptimised) | debugging the runtime and HLE |
+| `release-en` | `release` | the English game (`orig/technomage/cd-en`) |
+| `template` | `release`, `RC_NO_GENERATED=1`, `target/template/` | the converter's shell template |
+
+| Target | Does |
+|---|---|
+| `technomage` (default) | `cargo build -p technomage`; lifts first when `generated/` has no lifted code yet |
+| `lift` | `recomp lift RC_GAME_DIR` again (writes only the files that changed) |
+| `recomp` | the recompiler, always `--release` |
+| `inputs` | `recomp download` and `recomp extract` for `RC_LANGUAGE` into `orig/` |
+| `run`, `web` | play `RC_GAME_DIR`; `tools/build-web out/site` |
+| `audit`, `fmt`, `clippy`, `cargo-test` | the checks, also CTest tests (`ctest --preset release`) |
+
+The builds land in cargo's `target/` as usual and are linked (copied on Windows) into `build/<preset>/bin/`, which
+the debug configurations start: the game in German or English, the scripted run to the first room, `recomp
+lift`, and attaching to a running game. They use gdb through `rust-gdb` on Linux (from rustup; VS Code must find
+it on `PATH`) and the Visual Studio debugger on Windows. From a terminal:
+
+```sh
+cmake --preset release
+cmake --build --preset release                 # lift if needed, build the game
+cmake --build --preset release --target lift   # lift again after changing the recompiler
+```
 
 ## Checks
 
