@@ -85,8 +85,10 @@ tools/build-web out/site templates            # rc-web and technomage-web for wa
 python3 -m http.server -d out/site 8000       # then http://localhost:8000/
 ```
 
-The page converts in a worker and stores the game in the browser (OPFS); `play.html` plays it. Settings in the
-player's address are the runtime's (`?RC_TRACE=fps`, `?RC_RENDERER=soft`).
+The page converts in a worker and stores the game in the browser (OPFS); `play.html` plays it. Before it starts,
+`play.html` has the worker make the game's code again from the stored files when the site's converter makes
+different code (`code_version`; a new version, new hooks). The game's mouse pointer is the canvas's cursor there
+(`cursor_js`). Settings in the player's address are the runtime's (`?RC_TRACE=fps`, `?RC_RENDERER=soft`).
 
 Without a browser, the player runs in Node (software rendering) or in headless Firefox (WebGL2) on a game
 converted for the browser (a directory with `game/…` and `code.wasm`):

@@ -6,7 +6,10 @@
 //   info.json), read in blocks as the game reads them.
 // - What the game writes (settings, saved games) is kept in memory and saved to
 //   technomage-user/ in the same storage a moment after each change.
+// - Before it starts, the game's code is made again from its stored files when this site's
+//   converter makes different code (a new version: worker.js "update"); the CD is not needed.
 // - Frames go to a canvas at the game's size, scaled to fit; audio through Web Audio.
+// - The game's mouse pointer is the canvas's cursor (CSS), as natively the system's.
 import { gameOf, showIcon } from './games.js';
 import { run } from './player.js';
 
@@ -261,6 +264,25 @@ function gameFs(game, user, onSaved) {
 let game = null;
 let player = null;
 
+/* The game's pointer as the canvas's cursor: as big as in the scaled picture (nearest
+ * neighbour), at most 128 pixels (what browsers take), or none while the game shows none. */
+function setPointer(canvas, rgba, w, h, hx, hy) {
+  if (!rgba) { canvas.style.cursor = 'none'; return; }
+  const fit = canvas.clientWidth / canvas.width || 1;
+  const s = Math.max(1, Math.min(fit, 128 / Math.max(w, h)));
+  const src = document.createElement('canvas');
+  src.width = w; src.height = h;
+  src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(w * s)); out.height = Math.max(1, Math.round(h * s));
+  const g = out.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(src, 0, 0, out.width, out.height);
+  const x = Math.min(out.width - 1, Math.floor(hx * s));
+  const y = Math.min(out.height - 1, Math.floor(hy * s));
+  canvas.style.cursor = `url(${out.toDataURL('image/png')}) ${x} ${y}, auto`;
+}
+
 function layout() {
   const c = $('canvas');
   const f = Math.min(window.innerWidth / c.width, window.innerHeight / c.height);
@@ -322,10 +344,35 @@ function hookInput(canvas) {
   }, { passive: false });
 }
 
+/* The converter (worker.js) makes the game's code again from the stored game if this site's
+ * version makes different code; resolves when the stored code is current. */
+function updateCode() {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'progress') {
+        const pct = m.total ? ` ${Math.floor((100 * m.done) / m.total)} %` : '';
+        $('status').textContent = `This version makes new code for the game (${m.stage})${pct}…`;
+      } else if (m.type === 'done') {
+        worker.terminate();
+        resolve(m.updated);
+      } else if (m.type === 'error') {
+        worker.terminate();
+        reject(new Error(`The game's code could not be made again: ${m.message}`));
+      }
+    };
+    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || 'the converter failed')); };
+    worker.postMessage({ mode: 'update', game: GAME.id });
+  });
+}
+
 async function start() {
   $('start').disabled = true;
   $('status').textContent = 'Starting…';
   try {
+    if (await updateCode()) game = await findGame();
+    $('status').textContent = 'Starting…';
     const r = await fetch('player/technomage.wasm');
     if (!r.ok) throw new Error(`This site has no player for ${GAME.name} yet (player/technomage.wasm: ${r.status}).`);
     const runtime = await r.arrayBuffer();
@@ -354,6 +401,7 @@ async function start() {
         image.data.set(rgba);
         ctx.putImageData(image, 0, 0);
       },
+      pointer: (rgba, w, h, hx, hy) => setPointer(canvas, rgba, w, h, hx, hy),
       frame: () => new Promise((res) => requestAnimationFrame(() => res())),
       log: (t) => console.log(t),
       exit: (code) => {
