@@ -201,9 +201,11 @@ fn show_frame(
         screen.shown = f.number;
         screen.game = f.game;
         if (f.width, f.height) != screen.size {
+            // A new image for a new size (the sprite does not show one resized in place).
             screen.size = (f.width, f.height);
-            if let Some(mut img) = images.get_mut(&screen.image) {
-                *img = new_image(f.width, f.height);
+            screen.image = images.add(new_image(f.width, f.height));
+            if let Ok(mut s) = sprites.get_mut(screen.sprite) {
+                s.image = screen.image.clone();
             }
         }
         if let Some(mut img) = images.get_mut(&screen.image) {

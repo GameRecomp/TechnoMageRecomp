@@ -40,6 +40,7 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_FRAMES=n` | end after `n` presented frames |
 | `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
 | `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x up down left right click@x,y` |
+| `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution renders for (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString` |
 

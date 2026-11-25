@@ -175,8 +175,18 @@ pub mod render {
         );
     }
 
+    /// The output size; without a window `RC_RENDER_OUTPUT=WxH` stands in (scripted runs).
     pub fn output() -> (u32, u32) {
         let v = OUTPUT.load(Ordering::Relaxed);
+        if v == 0 {
+            if let Some((w, h)) = std::env::var("RC_RENDER_OUTPUT")
+                .ok()
+                .and_then(|s| s.split_once('x').map(|(a, b)| (a.parse(), b.parse())))
+                .and_then(|(a, b)| Some((a.ok()?, b.ok()?)))
+            {
+                return (w, h);
+            }
+        }
         ((v >> 32) as u32, v as u32)
     }
 
