@@ -1,13 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
   <!-- SPDX-License-Identifier: MIT -->
+  <!-- Our own drawing after the game's emblem: a sword between two flame blades. -->
   <defs>
-    <radialGradient id="g" cx="50%" cy="40%" r="60%">
-      <stop offset="0" stop-color="#9fe3ff"/>
-      <stop offset="1" stop-color="#1b4f8a"/>
-    </radialGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a9399"/>
+      <stop offset="0.5" stop-color="#454c51"/>
+      <stop offset="1" stop-color="#1f2427"/>
+    </linearGradient>
+    <linearGradient id="fire" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2725"/>
+      <stop offset="0.3" stop-color="#5e2810"/>
+      <stop offset="0.62" stop-color="#d4621a"/>
+      <stop offset="0.88" stop-color="#f7a63c"/>
+      <stop offset="1" stop-color="#ffe3a0"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3532"/>
+      <stop offset="0.3" stop-color="#7c3414"/>
+      <stop offset="0.68" stop-color="#e8751e"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff2c8" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff2c8" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#fff2c8" stop-opacity="0"/>
+    </linearGradient>
+    <g id="side">
+      <!-- A flame blade, hanging from the guard's end and sweeping out and down to a point. -->
+      <path d="M84 70 C70 100 62 140 38 190 C62 172 80 146 92 118 C98 102 102 86 104 72 Z"
+            fill="url(#fire)" stroke="#120f0e" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M88 84 C80 110 72 136 58 164" fill="none" stroke="#ffcf7a" stroke-opacity="0.5"
+            stroke-width="2" stroke-linecap="round"/>
+      <!-- The guard's horn, curving up and out. -->
+      <path d="M108 54 L92 58 C74 58 64 42 66 16 C74 32 84 38 98 38 L108 36 Z"
+            fill="url(#steel)" stroke="#0e1113" stroke-width="3" stroke-linejoin="round"/>
+    </g>
   </defs>
-  <rect width="64" height="64" rx="12" fill="#1a1426"/>
-  <circle cx="32" cy="30" r="15" fill="url(#g)"/>
-  <path d="M32 6v10M32 44v14M14 30H4M60 30H50M19 17l-6-6M45 17l6-6" stroke="#d9a441" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="32" cy="30" r="5" fill="#fff6d8"/>
+  <use href="#side"/>
+  <use href="#side" transform="matrix(-1 0 0 1 256 0)"/>
+  <!-- The blade, its fuller and the light on it. -->
+  <path d="M111 92 L145 92 L140 196 L128 250 L116 196 Z" fill="url(#blade)" stroke="#120f0e"
+        stroke-width="3" stroke-linejoin="round"/>
+  <path d="M128 100 L128 226" stroke="#2b1a10" stroke-opacity="0.5" stroke-width="3"
+        stroke-linecap="round"/>
+  <path d="M117 100 L139 100 L135 196 L128 238 L121 196 Z" fill="url(#shine)"/>
+  <!-- Guard (from horn to horn), grip and pommel. -->
+  <path d="M80 50 Q128 38 176 50 L178 72 Q128 62 78 72 Z" fill="url(#steel)" stroke="#0e1113"
+        stroke-width="3" stroke-linejoin="round"/>
+  <path d="M100 58 Q128 51 156 58" fill="none" stroke="#a7b0b5" stroke-opacity="0.55"
+        stroke-width="2" stroke-linecap="round"/>
+  <path d="M128 30 C143 36 148 64 144 94 L112 94 C108 64 113 36 128 30 Z" fill="url(#steel)"
+        stroke="#0e1113" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M121 46 C119 60 120 76 123 88 M135 46 C137 60 136 76 133 88" fill="none"
+        stroke="#a7b0b5" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
+  <path d="M128 4 L136 18 L128 32 L120 18 Z" fill="url(#steel)" stroke="#0e1113" stroke-width="3"
+        stroke-linejoin="round"/>
+  <path d="M126 10 L124 18" stroke="#d3d9dc" stroke-opacity="0.7" stroke-width="2"
+        stroke-linecap="round"/>
 </svg>

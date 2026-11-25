@@ -1,5 +1,7 @@
 # TechnoMageRecomp
 
+<p align="center"><img src="tools/icons/technomage.svg" width="128" height="128" alt=""></p>
+
 **Play *TechnoMage: Return of Eternity* (*TechnoMage – Die Rückkehr der Ewigkeit*) natively on Windows and
 Linux, or right in your browser.** The game by Sunflowers is abandonware and archived on archive.org; the
 converter downloads the release in the language you choose (German or English) and builds the game from it, on
