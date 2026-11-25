@@ -4043,11 +4043,11 @@ dependencies = [
 
 [[package]]
 name = "rc-abi"
-version = "0.0.1"
+version = "0.1.0"
 
 [[package]]
 name = "rc-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-convert",
  "rc-discover",
@@ -4065,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "rc-convert"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.8.9",
@@ -4084,7 +4084,7 @@ dependencies = [
 
 [[package]]
 name = "rc-discover"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "iced-x86",
  "rc-pe",
@@ -4093,7 +4093,7 @@ dependencies = [
 
 [[package]]
 name = "rc-emit-native"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "rc-emit-rust"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-emit-wasm",
  "rc-ir",
@@ -4110,7 +4110,7 @@ dependencies = [
 
 [[package]]
 name = "rc-emit-wasm"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-ir",
  "wasm-encoder",
@@ -4119,7 +4119,7 @@ dependencies = [
 
 [[package]]
 name = "rc-hle"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rayon",
  "rc-platform",
@@ -4128,11 +4128,11 @@ dependencies = [
 
 [[package]]
 name = "rc-ir"
-version = "0.0.1"
+version = "0.1.0"
 
 [[package]]
 name = "rc-manifest"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "sha2",
@@ -4141,7 +4141,7 @@ dependencies = [
 
 [[package]]
 name = "rc-media"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -4152,11 +4152,11 @@ dependencies = [
 
 [[package]]
 name = "rc-pe"
-version = "0.0.1"
+version = "0.1.0"
 
 [[package]]
 name = "rc-platform"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bevy",
  "blake3",
@@ -4167,7 +4167,7 @@ dependencies = [
 
 [[package]]
 name = "rc-runtime"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "memmap2",
  "rc-abi",
@@ -4177,11 +4177,11 @@ dependencies = [
 
 [[package]]
 name = "rc-unpack"
-version = "0.0.1"
+version = "0.1.0"
 
 [[package]]
 name = "rc-web"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "js-sys",
  "rc-convert",
@@ -4190,7 +4190,7 @@ dependencies = [
 
 [[package]]
 name = "rc-x86"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "iced-x86",
  "rc-discover",
@@ -4681,7 +4681,7 @@ checksum = "8c447be3a2abfa84b2d91680c56600bd6b2873866de27b36ec911be705e291da"
 
 [[package]]
 name = "technomage"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
  "rc-hle",
@@ -4708,119 +4708,119 @@ dependencies = [
 
 [[package]]
 name = "technomage-shard-00"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-01"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-02"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-03"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-04"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-05"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-06"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-07"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-08"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-09"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-10"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-11"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-12"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-13"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-14"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-shard-15"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-abi",
 ]
 
 [[package]]
 name = "technomage-web"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "rc-hle",
  "rc-platform",
