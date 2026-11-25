@@ -61,7 +61,9 @@ opening the options panel with lines of its own: "Configure graphics" (the rende
 information" (this program's version, build time and commit, the platform, the game's version and language). Their
 texts are in a table in the game's six languages. The build time and commit come from
 `games/technomage/build_info.rs`, which both build scripts include (`SOURCE_DATE_EPOCH` fixes the time; `-dirty`
-marks uncommitted changes).
+marks uncommitted changes). With a window the mouse pointer is a hardware cursor (RESEARCH.md, "The mouse
+pointer", "The ordering table"; `rc_platform::cursor`): `RC_TRACE=cursor` counts its images, and `RC_SCREENSHOT`
+also writes the cursor shown then as `<file>.cursor.pam` (RGBA).
 
 ## Convert (what players run)
 

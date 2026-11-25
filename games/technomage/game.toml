@@ -99,18 +99,20 @@ unpacked_size = 1863680
 unpacked_sha256 = "a1201ab89542093b3ca312840fc44c216d62cdb6146e3ca3b29925ceac68ba1a"
 variants = ["cd-de", "cd-en"]
 
-# The game project's changes (games/technomage/src/patches.rs): "Configure graphics" in the pause
-# menu, opening the options panel with the render resolution, its texts in the game's language.
+# The game project's changes (games/technomage/src/patches.rs): "Configure graphics" and "Show
+# information" in the pause menu, the mouse pointer as a hardware cursor.
 [binary.patch]
 # Functions behind the linker's jump thunks are entered (and hooked) at the thunk.
 hooks = [
   0x401393, # a menu opened: the pause menu with our entry
   0x4011b8, # the options panel each frame
+  0x401dc0, # a 3D object drawn: the mouse pointer as a hardware cursor
   0x402252, # the text of a key: ours first
   0x4025f9, # the options panel set up
   0x450a60, # the pause menu's value texts (by entry index)
   0x450b80, # a pause menu entry chosen (by entry index)
   0x460a30, # an options panel entry drawn
+  0x530e60, # the frame's ordering table drawn: the pointer's primitives on their own
 ]
 
 [[binary]]

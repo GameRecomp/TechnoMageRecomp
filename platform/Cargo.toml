@@ -34,6 +34,7 @@ bevy = { version = "0.20.1", optional = true, default-features = false, features
   "bevy_sprite",
   "bevy_sprite_render",
   "bevy_audio",
+  "custom_cursor",
   "keyboard",
   "mouse",
   "x11",

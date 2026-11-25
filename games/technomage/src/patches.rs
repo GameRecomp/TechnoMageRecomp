@@ -6,6 +6,9 @@
 //! lookup. Addresses are of version 1.04 (the only one lifted); docs/RESEARCH.md ("The pause
 //! menu, the options panel and the texts") describes the structures.
 //!
+//! With a window, the game's mouse pointer becomes a hardware cursor: its draws are taken aside,
+//! rendered into an image and handed to the platform instead of the frame.
+//!
 //! Used by the native shell and the browser player (`technomage-web` includes this file).
 
 use rc_runtime::cpu::{EAX, ESP};
@@ -68,6 +71,21 @@ const PAUSE_SEEN: u32 = 0x0056_3c88;
 const MENU_FLAGS: u32 = 0x0059_de34;
 /// The language: an index into GER, ENG, FRA, ITA, SPA, NL (`LANGUAGE=` of `TECHMAGE.CFG`).
 const LANGUAGE: u32 = 0x0059_de18;
+/// Puts a 3D object at a screen point into the frame's ordering table; the mouse pointer is put
+/// there from one place (returning to `POINTER_RETURN`), at the mouse position (the 3rd and 4th
+/// argument).
+const DRAW_OBJECT: u32 = 0x0040_1dc0;
+const POINTER_RETURN: u32 = 0x0042_8191;
+/// The ordering table: 0x400 buckets of 16-byte empty nodes per frame buffer (`0x4000` bytes
+/// each, the buffer's index at `OT_BUFFER`), chained from the last to the first; a primitive is
+/// chained in after the bucket of its depth (its first dword: the next node). Primitives come
+/// from an arena whose free pointer is `PRIM_NEXT`.
+const OT_LAST: u32 = 0x0079_9830;
+const OT_BUFFER: u32 = 0x0059_cb1c;
+const PRIM_NEXT: u32 = 0x0059_de10;
+/// Draws an ordering table from its last node (once per frame, then the table is emptied).
+const DRAW_OT: u32 = 0x0053_0e60;
+
 /// The screen size the game lays its menus out on, and a 4096-step sine table (i16 every 4 bytes).
 const SCREEN_W: u32 = 0x00f5_b320;
 const SCREEN_H: u32 = 0x00f5_b324;
@@ -600,6 +618,226 @@ fn options_entry(c: &mut Cpu) {
     ret_cdecl(c, c.r[EAX]);
 }
 
+// --- The mouse pointer as a hardware cursor --------------------------------------------------------
+
+/// The part of the screen around the mouse position the pointer is looked for in (it is about
+/// 30 pixels long, its glow about 50 wide).
+const POINTER_BOX: i32 = 128;
+
+/// Guest buffers the pointer is rendered into: colour and depth (32-bit each, the depth with 24
+/// bits as the game's: the glow lies just behind the stone), screen-sized.
+static POINTER_BUFFERS: Mutex<Option<(u32, u32, u32, u32)>> = Mutex::new(None);
+
+/// The pointer's primitives of this frame, taken out of the ordering table, and the mouse
+/// position; drawn on their own after the frame's table (see `draw_ot`).
+static POINTER: Mutex<Option<(Vec<u32>, i32, i32)>> = Mutex::new(None);
+/// Set while `draw_ot` draws the pointer's primitives through the game's own table drawing.
+static DRAWING_POINTER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn draw_object(c: &mut Cpu) {
+    let m = c.mem();
+    if m.ld32(c.r[ESP]) != POINTER_RETURN || !rc_platform::cursor::enabled() {
+        call_original(c, DRAW_OBJECT);
+        return;
+    }
+    let (x, y) = (arg(c, 2) as i32, arg(c, 3) as i32);
+    let from = m.ld32(PRIM_NEXT);
+    call_original(c, DRAW_OBJECT);
+    let to = m.ld32(PRIM_NEXT);
+    // Unchain the primitives just made, keeping their order.
+    let mut taken = Vec::new();
+    let mut node = OT_LAST + (m.ld32(OT_BUFFER) << 14);
+    let mut guard = 0;
+    while node != 0 && guard < 1 << 20 {
+        let next = m.ld32(node);
+        if (from..to).contains(&next) {
+            taken.push(next);
+            m.st32(node, m.ld32(next));
+        } else {
+            node = next;
+        }
+        guard += 1;
+    }
+    *POINTER.lock().expect("pointer") = Some((taken, x, y));
+}
+
+/// The frame's table drawn; then the pointer's primitives on their own, taken aside as a cursor.
+fn draw_ot(c: &mut Cpu) {
+    use std::sync::atomic::Ordering;
+    if DRAWING_POINTER.load(Ordering::Relaxed) {
+        call_original(c, DRAW_OT);
+        return;
+    }
+    call_original(c, DRAW_OT);
+    let Some((prims, x, y)) = POINTER.lock().expect("pointer").take() else {
+        return;
+    };
+    if prims.is_empty() {
+        return;
+    }
+    // Each primitive in a chain of its own (an empty node, it, an empty node), in the table's
+    // order: drawn together, the game's renderer would group them by kind and put the glow over
+    // the stone, which the frame's other primitives keep it from.
+    let m = c.mem();
+    let ends = pointer_chain(m);
+    let (head, tail) = (ends, ends + 16);
+    DRAWING_POINTER.store(true, Ordering::Relaxed);
+    let draws = rc_hle::d3d::capture(|| {
+        for &p in &prims {
+            m.write(head, &[0u8; 32]);
+            m.st32(head, p);
+            m.st32(p, tail);
+            call_guest(c, DRAW_OT, &[head]);
+        }
+    });
+    DRAWING_POINTER.store(false, Ordering::Relaxed);
+    if let Some(image) = render_pointer(m, &draws, x, y) {
+        rc_platform::cursor::show(image);
+    }
+}
+
+/// Two empty nodes of ours for the pointer's chain.
+fn pointer_chain(m: Mem) -> u32 {
+    static NODES: Mutex<u32> = Mutex::new(0);
+    let mut n = NODES.lock().expect("nodes");
+    if *n == 0 {
+        *n = rc_runtime::vm::heap_alloc(m, 32, true);
+    }
+    *n
+}
+
+/// Whether a draw adds light (blending on, source and destination factor one): the pointer's
+/// glow, which a system cursor cannot show (it can only cover what is below it).
+fn adds_light(d: &rc_hle::d3d::Draw) -> bool {
+    let rs = |k: u32| d.state.render.get(&k).copied().unwrap_or(0);
+    const ALPHABLENDENABLE: u32 = 27;
+    const SRCBLEND: u32 = 19;
+    const DESTBLEND: u32 = 20;
+    const ONE: u32 = 2;
+    rs(ALPHABLENDENABLE) != 0 && rs(SRCBLEND) == ONE && rs(DESTBLEND) == ONE
+}
+
+/// The pointer's draws as a cursor image with straight alpha, without its glow. Rendered
+/// twice, over black and over white: how much of the background still shows is the alpha, the
+/// colour over black divided by it the colour.
+fn render_pointer(
+    m: Mem,
+    draws: &[rc_hle::d3d::Draw],
+    x: i32,
+    y: i32,
+) -> Option<rc_platform::cursor::Image> {
+    let draws: Vec<_> = draws.iter().filter(|d| !adds_light(d)).collect();
+    if draws.is_empty() {
+        return None;
+    }
+    let (sw, sh, _) = rc_hle::ddraw::display_mode();
+    let (color, depth) = {
+        let mut b = POINTER_BUFFERS.lock().expect("pointer buffers");
+        if b.is_none_or(|b| (b.0, b.1) != (sw, sh)) {
+            let color = rc_runtime::vm::heap_alloc(m, sw * sh * 4, true);
+            let depth = rc_runtime::vm::heap_alloc(m, sw * sh * 4, true);
+            *b = Some((sw, sh, color, depth));
+        }
+        let b = b.expect("made above");
+        (b.2, b.3)
+    };
+    let info = rc_hle::ddraw::SurfaceInfo {
+        buf: color,
+        width: sw,
+        height: sh,
+        pitch: sw * 4,
+        bpp: 32,
+        masks: [0x00ff_0000, 0x0000_ff00, 0x0000_00ff, 0],
+        src_key: None,
+    };
+    let z = rc_hle::ddraw::SurfaceInfo {
+        buf: depth,
+        pitch: sw * 4,
+        bpp: 32,
+        masks: [0; 4],
+        ..info
+    };
+    // The box around the mouse position, on the screen.
+    let half = POINTER_BOX / 2;
+    let x0 = (x - half).clamp(0, sw as i32) as u32;
+    let y0 = (y - half).clamp(0, sh as i32) as u32;
+    let x1 = (x + half).clamp(0, sw as i32) as u32;
+    let y1 = (y + half).clamp(0, sh as i32) as u32;
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let (bw, bh) = (x1 - x0, y1 - y0);
+    let pass = |background: u32| -> Vec<u8> {
+        let row: Vec<u8> = background.to_le_bytes().repeat(bw as usize);
+        let zrow = vec![0xffu8; 4 * bw as usize];
+        for r in y0..y1 {
+            m.write(color + (r * sw + x0) * 4, &row);
+            m.write(depth + (r * sw + x0) * 4, &zrow);
+        }
+        for d in &draws {
+            rc_hle::raster::draw_into(
+                m,
+                &d.state,
+                info,
+                Some(z),
+                d.primitive,
+                d.fvf,
+                &d.vertices,
+                &d.indices,
+            );
+        }
+        let mut out = vec![0u8; (bw * bh * 4) as usize];
+        for r in 0..bh {
+            let at = ((r * bw) * 4) as usize;
+            m.read(
+                color + ((y0 + r) * sw + x0) * 4,
+                &mut out[at..at + 4 * bw as usize],
+            );
+        }
+        out
+    };
+    let black = pass(0);
+    let white = pass(0x00ff_ffff);
+
+    // BGRA in memory (masks above) → straight-alpha RGBA, and the bounds of what is visible.
+    let mut rgba = vec![0u8; (bw * bh * 4) as usize];
+    let (mut lx, mut ly, mut hx, mut hy) = (bw, bh, 0, 0);
+    for i in 0..(bw * bh) as usize {
+        let b = [black[4 * i + 2], black[4 * i + 1], black[4 * i]];
+        let w = [white[4 * i + 2], white[4 * i + 1], white[4 * i]];
+        let a = (0..3)
+            .map(|k| 255 - i32::from(w[k]) + i32::from(b[k]))
+            .max()
+            .unwrap_or(0)
+            .clamp(0, 255);
+        if a == 0 {
+            continue;
+        }
+        for k in 0..3 {
+            rgba[4 * i + k] = (i32::from(b[k]) * 255 / a).min(255) as u8;
+        }
+        rgba[4 * i + 3] = a as u8;
+        let (px, py) = ((i as u32) % bw, (i as u32) / bw);
+        (lx, ly, hx, hy) = (lx.min(px), ly.min(py), hx.max(px), hy.max(py));
+    }
+    // The mouse position inside the image too: it is the hotspot.
+    let (hot_x, hot_y) = ((x - x0 as i32).max(0) as u32, (y - y0 as i32).max(0) as u32);
+    let (lx, ly) = (lx.min(hot_x), ly.min(hot_y));
+    let (hx, hy) = (hx.max(hot_x).min(bw - 1), hy.max(hot_y).min(bh - 1));
+    let (w, h) = (hx - lx + 1, hy - ly + 1);
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    for r in ly..=hy {
+        let at = 4 * (r * bw + lx) as usize;
+        out.extend_from_slice(&rgba[at..at + 4 * w as usize]);
+    }
+    Some(rc_platform::cursor::Image {
+        width: w,
+        height: h,
+        hotspot: (hot_x - lx, hot_y - ly),
+        rgba: out,
+    })
+}
+
 /// Install the hooks (the addresses `game.toml` routes through the dispatcher).
 pub fn register() {
     hook(TEXT, text);
@@ -609,6 +847,8 @@ pub fn register() {
     hook(OPTIONS_SETUP, options_setup);
     hook(OPTIONS_FRAME, options_frame);
     hook(OPTIONS_ENTRY, options_entry);
+    hook(DRAW_OBJECT, draw_object);
+    hook(DRAW_OT, draw_ot);
 }
 
 #[cfg(test)]

@@ -142,6 +142,26 @@ format needs a host service **(open)**.
   map merges a thunk with its target into one function entered at the thunk. Hooks therefore name the thunk's
   address (`[binary.patch]` refuses an address that is not a function entry).
 
+- **The mouse pointer** is a small 3D object (`MOUSEPOINTER`, with the glow `FX_SHOCKWAVE_02`), put into the frame
+  once per frame at the mouse position (`0x401dc0` called at `0x42818c`) while bit 1 of `0x55b7b8` is set and bit
+  31 is not: the game sets bit 1 after more than five mouse moves when the mouse is in use (bit 0); what sets bit
+  31 is **(open)**. In the menus it sways (a sine of a time at `0x5a8268`) and has its tip at the mouse; in a
+  level it turns towards the hero and is centred on the mouse. The game's mouse position (`0x59cb14`/`0x59cb16`)
+  comes from `WM_MOUSEMOVE`, absolute, so a system cursor and the game agree.
+- **The ordering table.** 3D objects are not drawn when they are placed: their screen-space primitives (0x3c
+  bytes, from an arena whose free pointer is `0x59de10`) are chained into an ordering table of 0x400 buckets by
+  depth (`0x795840`, 0x4000 bytes per frame buffer, the buffer at `0x59cb1c`; each bucket a 16-byte empty node,
+  chained from the last to the first). `0x530e60` draws the table from its last node once per frame and `0x530d10`
+  empties it. The renderer groups the primitives of a run by kind (untextured, textured, additive) before it draws
+  them. The pointer is three groups: a black outline (the silhouette moved by a pixel), the textured stone at the
+  same depth, the additive glow just behind it.
+- **Software rasterizer, fixed with the pointer:** a pixel on the edge two triangles share was drawn by both (no
+  top-left rule; a seam in additive quads), and depth was stored truncated and compared unquantised, so a second
+  pass at the same depth (outline, then stone) failed the less-or-equal test.
+- **(open)** Once in a scripted run in a window on the VMware VM, the guest thread panicked inside `khronos-egl`
+  (an `unwrap` on `None`), i.e. in the Direct3D renderer's OpenGL path; not seen again in four runs of the same
+  script. The renderer picks its adapter as the window did before (all backends, SVGA3D's OpenGL here).
+
 ## Behaviour seen in scripted runs
 
 - After a new game the first room opens with tutorial dialogues that `Strg` (Ctrl) scrolls and closes; the

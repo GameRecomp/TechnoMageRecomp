@@ -121,6 +121,8 @@ struct Global {
     buffers: BTreeMap<u32, VertexBuffer>,
     next: u32,
     frame: Vec<Command>,
+    /// Draws taken aside instead of drawn (see [`capture`]).
+    captured: Option<Vec<Draw>>,
 }
 
 static G: Mutex<Global> = Mutex::new(Global {
@@ -128,7 +130,26 @@ static G: Mutex<Global> = Mutex::new(Global {
     buffers: BTreeMap::new(),
     next: 1,
     frame: Vec::new(),
+    captured: None,
 });
+
+/// A draw as recorded: the primitive, its vertices and indices, and the state it was made in.
+#[derive(Debug, Clone)]
+pub struct Draw {
+    pub primitive: u32,
+    pub fvf: u32,
+    pub vertices: Vec<u8>,
+    pub indices: Vec<u16>,
+    pub state: Arc<State>,
+}
+
+/// Run `f` with the draws it makes taken aside instead of drawn into their target, and return
+/// them (for the project's patches: the game's mouse pointer becomes a hardware cursor).
+pub fn capture(f: impl FnOnce()) -> Vec<Draw> {
+    g().captured = Some(Vec::new());
+    f();
+    g().captured.take().unwrap_or_default()
+}
 
 fn g() -> std::sync::MutexGuard<'static, Global> {
     G.lock().expect("d3d")
@@ -476,6 +497,16 @@ fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16
         return;
     };
     let state = snapshot(d);
+    if let Some(list) = s.captured.as_mut() {
+        list.push(Draw {
+            primitive,
+            fvf,
+            vertices,
+            indices,
+            state,
+        });
+        return;
+    }
     let t = rc_runtime::host::Stamp::now();
     #[cfg(feature = "gpu")]
     if batch::available() {

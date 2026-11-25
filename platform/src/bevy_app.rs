@@ -14,8 +14,13 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::render::settings::{Backends, WgpuSettings};
 use bevy::render::RenderPlugin;
-use bevy::window::{CursorMoved, MonitorSelection, WindowCloseRequested, WindowMode};
+use bevy::window::{
+    CursorIcon, CursorMoved, CursorOptions, CustomCursor, CustomCursorImage, MonitorSelection,
+    WindowCloseRequested, WindowMode,
+};
+use std::collections::HashMap;
 use std::num::NonZero;
+use std::sync::Arc;
 
 /// The game's frame on screen.
 #[derive(Resource)]
@@ -109,8 +114,13 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
     )
     .add_audio_source::<GameAudio>()
     .insert_resource(ClearColor(Color::BLACK))
+    .init_resource::<HardwareCursor>()
     .add_systems(Startup, setup)
-    .add_systems(Update, (show_frame, keyboard, mouse, close));
+    .add_systems(
+        Update,
+        (show_frame, keyboard, mouse, close, hardware_cursor),
+    );
+    crate::cursor::set_enabled(true);
     app.run();
     std::process::exit(0);
 }
@@ -204,6 +214,165 @@ fn show_frame(
     let scale = (w / gw).min(h / gh);
     if let Ok(mut s) = sprites.get_mut(screen.sprite) {
         s.custom_size = Some(Vec2::new(gw * scale, gh * scale));
+    }
+}
+
+/// The game's pointer as the window's cursor.
+#[derive(Resource, Default)]
+struct HardwareCursor {
+    /// What is shown: the pointer's generation and the scale (None: hidden).
+    shown: Option<(u64, u32)>,
+    /// The cursor images made so far (the game's pointer and the scale they were made at), by
+    /// content: Bevy keeps a system cursor for each image to the end, so the same picture must
+    /// reuse its image, and there are at most `CURSOR_IMAGES` of them.
+    images: Vec<CursorEntry>,
+    index: HashMap<(crate::cursor::Image, u32), usize>,
+}
+
+/// A cursor image made: the game's pointer and the scale it was made at, the image and its
+/// hotspot.
+struct CursorEntry {
+    pointer: crate::cursor::Image,
+    scale: u32,
+    image: Handle<Image>,
+    hotspot: (u16, u16),
+}
+
+/// The largest cursor the systems take well.
+const CURSOR_MAX: u32 = 256;
+/// Cursor images kept at most; then the most similar one stands in (the pointer turns with the
+/// mouse and sways: in a long game it takes thousands of slightly different forms).
+const CURSOR_IMAGES: usize = 256;
+
+fn hardware_cursor(
+    mut commands: Commands,
+    mut windows: Query<(Entity, &Window, &mut CursorOptions)>,
+    mut images: ResMut<Assets<Image>>,
+    screen: Res<Screen>,
+    mut hw: ResMut<HardwareCursor>,
+) {
+    let Ok((entity, win, mut options)) = windows.single_mut() else {
+        return;
+    };
+    let (generation, pointer) = crate::cursor::current();
+    let Some(p) = pointer else {
+        if hw.shown.take().is_some() || options.visible {
+            options.visible = false;
+        }
+        return;
+    };
+    // As big as the game's pointer in the scaled frame (window pixels, nearest neighbour).
+    let (gw, gh) = (screen.size.0 as f32, screen.size.1 as f32);
+    let fit = (win.width() / gw).min(win.height() / gh) * win.scale_factor();
+    let largest = (CURSOR_MAX as f32 / p.width.max(p.height).max(1) as f32).max(1.0);
+    let scale = fit.clamp(1.0, largest);
+    let key = (generation, scale.to_bits());
+    if hw.shown == Some(key) && options.visible {
+        return;
+    }
+    let scale_bits = scale.to_bits();
+    let image = (Arc::unwrap_or_clone(p), scale_bits);
+    let found = hw.index.get(&image).copied();
+    let at = match found {
+        Some(i) => i,
+        None if hw.images.len() < CURSOR_IMAGES => {
+            let scaled = scale_cursor(&image.0, scale);
+            let hotspot = (scaled.hotspot.0 as u16, scaled.hotspot.1 as u16);
+            let img = Image::new(
+                Extent3d {
+                    width: scaled.width,
+                    height: scaled.height,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                scaled.rgba,
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::MAIN_WORLD,
+            );
+            let h = images.add(img);
+            hw.images.push(CursorEntry {
+                pointer: image.0.clone(),
+                scale: scale_bits,
+                image: h,
+                hotspot,
+            });
+            let n = hw.images.len() - 1;
+            hw.index.insert(image, n);
+            if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("cursor")) {
+                eprintln!("[cursor] {} cursor images", hw.images.len());
+            }
+            hw.images.len() - 1
+        }
+        None => {
+            let near = nearest_cursor(&hw.images, &image.0, scale_bits);
+            hw.index.insert(image, near);
+            near
+        }
+    };
+    let (handle, hotspot) = (hw.images[at].image.clone(), hw.images[at].hotspot);
+    commands
+        .entity(entity)
+        .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
+            handle,
+            texture_atlas: None,
+            flip_x: false,
+            flip_y: false,
+            rect: None,
+            hotspot,
+        })));
+    options.visible = true;
+    hw.shown = Some(key);
+}
+
+/// The image of `images` (at scale `scale`) most like `c`: the least difference of their pixels,
+/// aligned at the hotspot.
+fn nearest_cursor(images: &[CursorEntry], c: &crate::cursor::Image, scale: u32) -> usize {
+    let px = |i: &crate::cursor::Image, x: i32, y: i32| -> [u8; 4] {
+        let (x, y) = (x + i.hotspot.0 as i32, y + i.hotspot.1 as i32);
+        if x < 0 || y < 0 || x >= i.width as i32 || y >= i.height as i32 {
+            return [0; 4];
+        }
+        let k = 4 * (y as u32 * i.width + x as u32) as usize;
+        [i.rgba[k], i.rgba[k + 1], i.rgba[k + 2], i.rgba[k + 3]]
+    };
+    let (x0, y0) = (-(c.hotspot.0 as i32), -(c.hotspot.1 as i32));
+    let (x1, y1) = (x0 + c.width as i32, y0 + c.height as i32);
+    images
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.scale == scale)
+        .min_by_key(|(_, e)| {
+            let mut d = 0u64;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let (a, b) = (px(c, x, y), px(&e.pointer, x, y));
+                    d += (0..4).map(|k| u64::from(a[k].abs_diff(b[k]))).sum::<u64>();
+                }
+            }
+            d
+        })
+        .map_or(0, |(i, _)| i)
+}
+
+/// `c` enlarged by `scale` with nearest neighbours.
+fn scale_cursor(c: &crate::cursor::Image, scale: f32) -> crate::cursor::Image {
+    let w = ((c.width as f32 * scale).round() as u32).max(1);
+    let h = ((c.height as f32 * scale).round() as u32).max(1);
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        let sy = ((y as f32 / scale) as u32).min(c.height - 1);
+        for x in 0..w {
+            let sx = ((x as f32 / scale) as u32).min(c.width - 1);
+            let i = 4 * (sy * c.width + sx) as usize;
+            rgba.extend_from_slice(&c.rgba[i..i + 4]);
+        }
+    }
+    let hot = |v: u32, n: u32| ((v as f32 * scale) as u32).min(n - 1);
+    crate::cursor::Image {
+        width: w,
+        height: h,
+        hotspot: (hot(c.hotspot.0, w), hot(c.hotspot.1, h)),
+        rgba,
     }
 }
 

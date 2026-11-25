@@ -79,6 +79,73 @@ pub enum Backend {
     Null,
 }
 
+/// The game's mouse pointer as a hardware cursor: the project's patches render the pointer the
+/// game draws into an image in each frame it draws one ([`cursor::show`]); a backend with a window
+/// shows it in place of the system's, scaled as the frame is ([`cursor::current`]).
+pub mod cursor {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    /// A cursor image: RGBA8 with straight alpha, `width * height * 4` bytes, and the point the
+    /// pointer points with.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub struct Image {
+        pub width: u32,
+        pub height: u32,
+        pub hotspot: (u32, u32),
+        pub rgba: Vec<u8>,
+    }
+
+    struct Shown {
+        image: Option<Arc<Image>>,
+        /// The frame it was last drawn in.
+        frame: u64,
+        /// Changes with the image.
+        generation: u64,
+    }
+
+    static SHOWN: Mutex<Shown> = Mutex::new(Shown {
+        image: None,
+        frame: 0,
+        generation: 0,
+    });
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+
+    /// Frames a pointer stays shown without being drawn again (the game draws it every frame).
+    const KEEP: u64 = 2;
+
+    /// Whether a backend shows hardware cursors (the window); without one the game keeps drawing
+    /// its own pointer.
+    pub fn enabled() -> bool {
+        ENABLED.load(Ordering::Relaxed)
+    }
+
+    pub fn set_enabled(on: bool) {
+        ENABLED.store(on, Ordering::Relaxed);
+    }
+
+    /// The pointer drawn in the frame being made.
+    pub fn show(image: Image) {
+        let frame = crate::frame_number();
+        let mut s = SHOWN.lock().expect("cursor");
+        s.frame = frame;
+        if s.image.as_deref() != Some(&image) {
+            s.image = Some(Arc::new(image));
+            s.generation += 1;
+        }
+    }
+
+    /// The pointer to show (None: the game draws none now) and a number that changes with it.
+    pub fn current() -> (u64, Option<Arc<Image>>) {
+        let frame = crate::frame_number();
+        let s = SHOWN.lock().expect("cursor");
+        if frame > s.frame + KEEP {
+            return (s.generation, None);
+        }
+        (s.generation, s.image.clone())
+    }
+}
+
 /// A finished frame: RGBA8, `width * height * 4` bytes.
 #[derive(Debug, Clone, Default)]
 pub struct Frame {
@@ -153,6 +220,22 @@ fn screenshot_if_asked(n: u64) {
         eprintln!("screenshot {path}: {e}");
     } else {
         eprintln!("screenshot of frame {n} in {path}");
+    }
+    // The hardware cursor shown then, beside it (RGBA as a PAM file).
+    if let (_, Some(c)) = cursor::current() {
+        let cpath = format!("{path}.cursor.pam");
+        let mut out = format!(
+            "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+            c.width, c.height
+        )
+        .into_bytes();
+        out.extend_from_slice(&c.rgba);
+        if std::fs::write(&cpath, out).is_ok() {
+            eprintln!(
+                "cursor {}x{} (hotspot {:?}) in {cpath}",
+                c.width, c.height, c.hotspot
+            );
+        }
     }
 }
 
