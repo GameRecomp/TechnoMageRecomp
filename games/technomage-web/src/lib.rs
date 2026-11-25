@@ -35,11 +35,37 @@ mod web {
     unsafe extern "C" {
         /// A frame: RGBA8, `width * height * 4` bytes at `ptr`.
         fn present_js(ptr: *const u8, width: u32, height: u32);
+        /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot, or none (`ptr` 0).
+        fn cursor_js(ptr: *const u8, width: u32, height: u32, hot_x: u32, hot_y: u32);
     }
+
+    /// What the page was last told of the cursor: its generation and whether one is shown.
+    static CURSOR: std::sync::Mutex<(u64, bool)> = std::sync::Mutex::new((0, false));
 
     fn present(f: &rc_platform::Frame) {
         // SAFETY: the frame's pixels are valid for the call.
         unsafe { present_js(f.rgba.as_ptr(), f.width, f.height) }
+        let (generation, pointer) = rc_platform::cursor::current_at(f.number);
+        let mut told = CURSOR.lock().expect("cursor");
+        if *told == (generation, pointer.is_some()) {
+            return;
+        }
+        *told = (generation, pointer.is_some());
+        match pointer {
+            // SAFETY: the image is valid for the call.
+            Some(c) => unsafe {
+                cursor_js(c.rgba.as_ptr(), c.width, c.height, c.hotspot.0, c.hotspot.1)
+            },
+            // SAFETY: a null image asks for none.
+            None => unsafe { cursor_js(std::ptr::null(), 0, 0, 0, 0) },
+        }
+    }
+
+    /// The page shows the game's pointer as the mouse cursor (`on` not 0): the game stops
+    /// drawing it into the frame (the project's patches). Without it (Node) the game draws it.
+    #[no_mangle]
+    pub extern "C" fn rc_hardware_cursor(on: u32) {
+        rc_platform::cursor::set_enabled(on != 0);
     }
 
     #[no_mangle]

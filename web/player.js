@@ -21,13 +21,16 @@
  *         write(fd, at, bytes) -> n, size(fd), truncate(fd, size), flush(fd), close(fd),
  *         mkdir(path) -> bool, remove(path) -> bool }
  *   present(rgba, width, height): a frame (the bytes are only valid during the call)
+ *   pointer(rgba, width, height, hotX, hotY): optional; the game's mouse pointer as the cursor
+ *     (RGBA with straight alpha, valid during the call; null: none now). With it the game does
+ *     not draw its pointer into the frames.
  *   frame(): a promise that resolves when the game may go on after a frame
  *   env: { RC_…: value }
  *   log(text), exit(code)
  */
 import { createGL } from './gl.js';
 
-export async function run({ runtime, code, fs, present, frame, env = {}, log = console.log, exit }) {
+export async function run({ runtime, code, fs, present, pointer, frame, env = {}, log = console.log, exit }) {
   let ex = null;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -116,6 +119,9 @@ export async function run({ runtime, code, fs, present, frame, env = {}, log = c
       exit_js: waits((c) => { exit(c); return new Promise(() => {}); }),
       frame_js: waits(() => frame()),
       present_js: (p, w, h) => present(u8().subarray(p, p + w * h * 4), w, h),
+      cursor_js: (p, w, h, hx, hy) => {
+        if (pointer) pointer(p ? u8().subarray(p, p + w * h * 4) : null, w, h, hx, hy);
+      },
       thread_new: (id, top) => { threads.set(id, { started: false, sp: 0, wake: null, top }); },
       thread_switch: new WebAssembly.Suspending((to) => {
         const me = current;
@@ -159,6 +165,7 @@ export async function run({ runtime, code, fs, present, frame, env = {}, log = c
   u8().set(tables, at);
   if (ex.rc_load_code(at, tables.length, tableBase) !== 0) throw new Error('the runtime did not take the game\'s code');
 
+  if (pointer) ex.rc_hardware_cursor(1);
   const main = WebAssembly.promising(ex.rc_main);
   const audio = { buf: 0, n: 0 };
   return {

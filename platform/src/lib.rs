@@ -137,7 +137,11 @@ pub mod cursor {
 
     /// The pointer to show (None: the game draws none now) and a number that changes with it.
     pub fn current() -> (u64, Option<Arc<Image>>) {
-        let frame = crate::frame_number();
+        current_at(crate::frame_number())
+    }
+
+    /// [`current`] at frame `frame` (for a present hook, which runs while the frame is locked).
+    pub fn current_at(frame: u64) -> (u64, Option<Arc<Image>>) {
         let s = SHOWN.lock().expect("cursor");
         if frame > s.frame + KEEP {
             return (s.generation, None);
