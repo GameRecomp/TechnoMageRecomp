@@ -438,6 +438,19 @@ impl Renderer {
         rgba: &[u8],
         commands: &[Command],
     ) -> Vec<u8> {
+        self.render_view(width, height, (width, height), rgba, commands)
+    }
+
+    /// [`render`](Self::render) into a `width` × `height` target that shows a screen of `view`
+    /// pixels (the draws' coordinates): larger than it, the scene is drawn at that resolution.
+    pub fn render_view(
+        &mut self,
+        width: u32,
+        height: u32,
+        view: (u32, u32),
+        rgba: &[u8],
+        commands: &[Command],
+    ) -> Vec<u8> {
         self.frame += 1;
         if self
             .target
@@ -517,7 +530,7 @@ impl Renderer {
                 stage: [[0; 4]; 4],
                 factor: d.factor,
                 fog_color: d.fog.map_or([0.0; 4], |f| f.0),
-                view: [width as f32, height as f32, 0.0, 0.0],
+                view: [view.0 as f32, view.1 as f32, 0.0, 0.0],
                 misc: [0; 4],
                 _pad: [0; 8],
             };

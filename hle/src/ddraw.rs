@@ -1002,14 +1002,25 @@ fn s_Flip(c: &mut Cpu) {
         crate::d3d::flush_if_target(m, back.object);
     }
     let shown = front.back.and_then(surface).unwrap_or(front);
-    let rgba = to_rgba(m, &shown);
     // The frame's Direct3D commands go to the renderer once it exists (M5); for now they are
     // counted and dropped.
     let commands = crate::d3d::take_frame();
     if rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("d3d")) {
         rc_runtime::log!("[d3d] frame: {} commands", commands.len());
     }
-    rc_platform::submit_frame(shown.width, shown.height, rgba);
+    match info(m, shown.object).and_then(|i| crate::d3d::native_picture(m, &i)) {
+        Some((w, h, mut big)) => {
+            if let Some(r) = crate::small::gamma_ramp() {
+                for px in big.as_chunks_mut::<4>().0 {
+                    for (i, v) in px.iter_mut().take(3).enumerate() {
+                        *v = (r[i * 256 + usize::from(*v)] >> 8) as u8;
+                    }
+                }
+            }
+            rc_platform::submit_frame_scaled((shown.width, shown.height), w, h, big);
+        }
+        None => rc_platform::submit_frame(shown.width, shown.height, to_rgba(m, &shown)),
+    }
     crate::frame_done(c);
     ret_stdcall(c, S_OK, 3);
 }

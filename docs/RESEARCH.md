@@ -142,6 +142,17 @@ format needs a host service **(open)**.
   map merges a thunk with its target into one function entered at the thunk. Hooks therefore name the thunk's
   address (`[binary.patch]` refuses an address that is not a function entry).
 
+- **Resolution.** The game's screen size is data (`0x55b7bc`/`0x55b7c0`, 640×480; 320×240 with a developer flag);
+  the graphics start (`0x52e0f0`) takes it with the depth, and the device's viewport is copied to `0xf5b318`
+  (width and height at `0xf5b320`/`0xf5b324`, which the menus lay out on in thousandths). The projection's centre
+  is half of it, its scale fixed in pixels (`0x14fc7a8` and on); Bink videos are centred in 640×480 (`0x53c9e3`).
+  Run at 1024×768 (set before the start), the camera shows more of the level, the videos sit top left and the
+  fonts and HUD keep their pixel size. The HLE offers 640×480, 800×600 and 1024×768; another size ends the start
+  with a DirectX error.
+- **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
+  change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
+  chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click
+  arrives (DirectInput) a frame before the game's own mouse position (`0x59cb14`/`0x59cb16`, from `WM_MOUSEMOVE`).
 - **The mouse pointer** is a small 3D object (`MOUSEPOINTER`, with the glow `FX_SHOCKWAVE_02`), put into the frame
   once per frame at the mouse position (`0x401dc0` called at `0x42818c`) while bit 1 of `0x55b7b8` is set and bit
   31 is not: the game sets bit 1 after more than five mouse moves when the mouse is in use (bit 0); what sets bit

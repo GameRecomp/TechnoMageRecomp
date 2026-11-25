@@ -28,7 +28,9 @@ struct Screen {
     image: Handle<Image>,
     sprite: Entity,
     shown: u64,
+    /// The frame's pixels, and the game's screen it shows (input and cursor coordinates).
     size: (u32, u32),
+    game: (u32, u32),
 }
 
 /// The mixer as a Bevy audio source.
@@ -182,6 +184,7 @@ fn setup(
         sprite,
         shown: 0,
         size: (640, 480),
+        game: (640, 480),
     });
     let src = sources.add(GameAudio);
     commands.spawn(AudioPlayer(src));
@@ -196,6 +199,7 @@ fn show_frame(
     let f = crate::latest_frame();
     if f.number != screen.shown && f.width > 0 {
         screen.shown = f.number;
+        screen.game = f.game;
         if (f.width, f.height) != screen.size {
             screen.size = (f.width, f.height);
             if let Some(mut img) = images.get_mut(&screen.image) {
@@ -209,8 +213,9 @@ fn show_frame(
     let Ok(win) = windows.single() else {
         return;
     };
+    crate::render::set_output(win.physical_width(), win.physical_height());
     let (w, h) = (win.width(), win.height());
-    let (gw, gh) = (screen.size.0 as f32, screen.size.1 as f32);
+    let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
     let scale = (w / gw).min(h / gh);
     if let Ok(mut s) = sprites.get_mut(screen.sprite) {
         s.custom_size = Some(Vec2::new(gw * scale, gh * scale));
@@ -262,7 +267,7 @@ fn hardware_cursor(
         return;
     };
     // As big as the game's pointer in the scaled frame (window pixels, nearest neighbour).
-    let (gw, gh) = (screen.size.0 as f32, screen.size.1 as f32);
+    let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
     let fit = (win.width() / gw).min(win.height() / gh) * win.scale_factor();
     let largest = (CURSOR_MAX as f32 / p.width.max(p.height).max(1) as f32).max(1.0);
     let scale = fit.clamp(1.0, largest);
@@ -446,7 +451,7 @@ fn mouse(
     for c in moved.read() {
         // Window coordinates to the game's, through the letterboxing.
         let (w, h) = (win.width(), win.height());
-        let (gw, gh) = (screen.size.0 as f32, screen.size.1 as f32);
+        let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
         let scale = (w / gw).min(h / gh);
         let (ox, oy) = ((w - gw * scale) / 2.0, (h - gh * scale) / 2.0);
         let x = ((c.position.x - ox) / scale).clamp(0.0, gw - 1.0);

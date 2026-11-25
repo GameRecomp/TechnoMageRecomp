@@ -214,11 +214,22 @@ mod batch {
             return;
         };
         let rgba = crate::raster::to_rgba8(m, &info);
+        #[cfg(not(target_family = "wasm"))]
+        let (w, h) = super::shadow::render_size(&info);
         let mut r = RENDERER.lock().expect("renderer");
-        if let Some(Some(r)) = r.as_mut() {
-            let out = r.render(info.width, info.height, &rgba, &commands);
-            crate::raster::from_rgba8(m, &info, &out);
+        let Some(Some(r)) = r.as_mut() else {
+            return;
+        };
+        #[cfg(not(target_family = "wasm"))]
+        if (w, h) != (info.width, info.height) {
+            let background = super::shadow::compose(m, &info, &rgba, (w, h));
+            let out = r.render_view(w, h, (info.width, info.height), &background, &commands);
+            super::shadow::store(m, &info, (w, h), out);
+            return;
         }
+        super::shadow::drop(info.buf);
+        let out = r.render(info.width, info.height, &rgba, &commands);
+        crate::raster::from_rgba8(m, &info, &out);
     }
 
     /// Flush if `obj` is the surface the collected draws go to.
@@ -230,6 +241,151 @@ mod batch {
         if pending {
             flush(m);
         }
+    }
+}
+
+/// Native resolution (`rc_platform::render`): a render target the size of the screen is drawn
+/// larger on the GPU. The large picture is kept as the surface's shadow; guest memory gets it
+/// scaled down (what the game reads), and a copy of what was written. A pixel of the surface
+/// still as written shows the shadow's pixels; one the game has written since (2D) shows its
+/// own, enlarged. A colour clear drops the shadow.
+#[cfg(feature = "gpu")]
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
+mod shadow {
+    use crate::ddraw::SurfaceInfo;
+    use rc_runtime::mem::Mem;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct Shadow {
+        size: (u32, u32),
+        rgba: Vec<u8>,
+        /// The surface's bytes as last written from the shadow (rows without padding).
+        written: Vec<u8>,
+    }
+
+    static SHADOWS: Mutex<Option<HashMap<u32, Shadow>>> = Mutex::new(None);
+
+    /// The size to render `info` at: the screen's surfaces (the display mode's size) as the
+    /// platform says, others as they are.
+    pub fn render_size(info: &SurfaceInfo) -> (u32, u32) {
+        let (w, h, _) = crate::ddraw::display_mode();
+        if cfg!(target_family = "wasm") || (info.width, info.height) != (w, h) {
+            return (info.width, info.height);
+        }
+        rc_platform::render::size_for(w, h)
+    }
+
+    pub fn drop(buf: u32) {
+        if let Some(map) = SHADOWS.lock().expect("shadows").as_mut() {
+            map.remove(&buf);
+        }
+    }
+
+    fn raw(m: Mem, info: &SurfaceInfo) -> Vec<u8> {
+        let row = (info.width * (info.bpp / 8)) as usize;
+        let mut out = vec![0u8; row * info.height as usize];
+        for y in 0..info.height as usize {
+            m.read(
+                info.buf + y as u32 * info.pitch,
+                &mut out[y * row..(y + 1) * row],
+            );
+        }
+        out
+    }
+
+    /// The `size` picture of the surface: its shadow where the surface is as written from it,
+    /// else its own pixels (`low`, RGBA8) enlarged.
+    pub fn compose(m: Mem, info: &SurfaceInfo, low: &[u8], size: (u32, u32)) -> Vec<u8> {
+        let (lw, lh) = (info.width as usize, info.height as usize);
+        let (w, h) = (size.0 as usize, size.1 as usize);
+        let bytes = (info.bpp / 8) as usize;
+        let now = raw(m, info);
+        let shadows = SHADOWS.lock().expect("shadows");
+        let shadow = shadows
+            .as_ref()
+            .and_then(|map| map.get(&info.buf))
+            .filter(|s| s.size == size && s.written.len() == now.len());
+        let mut out = vec![0u8; w * h * 4];
+        // Which of the surface's pixels a row and column of the large picture show.
+        let xs: Vec<usize> = (0..w).map(|x| (x * lw / w).min(lw - 1)).collect();
+        for y in 0..h {
+            let ly = (y * lh / h).min(lh - 1);
+            for (x, &lx) in xs.iter().enumerate() {
+                let i = ly * lw + lx;
+                let o = 4 * (y * w + x);
+                let same = shadow.is_some_and(|s| {
+                    s.written[i * bytes..(i + 1) * bytes] == now[i * bytes..(i + 1) * bytes]
+                });
+                match (same, shadow) {
+                    (true, Some(s)) => out[o..o + 4].copy_from_slice(&s.rgba[o..o + 4]),
+                    _ => out[o..o + 4].copy_from_slice(&low[4 * i..4 * i + 4]),
+                }
+            }
+        }
+        out
+    }
+
+    /// Keep `rgba` (`size`) as the surface's shadow and write it scaled down into the surface.
+    pub fn store(m: Mem, info: &SurfaceInfo, size: (u32, u32), rgba: Vec<u8>) {
+        let (lw, lh) = (info.width as usize, info.height as usize);
+        let (w, h) = (size.0 as usize, size.1 as usize);
+        let mut low = vec![0u8; lw * lh * 4];
+        for ly in 0..lh {
+            // The large picture's pixel at the centre of each of the surface's.
+            let y = ((2 * ly + 1) * h / (2 * lh)).min(h - 1);
+            for lx in 0..lw {
+                let x = ((2 * lx + 1) * w / (2 * lw)).min(w - 1);
+                let (o, i) = (4 * (ly * lw + lx), 4 * (y * w + x));
+                low[o..o + 4].copy_from_slice(&rgba[i..i + 4]);
+            }
+        }
+        crate::raster::from_rgba8(m, info, &low);
+        let written = raw(m, info);
+        SHADOWS
+            .lock()
+            .expect("shadows")
+            .get_or_insert_with(HashMap::new)
+            .insert(
+                info.buf,
+                Shadow {
+                    size,
+                    rgba,
+                    written,
+                },
+            );
+    }
+
+    /// The surface's picture at its render size, if it has a shadow (for showing it).
+    pub fn picture(m: Mem, info: &SurfaceInfo) -> Option<(u32, u32, Vec<u8>)> {
+        let size = {
+            let shadows = SHADOWS.lock().expect("shadows");
+            shadows.as_ref()?.get(&info.buf)?.size
+        };
+        let low = crate::raster::to_rgba8(m, info);
+        Some((size.0, size.1, compose(m, info, &low, size)))
+    }
+}
+
+/// The size the screen is rendered at: the display mode, or larger with native resolution when
+/// a GPU renders (natively; the software renderer and the browser draw at the game's size).
+pub fn screen_render_size() -> (u32, u32) {
+    let (w, h, _) = ddraw::display_mode();
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    if batch::available() {
+        return rc_platform::render::size_for(w, h);
+    }
+    (w, h)
+}
+
+/// The surface's picture at native resolution, if it is drawn at one (see `shadow`).
+pub fn native_picture(m: Mem, info: &crate::ddraw::SurfaceInfo) -> Option<(u32, u32, Vec<u8>)> {
+    #[cfg(feature = "gpu")]
+    return shadow::picture(m, info);
+    #[cfg(not(feature = "gpu"))]
+    {
+        let _ = (m, info);
+        None
     }
 }
 
@@ -650,6 +806,8 @@ fn dev_Clear(c: &mut Cpu) {
                 _ => color,
             };
             fill(m, buf, w, h, pitch, bpp, &rects, v);
+            #[cfg(feature = "gpu")]
+            shadow::drop(buf);
         }
     }
     #[cfg(feature = "gpu")]

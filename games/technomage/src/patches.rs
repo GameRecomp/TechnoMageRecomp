@@ -97,6 +97,7 @@ const SINE: u32 = 0x0058_6a30;
 const KEY_GRAPHICS: &str = "RC_GRAPHICS";
 const KEY_INFO: &str = "RC_INFO";
 const KEY_RESOLUTION: &str = "RC_RESOLUTION";
+const KEY_NATIVE: &str = "RC_NATIVE";
 const KEY_VERSION: &str = "RC_VERSION";
 const KEY_BUILT: &str = "RC_BUILT";
 const KEY_COMMIT: &str = "RC_COMMIT";
@@ -137,6 +138,17 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Risoluzione di rendering",
             "Resolución de renderizado",
             "Renderresolutie",
+        ],
+    ),
+    (
+        KEY_NATIVE,
+        [
+            "Native Auflösung",
+            "Native resolution",
+            "Résolution native",
+            "Risoluzione nativa",
+            "Resolución nativa",
+            "Native resolutie",
         ],
     ),
     (
@@ -221,7 +233,7 @@ const OUR_COUNT: u32 = OURS.len() as u32;
 fn rows(m: Mem, page: Page) -> Vec<(&'static str, String)> {
     match page {
         Page::Graphics => {
-            let (w, h, _) = rc_hle::ddraw::display_mode();
+            let (w, h) = rc_hle::d3d::screen_render_size();
             vec![(KEY_RESOLUTION, format!("{w} x {h}"))]
         }
         Page::Info => {
@@ -509,19 +521,39 @@ fn show_page(c: &mut Cpu, page: Page) {
     // Laid out as the first volume line; not selectable, no slider (drawn in options_entry).
     let e = OPTIONS_TABLE;
     let like = m.ld32(e + 4);
-    m.write(e, &[0u8; 2 * OPTIONS_ENTRY_SIZE as usize]);
+    m.write(e, &[0u8; 3 * OPTIONS_ENTRY_SIZE as usize]);
     m.st32(e, key_addr(b, rows(m, page)[0].0));
     m.st32(e + 4, like);
     m.st16(e + 8, (-60i16) as u16);
     m.st16(e + 0xc, 2);
     m.st16(e + 0x20, 0xffff);
+    let mut selected = e;
+    CHECKBOX_QUIET.store(
+        rc_platform::frame_number() + 15,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    if page == Page::Graphics {
+        // The "native resolution" box below: selectable, a value of 0 or 1 that the panel's own
+        // left and right keys change.
+        let k = CHECKBOX;
+        m.st32(k, key_addr(b, KEY_NATIVE));
+        m.st32(k + 4, like);
+        m.st16(k + 6, (i32::from(m.ld16(e + 6) as i16) + ROW_STEP) as u16);
+        m.st16(k + 8, (-60i16) as u16);
+        m.st16(k + 0xc, 2);
+        m.st16(k + 0xe, 1);
+        m.st16(k + 0x10, u16::from(rc_platform::render::native()));
+        m.st16(k + 0x12, 1);
+        m.st16(k + 0x20, 0xffff);
+        selected = k;
+    }
     let title_key = OURS
         .iter()
         .find(|o| o.1 == page)
         .map_or(KEY_GRAPHICS, |o| o.0);
     let title = call_guest(c, TEXT, &[key_addr(b, title_key)]);
     m.st32(OPTIONS_TITLE, title);
-    m.st32(OPTIONS_SELECTED, e);
+    m.st32(OPTIONS_SELECTED, selected);
 }
 
 /// The options panel's own entries again.
@@ -558,16 +590,16 @@ fn options_frame(c: &mut Cpu) {
 /// The distance of our lines (thousandths of the screen height; the volumes' is 70).
 const ROW_STEP: i32 = 55;
 
-/// One entry of the options panel; ours draws its page's lines: the label, and the value where
-/// a slider would be. Placed as the game places its entries (sliding in from the side).
-fn options_entry(c: &mut Cpu) {
-    let e = arg(c, 0);
-    let page = showing().filter(|_| e == OPTIONS_TABLE);
-    let Some(page) = page else {
-        call_original(c, OPTIONS_ENTRY);
-        return;
-    };
-    let m = c.mem();
+/// The graphics page's "native resolution" box: the options panel's second entry.
+const CHECKBOX: u32 = OPTIONS_TABLE + OPTIONS_ENTRY_SIZE;
+
+/// The first frame the switch takes input again (a moment after each turn and after the page
+/// opened: the press that chose the page is still down).
+static CHECKBOX_QUIET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Where an options entry's text goes: the label's right end, the value's start (where a
+/// slider is), its top, as the game places its entries (sliding in from the side).
+fn entry_place(m: Mem, e: u32) -> (i32, i32, i32) {
     let i16_at = |a: u32| i32::from(m.ld16(a) as i16);
     let w = m.ld32(SCREEN_W) as i32;
     let h = m.ld32(SCREEN_H) as i32;
@@ -581,41 +613,150 @@ fn options_entry(c: &mut Cpu) {
         ((i16_at(SINE + 4 * (slide & 0xfff) as u32) * (x + 500)) >> 12) - 500
     };
     let metrics = m.ld32(OPTIONS_METRICS);
-    let value_x = w * x / 1000 - i32::from(m.ld8(metrics + 9));
-    let label_x = i16_at(e + 8) * w / 1000 + value_x;
-    let (font, colour) = (m.ld32(OPTIONS_FONT), 0x80);
+    let number_x = w * x / 1000 - i32::from(m.ld8(metrics + 9));
+    let label_x = i16_at(e + 8) * w / 1000 + number_x;
+    // The game aligns both to the right: the label before the number, the number where its
+    // slider begins. Our values are longer than a number: they go where the slider is.
+    (label_x, number_x + w / 50, y * h / 1000)
+}
 
-    let b = blocks(m);
-    for (r, (key, value)) in rows(m, page)
-        .into_iter()
-        .take(ROWS_MAX as usize)
-        .enumerate()
-    {
-        let r = r as u32;
-        let y = (y + ROW_STEP * r as i32) * h / 1000;
-        let label = our_text(m, key.as_bytes()).unwrap_or(0);
-        let value = put_str(
-            m,
-            b.strings + STR_VALUES + STR_VALUE_SIZE * r,
-            STR_VALUE_SIZE,
-            &ansi(&value),
+/// A line of the panel: `label` ending at `label_x`, `value` from `value_x` on (guest strings).
+fn draw_line(c: &mut Cpu, label: u32, value: u32, (label_x, value_x, y): (i32, i32, i32)) {
+    let (font, colour) = (c.mem().ld32(OPTIONS_FONT), 0x80);
+    for (t, at, align) in [(label, label_x, ALIGN_RIGHT), (value, value_x, ALIGN_LEFT)] {
+        call_guest(
+            c,
+            DRAW_TEXT,
+            &[
+                font, t, at as u32, y as u32, 0x12, colour, colour, colour, 2, align,
+            ],
         );
-        // The game aligns both to the right: the label before the number, the number where its
-        // slider begins. Our values are longer than a number: they go where the slider is.
-        for (t, at, align) in [
-            (label, label_x, ALIGN_RIGHT),
-            (value, value_x + w / 50, ALIGN_LEFT),
-        ] {
-            call_guest(
-                c,
-                DRAW_TEXT,
-                &[
-                    font, t, at as u32, y as u32, 0x12, colour, colour, colour, 2, align,
-                ],
-            );
+    }
+}
+
+/// One entry of the options panel; ours draws its page's lines (the label, and the value where
+/// a slider would be), and the graphics page's box.
+fn options_entry(c: &mut Cpu) {
+    let e = arg(c, 0);
+    let page = showing();
+    match page {
+        Some(page) if e == OPTIONS_TABLE => {
+            let m = c.mem();
+            let (label_x, value_x, top) = entry_place(m, e);
+            let h = m.ld32(SCREEN_H) as i32;
+            let b = blocks(m);
+            for (r, (key, value)) in rows(m, page)
+                .into_iter()
+                .take(ROWS_MAX as usize)
+                .enumerate()
+            {
+                let label = our_text(m, key.as_bytes()).unwrap_or(0);
+                let at = b.strings + STR_VALUES + STR_VALUE_SIZE * r as u32;
+                let value = put_str(m, at, STR_VALUE_SIZE, &ansi(&value));
+                let y = top + ROW_STEP * r as i32 * h / 1000;
+                draw_line(c, label, value, (label_x, value_x, y));
+            }
+            ret_cdecl(c, c.r[EAX]);
+        }
+        Some(Page::Graphics) if e == CHECKBOX => {
+            // The game's own drawing of a non-slider entry: the highlight when selected, the
+            // selection by the mouse.
+            call_original(c, OPTIONS_ENTRY);
+            checkbox(c);
+        }
+        _ => call_original(c, OPTIONS_ENTRY),
+    }
+}
+
+/// The "native resolution" switch: its value from the panel's left and right keys, Enter or
+/// Space while it is selected, or a click on its line; the setting kept. Shown with the game's
+/// own words for on and off (its font has no box or brackets).
+fn checkbox(c: &mut Cpu) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    /// The left button, Enter and Space as last seen (bits 0, 1, 2), to act on presses only.
+    static HELD: AtomicU8 = AtomicU8::new(0);
+    const DIK_RETURN: u8 = 0x1c;
+    const DIK_SPACE: u8 = 0x39;
+    let m = c.mem();
+    let k = CHECKBOX;
+    let place = entry_place(m, k);
+    let h = m.ld32(SCREEN_H) as i32;
+    // The mouse position as the platform has it (the game's own follows a frame later).
+    let (mx, my) = rc_hle::user32::cursor();
+    let on_line = my >= place.2 && my < place.2 + 40 * h / 1000 && mx < place.1 + 60;
+    let now = u8::from(rc_hle::dinput::mouse_button_down(0))
+        | u8::from(rc_hle::dinput::key_down(DIK_RETURN)) << 1
+        | u8::from(rc_hle::dinput::key_down(DIK_SPACE)) << 2;
+    let pressed = now & !HELD.swap(now, Ordering::Relaxed);
+    let selected = m.ld32(OPTIONS_SELECTED) == k;
+    // One turn per press (the keys' state can flicker within one), and none from the press
+    // that opened the page.
+    let frame = rc_platform::frame_number();
+    if ((pressed & 1 != 0 && on_line) || (pressed & 6 != 0 && selected))
+        && frame >= CHECKBOX_QUIET.load(Ordering::Relaxed)
+    {
+        CHECKBOX_QUIET.store(frame + 8, Ordering::Relaxed);
+        m.st16(k + 0x10, 1 - m.ld16(k + 0x10).min(1));
+    }
+    let on = m.ld16(k + 0x10) != 0;
+    if on != rc_platform::render::native() {
+        rc_platform::render::set_native(on);
+        save_settings();
+    }
+    let b = blocks(m);
+    let label = our_text(m, KEY_NATIVE.as_bytes()).unwrap_or(0);
+    let key = put_str(
+        m,
+        b.strings + STR_VALUES + STR_VALUE_SIZE * (ROWS_MAX - 1),
+        STR_VALUE_SIZE,
+        if on { b"OPT_ON" } else { b"OPT_OFF" },
+    );
+    let value = call_guest(c, TEXT, &[key]);
+    draw_line(c, label, value, place);
+}
+
+// --- Settings ------------------------------------------------------------------------------------
+
+/// The project's settings, in the user directory beside the game's own `TechnoMage.ini`.
+const SETTINGS: &str = "TechnoMageRecomp.cfg";
+
+fn settings_path() -> Option<std::path::PathBuf> {
+    rc_runtime::vfs::get().user_dir.map(|d| d.join(SETTINGS))
+}
+
+fn load_settings() {
+    let text = settings_path().and_then(|p| rc_runtime::host::read_to_string(&p));
+    for line in text.unwrap_or_default().lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            if k.trim() == "native_resolution" {
+                rc_platform::render::set_native(v.trim() == "1");
+            }
         }
     }
-    ret_cdecl(c, c.r[EAX]);
+}
+
+fn save_settings() {
+    let Some(p) = settings_path() else {
+        return;
+    };
+    if let Some(dir) = p.parent() {
+        rc_runtime::host::create_dir_all(dir);
+    }
+    let text = format!(
+        "native_resolution={}\n",
+        u8::from(rc_platform::render::native())
+    );
+    let how = rc_runtime::host::Open {
+        write: true,
+        create: true,
+        truncate: true,
+        ..Default::default()
+    };
+    if let Err(e) =
+        rc_runtime::host::File::open(&p, how).and_then(|mut f| f.write_all(text.as_bytes()))
+    {
+        rc_runtime::log!("technomage: {}: {e}", p.display());
+    }
 }
 
 // --- The mouse pointer as a hardware cursor --------------------------------------------------------
@@ -840,6 +981,7 @@ fn render_pointer(
 
 /// Install the hooks (the addresses `game.toml` routes through the dispatcher).
 pub fn register() {
+    load_settings();
     hook(TEXT, text);
     hook(MENU_OPEN, menu_open);
     hook(PAUSE_VALUE, pause_value);

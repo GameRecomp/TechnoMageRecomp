@@ -50,6 +50,11 @@ static STATE: Mutex<State> = Mutex::new(State {
     buttons: [0; 4],
 });
 
+/// Whether a key (DirectInput scan code `DIK_*`) is held.
+pub fn key_down(scan: u8) -> bool {
+    STATE.lock().expect("dinput").keys[usize::from(scan)] & 0x80 != 0
+}
+
 /// A key (DirectInput scan code `DIK_*`) went down or up.
 pub fn key(scan: u8, down: bool) {
     let mut s = STATE.lock().expect("dinput");
@@ -71,6 +76,16 @@ pub fn mouse_motion(dx: i32, dy: i32, dz: i32) {
             s.mouse_events.push_back((ofs, d as u32, t));
         }
     }
+}
+
+/// Whether mouse button `b` (0 left) is held.
+pub fn mouse_button_down(b: usize) -> bool {
+    STATE
+        .lock()
+        .expect("dinput")
+        .buttons
+        .get(b)
+        .is_some_and(|&v| v & 0x80 != 0)
 }
 
 /// A mouse button (0 left, 1 right, 2 middle) went down or up.

@@ -150,6 +150,54 @@ pub mod cursor {
     }
 }
 
+/// The render resolution: with "native resolution" on (the project's graphics page), Direct3D
+/// draws at the largest size of the game's proportions that fits the window (the screen in full
+/// screen); the backend tells its size.
+pub mod render {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    static NATIVE: AtomicBool = AtomicBool::new(false);
+    static OUTPUT: AtomicU64 = AtomicU64::new(0);
+
+    pub fn set_native(on: bool) {
+        NATIVE.store(on, Ordering::Relaxed);
+    }
+
+    pub fn native() -> bool {
+        NATIVE.load(Ordering::Relaxed)
+    }
+
+    /// The size the picture is shown at (window pixels; 0 × 0 without a window).
+    pub fn set_output(width: u32, height: u32) {
+        OUTPUT.store(
+            u64::from(width) << 32 | u64::from(height),
+            Ordering::Relaxed,
+        );
+    }
+
+    pub fn output() -> (u32, u32) {
+        let v = OUTPUT.load(Ordering::Relaxed);
+        ((v >> 32) as u32, v as u32)
+    }
+
+    /// The size to render a `width` × `height` screen at: itself, or with native resolution the
+    /// largest multiple of it that fits the output, proportions kept.
+    pub fn size_for(width: u32, height: u32) -> (u32, u32) {
+        let (ow, oh) = output();
+        if !native() || width == 0 || height == 0 || ow == 0 || oh == 0 {
+            return (width, height);
+        }
+        let s = (ow as f32 / width as f32).min(oh as f32 / height as f32);
+        if s <= 1.0 {
+            return (width, height);
+        }
+        (
+            (width as f32 * s).round() as u32,
+            (height as f32 * s).round() as u32,
+        )
+    }
+}
+
 /// A finished frame: RGBA8, `width * height * 4` bytes.
 #[derive(Debug, Clone, Default)]
 pub struct Frame {
@@ -158,6 +206,9 @@ pub struct Frame {
     pub rgba: Vec<u8>,
     /// Frames submitted so far, this one included.
     pub number: u64,
+    /// The game's screen size (the frame may be rendered larger: [`render`]); input and the
+    /// cursor are in its coordinates.
+    pub game: (u32, u32),
 }
 
 static FRAME: Mutex<Frame> = Mutex::new(Frame {
@@ -165,6 +216,7 @@ static FRAME: Mutex<Frame> = Mutex::new(Frame {
     height: 0,
     rgba: Vec::new(),
     number: 0,
+    game: (0, 0),
 });
 #[cfg(not(target_family = "wasm"))]
 static NEW_FRAME: Condvar = Condvar::new();
@@ -178,9 +230,15 @@ pub fn set_present_hook(f: fn(&Frame)) {
 
 /// Hand over a finished frame (the game's `Flip`).
 pub fn submit_frame(width: u32, height: u32, rgba: Vec<u8>) {
+    submit_frame_scaled((width, height), width, height, rgba);
+}
+
+/// Hand over a finished frame of the `game`-sized screen, rendered at `width` × `height`.
+pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, rgba: Vec<u8>) {
     let mut f = FRAME.lock().expect("frame");
     f.width = width;
     f.height = height;
+    f.game = game;
     f.rgba = rgba;
     f.number += 1;
     let n = f.number;
