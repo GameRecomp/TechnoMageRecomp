@@ -12,6 +12,8 @@ use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::settings::{Backends, WgpuSettings};
+use bevy::render::RenderPlugin;
 use bevy::window::{CursorMoved, MonitorSelection, WindowCloseRequested, WindowMode};
 use std::num::NonZero;
 
@@ -95,7 +97,15 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
                 }),
                 ..default()
             })
-            .set(ImagePlugin::default_nearest()),
+            .set(ImagePlugin::default_nearest())
+            .set(RenderPlugin {
+                render_creation: WgpuSettings {
+                    backends: Some(window_backends()),
+                    ..default()
+                }
+                .into(),
+                ..default()
+            }),
     )
     .add_audio_source::<GameAudio>()
     .insert_resource(ClearColor(Color::BLACK))
@@ -103,6 +113,28 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
     .add_systems(Update, (show_frame, keyboard, mouse, close));
     app.run();
     std::process::exit(0);
+}
+
+/// The graphics backends Bevy may draw the window with: `WGPU_BACKEND` if set, else the primary
+/// ones (Vulkan, Direct3D 12, Metal) when any of them has an adapter, else all (OpenGL).
+///
+/// Bevy's default, all backends at high performance, can choose an OpenGL adapter over a
+/// software Vulkan one (a virtual machine's SVGA3D driver beside lavapipe). Its OpenGL surface for
+/// an X11 window then offers no present modes and Bevy panics creating it ("Fallback system
+/// failed to choose present mode", docs/RESEARCH.md).
+fn window_backends() -> Backends {
+    if let Some(b) = Backends::from_env() {
+        return b;
+    }
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: Backends::PRIMARY,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    if pollster::block_on(instance.enumerate_adapters(Backends::PRIMARY)).is_empty() {
+        Backends::all()
+    } else {
+        Backends::PRIMARY
+    }
 }
 
 fn new_image(w: u32, h: u32) -> Image {

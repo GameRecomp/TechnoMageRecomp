@@ -13,7 +13,8 @@ default = []
 # The GPU renderer (wgpu, offscreen): Direct3D's pixel pipeline.
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 # The game's backend: a Bevy window with the frames, input and audio.
-bevy = ["dep:bevy", "dep:blake3"]
+# (wgpu and pollster: it picks the window's graphics backend before Bevy starts.)
+bevy = ["dep:bevy", "dep:blake3", "dep:wgpu", "dep:pollster"]
 
 [dependencies]
 bytemuck = { version = "1", optional = true, features = ["derive"] }

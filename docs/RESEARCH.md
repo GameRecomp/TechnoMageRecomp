@@ -133,3 +133,9 @@ format needs a host service **(open)**.
   `C:\TECHMAGE.REC` and `MATRIX.TGA` are looked for and not needed.
 - A soak of 20,000 frames (clicks and keys every 15 to 40 frames in the first room) ran without a trap or an
   unimplemented call, natively at about 65 frames a second.
+- The window's backend: Bevy 0.20 by default tries every wgpu backend at high performance. In a virtual machine
+  with VMware's SVGA3D OpenGL driver and Mesa's lavapipe (software Vulkan) it chose OpenGL, whose surface for the
+  X11 window offered no present modes, and Bevy panicked creating it ("Fallback system failed to choose present
+  mode"); lavapipe works. The platform layer therefore takes the primary backends (Vulkan, Direct3D 12, Metal)
+  when one of them has an adapter, OpenGL only otherwise, and `WGPU_BACKEND` overrides it. Whether Bevy's OpenGL
+  window works on real hardware under X11 is **(open)**.
