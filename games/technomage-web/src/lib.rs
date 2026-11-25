@@ -20,6 +20,11 @@
 //! | `rc_key(scan, vk, down)`, `rc_mouse(dx, dy)`, `rc_button(b, down)`, `rc_wheel(dz)`, `rc_cursor(x, y)` | input |
 //! | `rc_mix(ptr, n)` | `n` interleaved stereo f32 samples at 44.1 kHz into `ptr` |
 
+/// The game project's changes, as in the native shell.
+#[cfg(target_family = "wasm")]
+#[path = "../../technomage/src/patches.rs"]
+mod patches;
+
 #[cfg(target_family = "wasm")]
 mod web {
     use rc_platform::Input;
@@ -85,6 +90,7 @@ mod web {
         rc_runtime::clock::init_from_env();
         rc_runtime::vfs::init(dir, Some("/user".into()));
         rc_hle::register_all();
+        crate::patches::register();
         rc_platform::set_present_hook(present);
         if host::env("RC_TRACE").is_some_and(|v| v.contains("imports")) {
             rc_runtime::imports::set_trace(true);

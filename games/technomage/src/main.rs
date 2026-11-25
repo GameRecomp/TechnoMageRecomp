@@ -5,6 +5,8 @@
 //!
 //! `--check` lists the imports the HLE layer does not implement yet, without running the game.
 
+mod patches;
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -156,6 +158,7 @@ fn run(a: &Args) -> Result<ExitCode, String> {
     rc_runtime::clock::init_from_env();
     rc_runtime::vfs::init(dir, user_dir());
     rc_hle::register_all();
+    patches::register();
     if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("imports")) {
         rc_runtime::imports::set_trace(true);
     }

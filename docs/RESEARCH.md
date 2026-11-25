@@ -115,6 +115,33 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
 `DATA.OVL`, `resource.cmp`, `default.pal`: all read by the game's own code; nothing to implement unless a
 format needs a host service **(open)**.
 
+## The pause menu, the options panel and the texts (for the project's patches)
+
+- **Menus.** One menu engine draws the pause menu, the main menu and the load/save book. A menu is a table of
+  16-byte entries (key of the text, type and flags, value, maximum) that ends with a NULL key, at most 16 entries;
+  opening it (the function behind the thunk at `0x401393`, table first) looks every key up in the string table and
+  asks an optional value-text callback for each entry. When an entry is chosen the engine calls the menu's second
+  callback with the entry's index; an action entry closes the menu first. Both callbacks work by index.
+- **The pause menu** is the table at `0x563ee8`: resume, options, input devices, the logo animation and back to
+  the main menu; its callbacks are `0x450a60` (the animation's name as value text) and `0x450b80` (options sets
+  bit 1 of the pause state `0x563c84`, input devices bit 2, the animation plays, back ends the level). After the
+  end entry follow a debug line and two cheat entries (invulnerability, start in level) that a developer flag puts
+  in by writing the end entry's key. The game reads some of the table's values by absolute address (the
+  animation's choice), so entries cannot be moved in place.
+- **The options panel** is not a menu of that engine but its own panel with 36-byte entries at `0x564c80` (sound,
+  music and speech volume, gamma): position, label offset, a type (1: label, number and slider; other types draw
+  nothing), selectable, value and maximum, a callback on change, the label text and a 4-byte number buffer. It is
+  set up once per level (behind the thunk at `0x4025f9`) and drawn in every frame of the pause (`0x4011b8`),
+  sliding in while bit 1 of the pause state is set; entries are drawn by `0x460a30`. Its title is the text of
+  `OPT_OPTIONS` (pointer at `0x59fb80`). Escape in the panel resumes the game.
+- **Texts** come from `Txt/<language>/GLOBALS.DLG` (and one file per world): a header (size, count) and pairs of
+  NUL-terminated key and text in Windows-1252. The lookup by key is behind the thunk at `0x402252`. The language
+  is the index at `0x59de18` into `GER`, `ENG`, `FRA`, `ITA`, `SPA`, `NL`. Text is drawn by `0x4010d7` (font,
+  text, x, y, size, colour, …, flags whose low bits align it: 0 from x on, 1 ending at x).
+- **Thunks.** The executable was linked incrementally: most calls go to a jump thunk near `0x401000`, and the code
+  map merges a thunk with its target into one function entered at the thunk. Hooks therefore name the thunk's
+  address (`[binary.patch]` refuses an address that is not a function entry).
+
 ## Behaviour seen in scripted runs
 
 - After a new game the first room opens with tutorial dialogues that `Strg` (Ctrl) scrolls and closes; the

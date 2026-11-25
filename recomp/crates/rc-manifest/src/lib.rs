@@ -168,8 +168,8 @@ impl Binary {
 }
 
 /// Where the game project changes what the game does (`[binary.patch]`, as in TropicoRecomp).
-/// Its code is in `games/<id>/patches.c` (and the files that includes); everything here is
-/// applied when the binary is lifted, to the IR or to the image.
+/// Its code is the game project's (`games/<id>/src/patches.rs` here, `patches.c` in the C sister
+/// projects); everything here is applied when the binary is lifted, to the IR or to the image.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Patch {

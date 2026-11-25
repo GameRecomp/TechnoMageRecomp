@@ -130,11 +130,28 @@ pub fn point(c: &mut Cpu, addr: u32) {
     }
 }
 
+/// Run the game's own function at `addr` (lifted or compiled), past any hook: how a hook
+/// calls the function it wraps. The CPU state is as at the call (return address on the stack).
+pub fn call_original(c: &mut Cpu, addr: u32) {
+    let f = unhooked(&REGISTRY.read().expect("registry"), addr);
+    match f {
+        Some(f) => f.call(c),
+        None => fatal(&format!(
+            "no lifted function at {addr:#010x} behind its hook"
+        )),
+    }
+}
+
 fn resolve(addr: u32) -> Option<Callable> {
     let r = REGISTRY.read().expect("registry");
     if let Some(h) = r.hooks.iter().find(|h| h.0 == addr) {
         return Some(Callable::Rust(h.1));
     }
+    unhooked(&r, addr).or_else(|| r.resolver.and_then(|f| f(addr)).map(Callable::Rust))
+}
+
+/// The lifted or compiled function at `addr`, hooks aside.
+fn unhooked(r: &Registry, addr: u32) -> Option<Callable> {
     for t in &r.tables {
         if let Ok(i) = t.binary_search_by_key(&addr, |e| e.0) {
             return Some(Callable::Rust(t[i].1));
@@ -145,7 +162,7 @@ fn resolve(addr: u32) -> Option<Callable> {
             return Some(Callable::Native(t[i].1));
         }
     }
-    r.resolver.and_then(|f| f(addr)).map(Callable::Rust)
+    None
 }
 
 /// Whether `addr` is something the dispatcher can call.

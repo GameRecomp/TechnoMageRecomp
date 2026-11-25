@@ -38,7 +38,7 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_HEADLESS=1` | no window (same as `--headless`); frames only for screenshots |
 | `RC_RENDERER=soft` | Direct3D in the software rasterizer instead of wgpu |
 | `RC_FRAMES=n` | end after `n` presented frames |
-| `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the last) |
+| `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
 | `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x up down left right click@x,y` |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString` |
@@ -47,8 +47,18 @@ A scripted run to the first room of a new game:
 
 ```sh
 RC_HEADLESS=1 RC_INPUT="20:esc 60:esc 100:esc 140:esc 180:esc 220:esc 300:enter 360:esc 420:esc 480:esc 540:esc 600:esc 900:ctrl 960:ctrl" \
-  RC_FRAMES=1100 RC_SCREENSHOT=room.ppm RC_TRACE=fps target/release/technomage --game-dir orig/technomage/cd-de
+  RC_FRAMES=1100 RC_SCREENSHOT=room.ppm RC_SCREENSHOT_FRAME=1090 RC_TRACE=fps target/release/technomage --game-dir orig/technomage/cd-de
 ```
+
+## The project's changes to the game
+
+`games/technomage/src/patches.rs` (also compiled into the browser player) wraps functions of the game that
+`[binary.patch] hooks` in `game.toml` lists: the lifter routes calls to them through the dispatcher, where
+`patches::register` installs the wrappers, and a wrapper runs the game's own function with
+`dispatch::call_original`. Changing the list needs a new lift. What the hooks touch is in RESEARCH.md ("The pause
+menu, the options panel and the texts"). So far: "Configure graphics" in the pause menu, which opens the options
+panel with the render resolution (the menu's box grows by a line); its texts are in a table in the game's six
+languages.
 
 ## Convert (what players run)
 
