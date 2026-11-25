@@ -649,6 +649,18 @@ impl Target {
         })
     }
 
+    /// `v` at the depth buffer's precision, as the buffer would hold it: a draw at the depth
+    /// already there compares equal (several passes over one object).
+    fn zquant(&self, v: f32) -> f32 {
+        match self.z {
+            Some(z) => {
+                let max = if z.bpp == 16 { 65535.0 } else { 16_777_215.0 };
+                (v.clamp(0.0, 1.0) * max).round() / max
+            }
+            None => v,
+        }
+    }
+
     fn zwrite(&self, m: Mem, x: u32, y: u32, v: f32) {
         let Some(z) = self.z else {
             return;
@@ -656,13 +668,13 @@ impl Target {
         let a = z.buf + y * z.pitch + x * (z.bpp / 8);
         let v = v.clamp(0.0, 1.0);
         match z.bpp {
-            16 => m.st16(a, (v * 65535.0) as u16),
+            16 => m.st16(a, (v * 65535.0).round() as u16),
             24 => {
-                let i = (v * 16_777_215.0) as u32;
+                let i = (v * 16_777_215.0).round() as u32;
                 m.st16(a, i as u16);
                 m.st8(a + 2, (i >> 16) as u8);
             }
-            _ => m.st32(a, (v * 16_777_215.0) as u32),
+            _ => m.st32(a, (v * 16_777_215.0).round() as u32),
         }
     }
 }
@@ -673,14 +685,28 @@ pub fn draw(m: Mem, st: &State, primitive: u32, fvf: u32, data: &[u8], indices: 
     let Some(info) = ddraw::info(m, st.target) else {
         return;
     };
-    let target = Target {
-        info,
-        z: if rs(st, RS_ZENABLE, 1) != 0 {
-            ddraw::zbuffer_info(m, st.target)
-        } else {
-            None
-        },
+    let z = if rs(st, RS_ZENABLE, 1) != 0 {
+        ddraw::zbuffer_info(m, st.target)
+    } else {
+        None
     };
+    draw_into(m, st, info, z, primitive, fvf, data, indices);
+}
+
+/// [`draw`] into the pixels `info` (and depth `z`) instead of the state's target.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_into(
+    m: Mem,
+    st: &State,
+    info: SurfaceInfo,
+    z: Option<SurfaceInfo>,
+    primitive: u32,
+    fvf: u32,
+    data: &[u8],
+    indices: &[u16],
+) {
+    let z = z.filter(|_| rs(st, RS_ZENABLE, 1) != 0);
+    let target = Target { info, z };
     let verts = vertices(m, st, fvf, data);
     if verts.is_empty() {
         return;
@@ -835,6 +861,12 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     let edge =
         |p: &Vert, q: &Vert, x: f32, y: f32| (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x);
     let inv_area = 1.0 / area;
+    // Direct3D's top-left rule: a pixel on an edge two triangles share is drawn by one of them.
+    // With the area positive, an edge is a left edge when it runs up, a top edge when it runs
+    // right along a row; only those take the pixels exactly on them.
+    let top_left = |p: &Vert, q: &Vert| q.y < p.y || (q.y == p.y && q.x > p.x);
+    let takes = [top_left(b, c), top_left(c, a), top_left(a, b)];
+    let outside = |w: f32, takes: bool| w < 0.0 || (w == 0.0 && !takes);
     let row = |y: i32| {
         // Direct3D before version 10 puts pixel centres on integer coordinates.
         let py = y as f32;
@@ -843,13 +875,13 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
             let w0 = edge(b, c, px, py);
             let w1 = edge(c, a, px, py);
             let w2 = edge(a, b, px, py);
-            if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+            if outside(w0, takes[0]) || outside(w1, takes[1]) || outside(w2, takes[2]) {
                 continue;
             }
             let (l0, l1, l2) = (w0 * inv_area, w1 * inv_area, w2 * inv_area);
             let z = l0 * a.z + l1 * b.z + l2 * c.z;
             if let Some(old) = cx.target.zread(cx.m, x as u32, y as u32) {
-                if !compare(cx.zfunc, z, old) {
+                if !compare(cx.zfunc, cx.target.zquant(z), old) {
                     continue;
                 }
             }
