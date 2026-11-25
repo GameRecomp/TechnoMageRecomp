@@ -4,7 +4,10 @@
 
 use std::path::PathBuf;
 
+include!("build_info.rs");
+
 fn main() {
+    build_info(&["src"]);
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../generated/technomage");
     let set = root.join("set.rs");
     println!("cargo:rerun-if-changed={}", set.display());

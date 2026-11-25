@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-//! The game project's changes to TechnoMage (the `[binary.patch]` hooks in `game.toml`): a
-//! "Configure graphics" entry in the pause menu that opens the options panel with one line,
-//! the render resolution. The texts come from a table here in the game's language, served
-//! through the game's own string lookup. Addresses are of version 1.04 (the only one lifted);
-//! docs/RESEARCH.md ("The pause menu and the options panel") describes the structures.
+//! The game project's changes to TechnoMage (the `[binary.patch]` hooks in `game.toml`): two
+//! entries in the pause menu, "Configure graphics" and "Show information", that open the
+//! options panel with lines of their own (the render resolution; this build and the game). The
+//! texts come from a table here in the game's language, served through the game's own string
+//! lookup. Addresses are of version 1.04 (the only one lifted); docs/RESEARCH.md ("The pause
+//! menu, the options panel and the texts") describes the structures.
 //!
 //! Used by the native shell and the browser player (`technomage-web` includes this file).
 
@@ -36,7 +37,7 @@ const OPTIONS_ENTRY: u32 = 0x0046_0a30;
 
 /// The pause menu: resume, options, input devices, video, back to the main menu.
 const PAUSE_TABLE: u32 = 0x0056_3ee8;
-/// Where our entry goes in it: after "Configure input devices".
+/// Where our entries go in it: after "Configure input devices".
 const OUR_INDEX: u32 = 3;
 const MENU_ENTRY: u32 = 16;
 /// At most this many entries (the menu's arrays).
@@ -74,13 +75,21 @@ const SINE: u32 = 0x0058_6a30;
 
 // --- Our texts ---------------------------------------------------------------------------------
 
-const KEY_ENTRY: &str = "OPT_GFXCONFIG";
-const KEY_RESOLUTION: &str = "OPT_GFXRES";
+// Our keys start with `RC_`, which none of the game's do.
+const KEY_GRAPHICS: &str = "RC_GRAPHICS";
+const KEY_INFO: &str = "RC_INFO";
+const KEY_RESOLUTION: &str = "RC_RESOLUTION";
+const KEY_VERSION: &str = "RC_VERSION";
+const KEY_BUILT: &str = "RC_BUILT";
+const KEY_COMMIT: &str = "RC_COMMIT";
+const KEY_PLATFORM: &str = "RC_PLATFORM";
+const KEY_GAME: &str = "RC_GAME";
+const KEY_LANGUAGE: &str = "RC_LANGUAGE";
 
 /// Our texts by key, in the game's languages (GER, ENG, FRA, ITA, SPA, NL).
 const TEXTS: &[(&str, [&str; 6])] = &[
     (
-        KEY_ENTRY,
+        KEY_GRAPHICS,
         [
             "Grafik konfigurieren",
             "Configure graphics",
@@ -88,6 +97,17 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Configura la grafica",
             "Configurar gráficos",
             "Grafische instellingen",
+        ],
+    ),
+    (
+        KEY_INFO,
+        [
+            "Zeige Informationen",
+            "Show information",
+            "Afficher les informations",
+            "Mostra informazioni",
+            "Mostrar información",
+            "Informatie tonen",
         ],
     ),
     (
@@ -101,7 +121,113 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Renderresolutie",
         ],
     ),
+    (
+        KEY_VERSION,
+        [
+            "Version", "Version", "Version", "Versione", "Versión", "Versie",
+        ],
+    ),
+    (
+        KEY_BUILT,
+        [
+            "Erstellt",
+            "Built",
+            "Compilé",
+            "Compilato",
+            "Compilado",
+            "Gebouwd",
+        ],
+    ),
+    (
+        KEY_COMMIT,
+        ["Commit", "Commit", "Commit", "Commit", "Commit", "Commit"],
+    ),
+    (
+        KEY_PLATFORM,
+        [
+            "Plattform",
+            "Platform",
+            "Plate-forme",
+            "Piattaforma",
+            "Plataforma",
+            "Platform",
+        ],
+    ),
+    (KEY_GAME, ["Spiel", "Game", "Jeu", "Gioco", "Juego", "Spel"]),
+    (
+        KEY_LANGUAGE,
+        ["Sprache", "Language", "Langue", "Lingua", "Idioma", "Taal"],
+    ),
 ];
+
+/// The game's languages by their own names.
+const LANGUAGES: [&str; 6] = [
+    "Deutsch",
+    "English",
+    "Français",
+    "Italiano",
+    "Español",
+    "Nederlands",
+];
+
+/// The game's version: the only executable lifted (German cover CD, also run with the English
+/// data).
+const GAME_VERSION: &str = "TechnoMage 1.04";
+
+/// What this program runs on.
+fn platform() -> String {
+    if cfg!(target_family = "wasm") {
+        return "Browser (WebAssembly)".into();
+    }
+    let os = match std::env::consts::OS {
+        "linux" => "Linux",
+        "windows" => "Windows",
+        "macos" => "macOS",
+        other => other,
+    };
+    format!("{os} {}", std::env::consts::ARCH)
+}
+
+/// A page of ours in the options panel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Page {
+    Graphics,
+    Info,
+}
+
+/// Our pause-menu entries from `OUR_INDEX` on: their text and the page they open.
+const OURS: [(&str, Page); 2] = [(KEY_GRAPHICS, Page::Graphics), (KEY_INFO, Page::Info)];
+const OUR_COUNT: u32 = OURS.len() as u32;
+
+/// The lines of a page: the key of the label and the value.
+fn rows(m: Mem, page: Page) -> Vec<(&'static str, String)> {
+    match page {
+        Page::Graphics => {
+            let (w, h, _) = rc_hle::ddraw::display_mode();
+            vec![(KEY_RESOLUTION, format!("{w} x {h}"))]
+        }
+        Page::Info => {
+            let lang = m.ld32(LANGUAGE) as usize;
+            vec![
+                (KEY_VERSION, env!("CARGO_PKG_VERSION").to_string()),
+                (
+                    KEY_BUILT,
+                    option_env!("RC_BUILD_TIME").unwrap_or("?").to_string(),
+                ),
+                (
+                    KEY_COMMIT,
+                    option_env!("RC_COMMIT").unwrap_or("?").to_string(),
+                ),
+                (KEY_PLATFORM, platform()),
+                (KEY_GAME, GAME_VERSION.to_string()),
+                (
+                    KEY_LANGUAGE,
+                    LANGUAGES.get(lang).unwrap_or(&"?").to_string(),
+                ),
+            ]
+        }
+    }
+}
 
 /// Our text for `key` in language `lang` (English for a language we do not know).
 fn text_for(key: &[u8], lang: u32) -> Option<&'static str> {
@@ -126,28 +252,33 @@ fn ansi(s: &str) -> Vec<u8> {
 /// Guest memory of ours, made on first use.
 #[derive(Clone, Copy)]
 struct Blocks {
-    /// The pause menu with our entry.
+    /// The pause menu with our entries.
     menu: u32,
-    /// Our keys, then a text buffer per key, then the resolution's text.
+    /// Our keys, then a text buffer per key, then a buffer per value of a page's lines.
     strings: u32,
 }
 
 const STR_KEYS: u32 = 0;
-const STR_TEXTS: u32 = 64;
+const STR_KEYS_SIZE: u32 = 256;
+const STR_TEXTS: u32 = STR_KEYS + STR_KEYS_SIZE;
 const STR_TEXT_SIZE: u32 = 64;
-const STR_VALUE: u32 = STR_TEXTS + STR_TEXT_SIZE * TEXTS.len() as u32;
-const STR_BYTES: u32 = STR_VALUE + 32;
+const STR_VALUES: u32 = STR_TEXTS + STR_TEXT_SIZE * TEXTS.len() as u32;
+const STR_VALUE_SIZE: u32 = 64;
+const ROWS_MAX: u32 = 8;
+const STR_BYTES: u32 = STR_VALUES + STR_VALUE_SIZE * ROWS_MAX;
 
-#[derive(Default)]
 struct State {
     blocks: Option<Blocks>,
     /// The options panel's entries, title and selection while ours are in their place.
     saved: Option<(Vec<u8>, u32, u32)>,
+    /// Our page in the options panel, while it is shown.
+    page: Option<Page>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
     blocks: None,
     saved: None,
+    page: None,
 });
 
 fn blocks(m: Mem) -> Blocks {
@@ -190,19 +321,21 @@ fn arg(c: &Cpu, i: u32) -> u32 {
 
 // --- The string lookup: our keys first -----------------------------------------------------------
 
+/// Our text for `key` in the game's language, as a guest string (None: not ours).
+fn our_text(m: Mem, key: &[u8]) -> Option<u32> {
+    let t = text_for(key, m.ld32(LANGUAGE))?;
+    let i = TEXTS.iter().position(|(n, _)| n.as_bytes() == key)? as u32;
+    let at = blocks(m).strings + STR_TEXTS + STR_TEXT_SIZE * i;
+    Some(put_str(m, at, STR_TEXT_SIZE, &ansi(t)))
+}
+
 fn text(c: &mut Cpu) {
     let m = c.mem();
     let key = arg(c, 0);
     if key != 0 {
         let k = m.cstr(key, 32);
-        if let Some(t) = text_for(&k, m.ld32(LANGUAGE)) {
-            let b = blocks(m);
-            let i = TEXTS
-                .iter()
-                .position(|(n, _)| n.as_bytes() == k)
-                .unwrap_or(0) as u32;
-            let at = b.strings + STR_TEXTS + STR_TEXT_SIZE * i;
-            ret_cdecl(c, put_str(m, at, STR_TEXT_SIZE, &ansi(t)));
+        if let Some(at) = our_text(m, &k) {
+            ret_cdecl(c, at);
             return;
         }
     }
@@ -220,12 +353,30 @@ fn pause_len(m: Mem) -> u32 {
     n
 }
 
-/// Our menu's entry `i` → the pause menu's (None: ours).
-fn original_index(i: u32) -> Option<u32> {
-    match i {
-        _ if i < OUR_INDEX => Some(i),
-        OUR_INDEX => None,
-        _ => Some(i - 1),
+/// An entry of our pause menu: the game's (by its index there) or ours.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Entry {
+    Game(u32),
+    Ours(Page),
+}
+
+/// Our menu's entry `i`.
+fn entry(i: u32) -> Entry {
+    if i < OUR_INDEX {
+        Entry::Game(i)
+    } else if i < OUR_INDEX + OUR_COUNT {
+        Entry::Ours(OURS[(i - OUR_INDEX) as usize].1)
+    } else {
+        Entry::Game(i - OUR_COUNT)
+    }
+}
+
+/// The pause menu's entry `i` in ours.
+fn our_index(i: u32) -> u32 {
+    if i < OUR_INDEX {
+        i
+    } else {
+        i + OUR_COUNT
     }
 }
 
@@ -235,7 +386,7 @@ fn sync(m: Mem, to_original: bool) {
         return;
     };
     for i in 0..=pause_len(m) {
-        let ours = b.menu + MENU_ENTRY * if i < OUR_INDEX { i } else { i + 1 };
+        let ours = b.menu + MENU_ENTRY * our_index(i);
         let orig = PAUSE_TABLE + MENU_ENTRY * i;
         for w in 1..4 {
             let (from, to) = if to_original {
@@ -256,13 +407,15 @@ fn menu_open(c: &mut Cpu) {
         let mut to = b.menu;
         for i in 0..=n {
             if i == OUR_INDEX {
-                // Like "Configure input devices": an action that closes the menu.
-                let like = PAUSE_TABLE + MENU_ENTRY * 2;
-                m.st32(to, key_addr(b, KEY_ENTRY));
-                m.st32(to + 4, m.ld32(like + 4));
-                m.st32(to + 8, 0);
-                m.st32(to + 12, 1);
-                to += MENU_ENTRY;
+                for (key, _) in OURS {
+                    // Like "Configure input devices": an action that closes the menu.
+                    let like = PAUSE_TABLE + MENU_ENTRY * 2;
+                    m.st32(to, key_addr(b, key));
+                    m.st32(to + 4, m.ld32(like + 4));
+                    m.st32(to + 8, 0);
+                    m.st32(to + 12, 1);
+                    to += MENU_ENTRY;
+                }
             }
             let from = PAUSE_TABLE + MENU_ENTRY * i;
             for w in 0..4 {
@@ -272,25 +425,25 @@ fn menu_open(c: &mut Cpu) {
         }
         m.st32(c.r[ESP] + 4, b.menu);
         call_original(c, MENU_OPEN);
-        // Its box was sized for the game's entries: one line more for ours.
+        // Its box was sized for the game's entries: a line more for each of ours.
         let line = u32::from(m.ld8(m.ld32(MENU_FONT) + FONT_LINE));
-        m.st32(MENU_BOX_HEIGHT, m.ld32(MENU_BOX_HEIGHT) + line);
+        m.st32(MENU_BOX_HEIGHT, m.ld32(MENU_BOX_HEIGHT) + OUR_COUNT * line);
         return;
     }
     call_original(c, MENU_OPEN);
 }
 
 /// A pause-menu callback with an entry index first: ours, or the original's with its index.
-fn pause_callback(c: &mut Cpu, f: u32, ours: fn(&mut Cpu)) {
+fn pause_callback(c: &mut Cpu, f: u32, ours: fn(&mut Cpu, Page)) {
     let open = STATE.lock().expect("patch state").blocks.map(|b| b.menu);
     if open.is_none() || c.mem().ld32(MENU_TABLE) != open.unwrap_or(0) {
         call_original(c, f); // not our menu (a build lifted without the hooks)
         return;
     }
     let i = arg(c, 0);
-    match original_index(i) {
-        None => ours(c),
-        Some(j) => {
+    match entry(i) {
+        Entry::Ours(page) => ours(c, page),
+        Entry::Game(j) => {
             let m = c.mem();
             if f == PAUSE_CHOSEN && j == 1 {
                 restore_options(m); // the real options, after ours
@@ -304,12 +457,12 @@ fn pause_callback(c: &mut Cpu, f: u32, ours: fn(&mut Cpu)) {
 }
 
 fn pause_value(c: &mut Cpu) {
-    pause_callback(c, PAUSE_VALUE, |c| ret_cdecl(c, 0));
+    pause_callback(c, PAUSE_VALUE, |c, _| ret_cdecl(c, 0));
 }
 
 fn pause_chosen(c: &mut Cpu) {
-    pause_callback(c, PAUSE_CHOSEN, |c| {
-        show_graphics(c);
+    pause_callback(c, PAUSE_CHOSEN, |c, page| {
+        show_page(c, page);
         let m = c.mem();
         // As "Options" does: the panel slides in, the menu waits for it.
         m.st32(PAUSE_SEEN, u32::MAX);
@@ -319,10 +472,11 @@ fn pause_chosen(c: &mut Cpu) {
     });
 }
 
-// --- The options panel as the graphics panel ------------------------------------------------------
+// --- The options panel with our pages -------------------------------------------------------------
 
-/// Put our entry and title into the options panel (its own are kept until it is hidden).
-fn show_graphics(c: &mut Cpu) {
+/// Put our page into the options panel: one entry that draws its lines, and its title (the
+/// panel's own are kept until it is hidden).
+fn show_page(c: &mut Cpu, page: Page) {
     let m = c.mem();
     let b = blocks(m);
     {
@@ -332,26 +486,33 @@ fn show_graphics(c: &mut Cpu) {
             m.read(OPTIONS_TABLE, &mut entries);
             s.saved = Some((entries, m.ld32(OPTIONS_TITLE), m.ld32(OPTIONS_SELECTED)));
         }
+        s.page = Some(page);
     }
     // Laid out as the first volume line; not selectable, no slider (drawn in options_entry).
     let e = OPTIONS_TABLE;
     let like = m.ld32(e + 4);
     m.write(e, &[0u8; 2 * OPTIONS_ENTRY_SIZE as usize]);
-    m.st32(e, key_addr(b, KEY_RESOLUTION));
+    m.st32(e, key_addr(b, rows(m, page)[0].0));
     m.st32(e + 4, like);
     m.st16(e + 8, (-60i16) as u16);
     m.st16(e + 0xc, 2);
     m.st16(e + 0x20, 0xffff);
-    let label = call_guest(c, TEXT, &[key_addr(b, KEY_RESOLUTION)]);
-    m.st32(e + 0x18, label);
-    let title = call_guest(c, TEXT, &[key_addr(b, KEY_ENTRY)]);
+    let title_key = OURS
+        .iter()
+        .find(|o| o.1 == page)
+        .map_or(KEY_GRAPHICS, |o| o.0);
+    let title = call_guest(c, TEXT, &[key_addr(b, title_key)]);
     m.st32(OPTIONS_TITLE, title);
     m.st32(OPTIONS_SELECTED, e);
 }
 
 /// The options panel's own entries again.
 fn restore_options(m: Mem) {
-    let saved = STATE.lock().expect("patch state").saved.take();
+    let saved = {
+        let mut s = STATE.lock().expect("patch state");
+        s.page = None;
+        s.saved.take()
+    };
     if let Some((entries, title, selected)) = saved {
         m.write(OPTIONS_TABLE, &entries);
         m.st32(OPTIONS_TITLE, title);
@@ -359,8 +520,8 @@ fn restore_options(m: Mem) {
     }
 }
 
-fn showing_graphics() -> bool {
-    STATE.lock().expect("patch state").saved.is_some()
+fn showing() -> Option<Page> {
+    STATE.lock().expect("patch state").page
 }
 
 fn options_setup(c: &mut Cpu) {
@@ -371,19 +532,23 @@ fn options_setup(c: &mut Cpu) {
 fn options_frame(c: &mut Cpu) {
     call_original(c, OPTIONS_FRAME);
     let m = c.mem();
-    if showing_graphics() && m.ld32(PAUSE_STATE) & 2 == 0 && m.ld32(OPTIONS_SLIDE) == 0 {
+    if showing().is_some() && m.ld32(PAUSE_STATE) & 2 == 0 && m.ld32(OPTIONS_SLIDE) == 0 {
         restore_options(m); // slid out
     }
 }
 
-/// One entry of the options panel; ours is a line of text: the label, and the resolution where
-/// a slider's number goes. Placed as the game places its entries (sliding in from the side).
+/// The distance of our lines (thousandths of the screen height; the volumes' is 70).
+const ROW_STEP: i32 = 55;
+
+/// One entry of the options panel; ours draws its page's lines: the label, and the value where
+/// a slider would be. Placed as the game places its entries (sliding in from the side).
 fn options_entry(c: &mut Cpu) {
     let e = arg(c, 0);
-    if e != OPTIONS_TABLE || !showing_graphics() {
+    let page = showing().filter(|_| e == OPTIONS_TABLE);
+    let Some(page) = page else {
         call_original(c, OPTIONS_ENTRY);
         return;
-    }
+    };
     let m = c.mem();
     let i16_at = |a: u32| i32::from(m.ld16(a) as i16);
     let w = m.ld32(SCREEN_W) as i32;
@@ -400,31 +565,37 @@ fn options_entry(c: &mut Cpu) {
     let metrics = m.ld32(OPTIONS_METRICS);
     let value_x = w * x / 1000 - i32::from(m.ld8(metrics + 9));
     let label_x = i16_at(e + 8) * w / 1000 + value_x;
-    let y = y * h / 1000;
     let (font, colour) = (m.ld32(OPTIONS_FONT), 0x80);
 
     let b = blocks(m);
-    let (mw, mh, _) = rc_hle::ddraw::display_mode();
-    let value = put_str(
-        m,
-        b.strings + STR_VALUE,
-        32,
-        format!("{mw} x {mh}").as_bytes(),
-    );
-    let label = m.ld32(e + 0x18);
-    // The game aligns both to the right: the label before the number, the number where its
-    // slider begins. The resolution is longer than a number: it goes where the slider is.
-    for (t, at, align) in [
-        (label, label_x, ALIGN_RIGHT),
-        (value, value_x + w / 50, ALIGN_LEFT),
-    ] {
-        call_guest(
-            c,
-            DRAW_TEXT,
-            &[
-                font, t, at as u32, y as u32, 0x12, colour, colour, colour, 2, align,
-            ],
+    for (r, (key, value)) in rows(m, page)
+        .into_iter()
+        .take(ROWS_MAX as usize)
+        .enumerate()
+    {
+        let r = r as u32;
+        let y = (y + ROW_STEP * r as i32) * h / 1000;
+        let label = our_text(m, key.as_bytes()).unwrap_or(0);
+        let value = put_str(
+            m,
+            b.strings + STR_VALUES + STR_VALUE_SIZE * r,
+            STR_VALUE_SIZE,
+            &ansi(&value),
         );
+        // The game aligns both to the right: the label before the number, the number where its
+        // slider begins. Our values are longer than a number: they go where the slider is.
+        for (t, at, align) in [
+            (label, label_x, ALIGN_RIGHT),
+            (value, value_x + w / 50, ALIGN_LEFT),
+        ] {
+            call_guest(
+                c,
+                DRAW_TEXT,
+                &[
+                    font, t, at as u32, y as u32, 0x12, colour, colour, colour, 2, align,
+                ],
+            );
+        }
     }
     ret_cdecl(c, c.r[EAX]);
 }
@@ -450,16 +621,25 @@ mod tests {
             for (lang, s) in t.iter().enumerate() {
                 assert_eq!(text_for(k.as_bytes(), lang as u32), Some(*s));
                 assert!(!ansi(s).contains(&b'?'), "{s} in Windows-1252");
+                assert!(ansi(s).len() < STR_TEXT_SIZE as usize, "{s} fits");
             }
         }
-        assert_eq!(text_for(b"OPT_GFXCONFIG", 9), Some("Configure graphics"));
+        for l in LANGUAGES {
+            assert!(!ansi(l).contains(&b'?'), "{l} in Windows-1252");
+        }
+        let keys: usize = TEXTS.iter().map(|(k, _)| k.len() + 1).sum();
+        assert!(keys <= STR_KEYS_SIZE as usize);
+        assert_eq!(text_for(b"RC_GRAPHICS", 9), Some("Configure graphics"));
         assert_eq!(text_for(b"OPT_OPTIONS", 0), None);
     }
 
     #[test]
-    fn indices_around_ours() {
-        assert_eq!(original_index(2), Some(2));
-        assert_eq!(original_index(OUR_INDEX), None);
-        assert_eq!(original_index(4), Some(3));
+    fn entries_around_ours() {
+        assert_eq!(entry(2), Entry::Game(2));
+        assert_eq!(entry(OUR_INDEX), Entry::Ours(Page::Graphics));
+        assert_eq!(entry(OUR_INDEX + 1), Entry::Ours(Page::Info));
+        assert_eq!(entry(OUR_INDEX + 2), Entry::Game(3));
+        assert_eq!(our_index(3), OUR_INDEX + 2);
+        assert_eq!(our_index(2), 2);
     }
 }
