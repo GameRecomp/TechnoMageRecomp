@@ -198,8 +198,9 @@ fn compare_fn(f: u32) -> wgpu::CompareFunction {
     }
 }
 
-/// Blend factors, depth test and write, and the target's samples per pixel.
-type PipelineKey = (Option<(u32, u32)>, Option<(u32, bool)>, u32);
+/// Blend factors, depth test and write, the target's samples per pixel, and whether it draws
+/// rims (see [`rims`]: depth pushed back).
+type PipelineKey = (Option<(u32, u32)>, Option<(u32, bool)>, u32, bool);
 
 /// Samples per pixel with antialiasing on (`render::antialias`).
 const MSAA: u32 = 4;
@@ -422,7 +423,15 @@ impl Renderer {
                     depth_write_enabled: Some(write),
                     depth_compare: Some(compare),
                     stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: if key.3 {
+                        wgpu::DepthBiasState {
+                            constant: 16,
+                            slope_scale: 2.0,
+                            clamp: 0.0,
+                        }
+                    } else {
+                        wgpu::DepthBiasState::default()
+                    },
                 }),
                 multisample: wgpu::MultisampleState {
                     count: key.2,
@@ -723,7 +732,18 @@ impl Renderer {
                 .copy_from_slice(bytemuck::bytes_of(&u));
             let start = (vbytes.len() / std::mem::size_of::<Vertex>()) as u32;
             vbytes.extend_from_slice(bytemuck::cast_slice(&d.vertices));
-            ranges.push(start..start + d.vertices.len() as u32);
+            let end = start + d.vertices.len() as u32;
+            // Larger than the screen: opaque 3D gets rims that close the gaps between meshes.
+            let rim = if (width, height) != view
+                && d.blend.is_none()
+                && d.depth.is_some_and(|(_, write)| write)
+            {
+                rims(&d.vertices, 0.5)
+            } else {
+                Vec::new()
+            };
+            vbytes.extend_from_slice(bytemuck::cast_slice(&rim));
+            ranges.push((start..end, end..end + rim.len() as u32));
         }
         if vbytes.is_empty() {
             vbytes.resize(std::mem::size_of::<Vertex>(), 0);
@@ -757,8 +777,9 @@ impl Renderer {
         // Per draw: its pipeline and texture bind group (made before the pass borrows them).
         let mut per_draw = Vec::new();
         for d in &draws {
-            let key: PipelineKey = (d.blend, d.depth, samples);
+            let key: PipelineKey = (d.blend, d.depth, samples, false);
             self.pipeline(key);
+            self.pipeline((d.blend, d.depth, samples, true));
             let mut views = Vec::new();
             let mut samplers = Vec::new();
             for t in &d.textures {
@@ -874,8 +895,13 @@ impl Renderer {
                     pass.set_pipeline(&self.pipelines[key]);
                     pass.set_bind_group(0, &ubind, &[256 * k as u32]);
                     pass.set_bind_group(1, bind, &[]);
-                    if !ranges[k].is_empty() {
-                        pass.draw(ranges[k].clone(), 0..1);
+                    let (own, rim) = &ranges[k];
+                    if !own.is_empty() {
+                        pass.draw(own.clone(), 0..1);
+                    }
+                    if !rim.is_empty() {
+                        pass.set_pipeline(&self.pipelines[&(key.0, key.1, key.2, true)]);
+                        pass.draw(rim.clone(), 0..1);
                     }
                     k += 1;
                 }
@@ -930,7 +956,7 @@ impl Renderer {
         let Ok(data) = slice.get_mapped_range() else {
             return rgba.to_vec();
         };
-        let result = if row == 4 * width {
+        let mut result = if row == 4 * width {
             data[..(row * height) as usize].to_vec()
         } else {
             let mut result = Vec::with_capacity((4 * width * height) as usize);
@@ -943,6 +969,138 @@ impl Renderer {
         };
         drop(data);
         out.unmap();
+        fill_edges(&mut result, (width, height), view);
         result
+    }
+}
+
+/// Rims around `tris`, `d` screen pixels wide, for a screen drawn larger. The games place
+/// their vertices on whole screen pixels, so meshes that meet do not quite: at the screen's size
+/// the gaps between them hit a pixel centre now and then, larger they are lines through which
+/// what lies behind shows. A rim continues its triangle (depth, texture coordinates and colours
+/// along their planes, within the triangle's own ranges) and is drawn with its depth pushed
+/// back: it fills a gap, but loses against any surface drawn there itself.
+fn rims(tris: &[Vertex], d: f32) -> Vec<Vertex> {
+    let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
+    let sub = |a: [f32; 2], b: [f32; 2]| [a[0] - b[0], a[1] - b[1]];
+    let mut out = Vec::new();
+    'tri: for t in tris.as_chunks::<3>().0 {
+        if t.iter().any(|v| v.exact != 0.0) {
+            continue;
+        }
+        let p = t.map(|v| [v.pos[0], v.pos[1]]);
+        let area = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+        if area.abs() < 1e-3 {
+            continue;
+        }
+        // The edge's normal facing away from the third corner.
+        let normal = |from: [f32; 2], to: [f32; 2], other: [f32; 2]| {
+            let e = sub(to, from);
+            let len = (e[0] * e[0] + e[1] * e[1]).sqrt();
+            let n = [e[1] / len, -e[0] / len];
+            let o = sub(other, from);
+            if n[0] * o[0] + n[1] * o[1] > 0.0 {
+                [-n[0], -n[1]]
+            } else {
+                n
+            }
+        };
+        let mut grown = [t[0]; 3];
+        for i in 0..3 {
+            let (j, k) = ((i + 1) % 3, (i + 2) % 3);
+            let n1 = normal(p[i], p[j], p[k]);
+            let n2 = normal(p[k], p[i], p[j]);
+            let dot = n1[0] * n2[0] + n1[1] * n2[1];
+            // Where the two moved edges meet, at most two rim widths out.
+            let mut o = if dot > -0.99 {
+                let f = d / (1.0 + dot);
+                [(n1[0] + n2[0]) * f, (n1[1] + n2[1]) * f]
+            } else {
+                [0.0, 0.0]
+            };
+            let len = (o[0] * o[0] + o[1] * o[1]).sqrt();
+            if len > 2.0 * d || len == 0.0 {
+                let a = sub(p[i], p[j]);
+                let b = sub(p[i], p[k]);
+                let la = (a[0] * a[0] + a[1] * a[1]).sqrt();
+                let lb = (b[0] * b[0] + b[1] * b[1]).sqrt();
+                let dir = [a[0] / la + b[0] / lb, a[1] / la + b[1] / lb];
+                let ld = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
+                if ld < 1e-6 {
+                    continue 'tri;
+                }
+                o = [dir[0] / ld * 2.0 * d, dir[1] / ld * 2.0 * d];
+            }
+            let q = [p[i][0] + o[0], p[i][1] + o[1]];
+            // The point's weights of the three corners (screen space, may be negative).
+            let la = cross(sub(p[1], q), sub(p[2], q)) / area;
+            let lb = cross(sub(p[2], q), sub(p[0], q)) / area;
+            let l = [la, lb, 1.0 - la - lb];
+            let rhw: f32 = (0..3).map(|c| l[c] * t[c].pos[3]).sum();
+            let least = t.iter().map(|v| v.pos[3]).fold(f32::INFINITY, f32::min);
+            if rhw.is_nan() || rhw <= 0.5 * least {
+                continue 'tri;
+            }
+            // An attribute along the triangle (perspective-correct), within its corners' range.
+            let along = |get: &dyn Fn(&Vertex) -> f32| {
+                let v: f32 = (0..3).map(|c| l[c] * t[c].pos[3] * get(&t[c])).sum::<f32>() / rhw;
+                let lo = t.iter().map(get).fold(f32::INFINITY, f32::min);
+                let hi = t.iter().map(get).fold(f32::NEG_INFINITY, f32::max);
+                v.clamp(lo, hi)
+            };
+            let mut v = t[i];
+            v.pos = [
+                q[0],
+                q[1],
+                (0..3)
+                    .map(|c| l[c] * t[c].pos[2])
+                    .sum::<f32>()
+                    .clamp(0.0, 1.0),
+                rhw,
+            ];
+            for c in 0..4 {
+                v.diffuse[c] = along(&|v: &Vertex| v.diffuse[c]);
+                v.specular[c] = along(&|v: &Vertex| v.specular[c]);
+            }
+            for c in 0..2 {
+                v.uv0[c] = along(&|v: &Vertex| v.uv0[c]);
+                v.uv1[c] = along(&|v: &Vertex| v.uv1[c]);
+            }
+            v.eye = along(&|v: &Vertex| v.eye);
+            grown[i] = v;
+        }
+        // A band along each edge, from the triangle to its grown edge.
+        for i in 0..3 {
+            let j = (i + 1) % 3;
+            out.extend([t[i], t[j], grown[j], t[i], grown[j], grown[i]]);
+        }
+    }
+    out
+}
+
+/// A screen drawn larger: the screen's pixel centres are at whole coordinates (Direct3D), so
+/// what it draws from 0 on begins half a screen pixel into the target, and the target's first
+/// columns and rows (the left and upper half of the screen's first pixels) stay as they were.
+/// They show the column and row after them, which belong to the same screen pixels.
+fn fill_edges(rgba: &mut [u8], (width, height): (u32, u32), view: (u32, u32)) {
+    let (w, h) = (width as usize, height as usize);
+    // The target's pixels whose centre lies before the first screen pixel's centre.
+    let strip = |size: u32, view: u32| {
+        let s = size as f32 / view as f32;
+        (((s - 1.0) / 2.0).ceil().max(0.0) as usize).min(size as usize - 1)
+    };
+    let (sx, sy) = (strip(width, view.0), strip(height, view.1));
+    for y in 0..h {
+        let row = &mut rgba[4 * y * w..4 * (y + 1) * w];
+        let from: [u8; 4] = row[4 * sx..4 * sx + 4].try_into().expect("pixel");
+        for x in 0..sx {
+            row[4 * x..4 * x + 4].copy_from_slice(&from);
+        }
+    }
+    if sy > 0 {
+        let from = rgba[4 * sy * w..4 * (sy + 1) * w].to_vec();
+        for y in 0..sy {
+            rgba[4 * y * w..4 * (y + 1) * w].copy_from_slice(&from);
+        }
     }
 }

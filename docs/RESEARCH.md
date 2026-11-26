@@ -154,6 +154,14 @@ format needs a host service **(open)**.
   back buffer several times a frame for its other 2D work, never `Blt`s to it. At native resolution such triangles
   are sampled at the centre of the screen pixel each drawn pixel belongs to (`Vertex::exact`), else texel edges
   show as lines and the colour key (cyan) bleeds in.
+- **Whole-pixel vertices.** The 3D renderer's batches (flushed at `0x531851`/`0x531ef5` from a buffer at
+  `0x8055a0`, FVF `0x144`) take their screen positions from 16-bit integers (`0x5320f0` and on): every vertex
+  lies on a whole pixel. Meshes that meet do not quite (a wall's black base and the floor's, a pixel apart): at
+  640×480 the gap hits a pixel centre now and then, at native resolution it is a line through which what lies
+  behind shows. The renderer then draws a rim half a screen pixel wide around every opaque triangle that writes
+  depth, its depth pushed back, so it only fills such gaps. And with pixel centres on whole coordinates, what is
+  drawn from 0 on starts half a screen pixel into the larger picture: its first column and row are copied from
+  the next.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click
