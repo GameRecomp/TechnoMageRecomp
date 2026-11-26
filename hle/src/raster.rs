@@ -383,11 +383,41 @@ fn channel(v: u32, mask: u32) -> f32 {
     ((v & mask) >> shift) as f32 / max as f32
 }
 
+/// A channel of a pixel `v` under `mask` as 0..=255 (255 without a mask).
+#[inline(always)]
+fn to8(v: u32, mask: u32) -> u8 {
+    if mask == 0 {
+        return 255;
+    }
+    let shift = mask.trailing_zeros();
+    let max = mask >> shift;
+    (((v & mask) >> shift) * 255 / max) as u8
+}
+
+type Table16 = std::sync::Arc<Vec<[u8; 4]>>;
+
+/// Every 16-bit pixel under `masks` as RGBA8, made once per set of masks: a lookup instead of
+/// four divisions a pixel.
+fn table16(masks: [u32; 4]) -> Table16 {
+    static TABLES: std::sync::Mutex<Vec<([u32; 4], Table16)>> = std::sync::Mutex::new(Vec::new());
+    let mut t = TABLES.lock().expect("tables");
+    if let Some((_, table)) = t.iter().find(|(k, _)| *k == masks) {
+        return table.clone();
+    }
+    let table: Table16 = std::sync::Arc::new(
+        (0..=u32::from(u16::MAX))
+            .map(|v| masks.map(|k| to8(v, k)))
+            .collect(),
+    );
+    t.push((masks, table.clone()));
+    table
+}
+
 /// A texture decoded to RGBA8 once per content version (and colour-key setting), cached.
 struct Decoded {
     w: u32,
     h: u32,
-    texels: Vec<[u8; 4]>,
+    texels: std::sync::Arc<Vec<[u8; 4]>>,
     /// Whether any texel is colour-keyed (alpha 0 from the key).
     keyed: bool,
 }
@@ -396,14 +426,7 @@ fn decode(m: Mem, info: &SurfaceInfo, key: Option<(u32, u32)>) -> Decoded {
     let (w, h) = (info.width, info.height);
     let mut texels = Vec::with_capacity((w * h) as usize);
     let k = info.masks;
-    let to8 = |v: u32, mask: u32| -> u8 {
-        if mask == 0 {
-            return 255;
-        }
-        let shift = mask.trailing_zeros();
-        let max = mask >> shift;
-        (((v & mask) >> shift) * 255 / max) as u8
-    };
+    let table = (info.bpp == 16).then(|| table16(k));
     let mut keyed = false;
     let bytes = info.bpp / 8;
     let mut row = vec![0u8; (w * bytes) as usize];
@@ -424,13 +447,16 @@ fn decode(m: Mem, info: &SurfaceInfo, key: Option<(u32, u32)>) -> Decoded {
                     continue;
                 }
             }
-            texels.push([to8(v, k[0]), to8(v, k[1]), to8(v, k[2]), to8(v, k[3])]);
+            texels.push(match &table {
+                Some(t) => t[v as usize],
+                None => k.map(|mask| to8(v, mask)),
+            });
         }
     }
     Decoded {
         w,
         h,
-        texels,
+        texels: std::sync::Arc::new(texels),
         keyed,
     }
 }
@@ -1105,7 +1131,7 @@ pub fn gpu_draw(
                     key: (obj, version, key.is_some()),
                     width: d.w,
                     height: d.h,
-                    rgba: std::sync::Arc::new(d.texels.clone()),
+                    rgba: d.texels.clone(),
                     bilinear: tss(st, s, TSS_MAGFILTER) >= 2,
                     clamp: (tss(st, s, TSS_ADDRESSU) == 3, tss(st, s, TSS_ADDRESSV) == 3),
                 });
@@ -1168,33 +1194,29 @@ pub fn gpu_draw(
 
 /// Pixels of a surface as RGBA8, and back.
 pub fn to_rgba8(m: Mem, s: &SurfaceInfo) -> Vec<u8> {
-    let mut out = Vec::with_capacity((s.width * s.height * 4) as usize);
+    let mut out = vec![0u8; (s.width * s.height * 4) as usize];
+    if s.width == 0 {
+        return out;
+    }
     let k = s.masks;
-    let to8 = |v: u32, mask: u32| -> u8 {
-        if mask == 0 {
-            return 255;
-        }
-        let shift = mask.trailing_zeros();
-        let max = mask >> shift;
-        (((v & mask) >> shift) * 255 / max) as u8
-    };
     let bytes = s.bpp / 8;
     let mut row = vec![0u8; (s.width * bytes) as usize];
-    for y in 0..s.height {
-        m.read(s.buf + y * s.pitch, &mut row);
-        for x in 0..s.width as usize {
-            let v = match bytes {
-                2 => u32::from(u16::from_le_bytes([row[2 * x], row[2 * x + 1]])),
-                _ => {
-                    u32::from_le_bytes([row[4 * x], row[4 * x + 1], row[4 * x + 2], row[4 * x + 3]])
+    let table = (bytes == 2).then(|| table16(k));
+    for (y, line) in out.chunks_exact_mut(4 * s.width as usize).enumerate() {
+        m.read(s.buf + y as u32 * s.pitch, &mut row);
+        let px = line.as_chunks_mut::<4>().0;
+        match &table {
+            Some(t) => {
+                for (p, v) in px.iter_mut().zip(row.as_chunks::<2>().0) {
+                    *p = t[usize::from(u16::from_le_bytes(*v))];
                 }
-            };
-            out.extend_from_slice(&[
-                to8(v, k[0]),
-                to8(v, k[1]),
-                to8(v, k[2]),
-                if k[3] != 0 { to8(v, k[3]) } else { 255 },
-            ]);
+            }
+            None => {
+                for (p, v) in px.iter_mut().zip(row.as_chunks::<4>().0) {
+                    let v = u32::from_le_bytes(*v);
+                    *p = k.map(|mask| to8(v, mask));
+                }
+            }
         }
     }
     out
@@ -1202,23 +1224,44 @@ pub fn to_rgba8(m: Mem, s: &SurfaceInfo) -> Vec<u8> {
 
 pub fn from_rgba8(m: Mem, s: &SurfaceInfo, rgba: &[u8]) {
     let k = s.masks;
-    let pack = |v: u8, mask: u32| -> u32 {
-        if mask == 0 {
-            return 0;
-        }
-        let shift = mask.trailing_zeros();
-        let max = mask >> shift;
-        ((u32::from(v) * max + 127) / 255) << shift
-    };
+    // Per channel: each 8-bit value packed into its mask.
+    let pack: [[u32; 256]; 4] = k.map(|mask| {
+        std::array::from_fn(|v| {
+            if mask == 0 {
+                return 0;
+            }
+            let shift = mask.trailing_zeros();
+            let max = mask >> shift;
+            ((v as u32 * max + 127) / 255) << shift
+        })
+    });
     let bytes = s.bpp / 8;
     let mut row = vec![0u8; (s.width * bytes) as usize];
-    for y in 0..s.height as usize {
-        for x in 0..s.width as usize {
-            let p = &rgba[4 * (y * s.width as usize + x)..];
-            let v = pack(p[0], k[0]) | pack(p[1], k[1]) | pack(p[2], k[2]) | pack(p[3], k[3]);
-            match bytes {
-                2 => row[2 * x..2 * x + 2].copy_from_slice(&(v as u16).to_le_bytes()),
-                _ => row[4 * x..4 * x + 4].copy_from_slice(&v.to_le_bytes()),
+    if s.width == 0 {
+        return;
+    }
+    for (y, line) in rgba
+        .chunks_exact(4 * s.width as usize)
+        .take(s.height as usize)
+        .enumerate()
+    {
+        let px = line.as_chunks::<4>().0;
+        let v = |p: &[u8; 4]| {
+            pack[0][usize::from(p[0])]
+                | pack[1][usize::from(p[1])]
+                | pack[2][usize::from(p[2])]
+                | pack[3][usize::from(p[3])]
+        };
+        match bytes {
+            2 => {
+                for (o, p) in row.as_chunks_mut::<2>().0.iter_mut().zip(px) {
+                    *o = (v(p) as u16).to_le_bytes();
+                }
+            }
+            _ => {
+                for (o, p) in row.as_chunks_mut::<4>().0.iter_mut().zip(px) {
+                    *o = v(p).to_le_bytes();
+                }
             }
         }
         m.write(s.buf + y as u32 * s.pitch, &row);
@@ -1228,6 +1271,30 @@ pub fn from_rgba8(m: Mem, s: &SurfaceInfo, rgba: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sixteen_bit_table_round_trips() {
+        for masks in [
+            [0xf800, 0x07e0, 0x001f, 0],
+            [0x7c00, 0x03e0, 0x001f, 0x8000],
+        ] {
+            let t = table16(masks);
+            for v in 0..=u32::from(u16::MAX) {
+                let p = t[v as usize];
+                assert_eq!(p, masks.map(|k| to8(v, k)));
+                // Packing it again (as `from_rgba8` does) gives the pixel back.
+                let back = masks.iter().zip(p).fold(0, |acc, (&k, c)| {
+                    if k == 0 {
+                        return acc;
+                    }
+                    let shift = k.trailing_zeros();
+                    acc | ((u32::from(c) * (k >> shift) + 127) / 255) << shift
+                });
+                let used = masks.iter().fold(0, |a, k| a | k);
+                assert_eq!(back, v & used);
+            }
+        }
+    }
 
     fn vert(c: [f32; 4]) -> Vert {
         let vp = [0.0, 0.0, 640.0, 480.0, 0.0, 1.0];

@@ -201,4 +201,14 @@ format needs a host service **(open)**.
   X11 window offered no present modes, and Bevy panicked creating it ("Fallback system failed to choose present
   mode"); lavapipe works. The platform layer therefore takes the primary backends (Vulkan, Direct3D 12, Metal)
   when one of them has an adapter, OpenGL only otherwise, and `WGPU_BACKEND` overrides it. Whether Bevy's OpenGL
-  window works on real hardware under X11 is **(open)**.
+  window works on real hardware under X11 is **(open)**. The Direct3D renderer (`rc_platform::gpu`) has a wgpu
+  instance of its own, on all backends and deliberately deaf to `WGPU_BACKEND`: in that virtual machine it takes
+  OpenGL, about three times as fast as lavapipe there (60 against 20 frames a second in the first room), also when
+  the window needs `WGPU_BACKEND=vulkan`.
+- Where a frame's time goes (2026-11-26, first room, the virtual machine above, gdb stack samples): at `Flip` the
+  collected draws render on the GPU over the back buffer and come back, so each frame converts the 16-bit back
+  buffer to RGBA8, uploads it, reads the result back (synchronously), packs it to 16 bits again and converts it once
+  more to show it. The conversions were four divisions per channel and pixel and about half the frame; lookup
+  tables (a 64 Ki-entry table per set of 16-bit masks, 256 entries per channel back) and sharing decoded textures
+  instead of copying them every draw took the run from 35 to 63 frames a second (CPU time −56 %, frames
+  byte-identical). What remains is mostly the submit and the read back (half the samples) and the game's own code.

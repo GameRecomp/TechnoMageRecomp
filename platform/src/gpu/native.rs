@@ -249,6 +249,8 @@ pub struct Renderer {
     msaa: bool,
     blit_layout: wgpu::BindGroupLayout,
     blit: Option<wgpu::RenderPipeline>,
+    /// The buffer results are read back through, kept while its size fits.
+    readback: Option<(u64, wgpu::Buffer)>,
 }
 
 impl Renderer {
@@ -365,6 +367,7 @@ impl Renderer {
             msaa,
             blit_layout,
             blit: None,
+            readback: None,
             device,
             queue,
             shader,
@@ -885,12 +888,17 @@ impl Renderer {
         }
         // Read the result back, rows padded to 256 bytes.
         let row = (4 * width).div_ceil(256) * 256;
-        let out = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: u64::from(row * height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let size = u64::from(row * height);
+        if self.readback.as_ref().is_none_or(|(s, _)| *s != size) {
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("readback"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            self.readback = Some((size, buffer));
+        }
+        let out = self.readback.as_ref().expect("readback").1.clone();
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &color,
@@ -922,11 +930,17 @@ impl Renderer {
         let Ok(data) = slice.get_mapped_range() else {
             return rgba.to_vec();
         };
-        let mut result = Vec::with_capacity((4 * width * height) as usize);
-        for y in 0..height as usize {
+        let result = if row == 4 * width {
+            data[..(row * height) as usize].to_vec()
+        } else {
+            let mut result = Vec::with_capacity((4 * width * height) as usize);
+            for y in 0..height as usize {
+                result.extend_from_slice(
+                    &data[y * row as usize..y * row as usize + 4 * width as usize],
+                );
+            }
             result
-                .extend_from_slice(&data[y * row as usize..y * row as usize + 4 * width as usize]);
-        }
+        };
         drop(data);
         out.unmap();
         result

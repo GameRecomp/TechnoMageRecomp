@@ -959,9 +959,12 @@ fn s_GetColorKey(c: &mut Cpu) {
     }
 }
 
-/// The surface as RGBA8.
+/// The surface as RGBA8, through the gamma ramp.
 fn to_rgba(m: Mem, s: &Surface) -> Vec<u8> {
-    let mut out = Vec::with_capacity((s.width * s.height * 4) as usize);
+    let mut out = vec![0u8; (s.width * s.height * 4) as usize];
+    if s.width == 0 {
+        return out;
+    }
     let gamma = crate::small::gamma_ramp();
     let g = |i: usize, v: u8| -> u8 {
         match &gamma {
@@ -970,27 +973,68 @@ fn to_rgba(m: Mem, s: &Surface) -> Vec<u8> {
         }
     };
     let mut row = vec![0u8; s.pitch as usize];
-    for y in 0..s.height {
-        m.read(s.buf + y * s.pitch, &mut row);
-        for x in 0..s.width as usize {
-            let (r, gr, b) = match s.bpp {
-                16 => {
-                    let v = u16::from_le_bytes([row[2 * x], row[2 * x + 1]]);
-                    let r = ((v >> 11) & 31) as u8;
-                    let gg = ((v >> 5) & 63) as u8;
-                    let b = (v & 31) as u8;
-                    (
-                        (r << 3) | (r >> 2),
-                        (gg << 2) | (gg >> 4),
-                        (b << 3) | (b >> 2),
-                    )
-                }
-                _ => (row[4 * x + 2], row[4 * x + 1], row[4 * x]),
-            };
-            out.extend_from_slice(&[g(0, r), g(1, gr), g(2, b), 255]);
+    if s.bpp == 16 {
+        let table = rgb565_table(gamma.as_deref());
+        for (y, line) in out.chunks_exact_mut(4 * s.width as usize).enumerate() {
+            m.read(s.buf + y as u32 * s.pitch, &mut row);
+            for (p, v) in line
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(row.as_chunks::<2>().0)
+            {
+                *p = table[usize::from(u16::from_le_bytes(*v))];
+            }
+        }
+        return out;
+    }
+    for (y, line) in out.chunks_exact_mut(4 * s.width as usize).enumerate() {
+        m.read(s.buf + y as u32 * s.pitch, &mut row);
+        for (p, v) in line
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(row.as_chunks::<4>().0)
+        {
+            *p = [g(0, v[2]), g(1, v[1]), g(2, v[0]), 255];
         }
     }
     out
+}
+
+/// Every RGB565 pixel as RGBA8 through the gamma ramp, made again only when the ramp changes.
+fn rgb565_table(gamma: Option<&[u16]>) -> std::sync::Arc<Vec<[u8; 4]>> {
+    type Cached = Option<(Option<Vec<u16>>, std::sync::Arc<Vec<[u8; 4]>>)>;
+    static TABLE: std::sync::Mutex<Cached> = std::sync::Mutex::new(None);
+    let mut t = TABLE.lock().expect("rgb565");
+    if let Some((g, table)) = t.as_ref() {
+        if g.as_deref() == gamma {
+            return table.clone();
+        }
+    }
+    let g = |i: usize, v: u8| -> u8 {
+        match gamma {
+            Some(r) => (r[i * 256 + usize::from(v)] >> 8) as u8,
+            None => v,
+        }
+    };
+    let table = std::sync::Arc::new(
+        (0..=u16::MAX)
+            .map(|v| {
+                let r = ((v >> 11) & 31) as u8;
+                let gg = ((v >> 5) & 63) as u8;
+                let b = (v & 31) as u8;
+                [
+                    g(0, (r << 3) | (r >> 2)),
+                    g(1, (gg << 2) | (gg >> 4)),
+                    g(2, (b << 3) | (b >> 2)),
+                    255,
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
+    *t = Some((gamma.map(<[u16]>::to_vec), table.clone()));
+    table
 }
 
 fn s_Flip(c: &mut Cpu) {
