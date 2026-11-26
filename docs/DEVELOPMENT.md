@@ -39,7 +39,7 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_RENDERER=soft` | Direct3D in the software rasterizer instead of wgpu |
 | `RC_FRAMES=n` | end after `n` presented frames |
 | `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
-| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x up down left right click@x,y` |
+| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x up down left right click@x,y move@x,y` |
 | `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution renders for (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString` |
@@ -64,7 +64,8 @@ of the screen's surfaces in `d3d.rs`) and "Show information" (this program's ver
 platform, the game's version and language). Their texts are in a table in the game's six languages. The build time
 and commit come from `games/technomage/build_info.rs`, which both build scripts include (`SOURCE_DATE_EPOCH` fixes
 the time; `-dirty` marks uncommitted changes). With a window the mouse pointer is a hardware cursor (RESEARCH.md,
-"The mouse pointer", "The ordering table"; `rc_platform::cursor`): `RC_TRACE=cursor` counts its images, and
+"The mouse pointer", "The ordering table"; `rc_platform::cursor`): `RC_TRACE=cursor` counts its images (and how far the
+nearest one made before differed), and
 `RC_SCREENSHOT` also writes the cursor shown then as `<file>.cursor.pam` (RGBA).
 
 ## Convert (what players run)

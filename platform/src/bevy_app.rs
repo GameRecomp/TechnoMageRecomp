@@ -231,7 +231,7 @@ struct HardwareCursor {
     shown: Option<(u64, u32)>,
     /// The cursor images made so far (the game's pointer and the scale they were made at), by
     /// content: Bevy keeps a system cursor for each image to the end, so the same picture must
-    /// reuse its image, and there are at most `CURSOR_IMAGES` of them.
+    /// reuse its image, and there are about `CURSOR_IMAGES` of them at most.
     images: Vec<CursorEntry>,
     index: HashMap<(crate::cursor::Image, u32), usize>,
 }
@@ -247,9 +247,20 @@ struct CursorEntry {
 
 /// The largest cursor the systems take well.
 const CURSOR_MAX: u32 = 256;
-/// Cursor images kept at most; then the most similar one stands in (the pointer turns with the
-/// mouse and sways: in a long game it takes thousands of slightly different forms).
-const CURSOR_IMAGES: usize = 256;
+/// Cursor images made at most; then the most similar one stands in (the pointer turns with the
+/// mouse, sways, and is seen from a slightly different side at each place: in a long game it
+/// takes thousands of slightly different forms).
+const CURSOR_IMAGES: usize = 1024;
+/// A pointer that differs from an image made by at most this (`cursor_difference`) shows that
+/// image: the turn's smallest steps (about 0.05 to 0.1 apart) and the sway's (0.01) do not each
+/// make an image of their own.
+const CURSOR_SAME: f32 = 0.05;
+/// A pointer that differs from every image made by more than this (one facing another way:
+/// 0.2 to 0.3) gets its own even past `CURSOR_IMAGES`, so that no direction is shown by a
+/// pointer that points elsewhere.
+const CURSOR_FAR: f32 = 0.12;
+/// Pointers remembered with the image they show; then forgotten (they are found again).
+const CURSOR_INDEX: usize = 8192;
 
 fn hardware_cursor(
     mut commands: Commands,
@@ -279,41 +290,43 @@ fn hardware_cursor(
     }
     let scale_bits = scale.to_bits();
     let image = (Arc::unwrap_or_clone(p), scale_bits);
-    let found = hw.index.get(&image).copied();
-    let at = match found {
+    let at = match hw.index.get(&image).copied() {
         Some(i) => i,
-        None if hw.images.len() < CURSOR_IMAGES => {
-            let scaled = scale_cursor(&image.0, scale);
-            let hotspot = (scaled.hotspot.0 as u16, scaled.hotspot.1 as u16);
-            let img = Image::new(
-                Extent3d {
-                    width: scaled.width,
-                    height: scaled.height,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                scaled.rgba,
-                TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::MAIN_WORLD,
-            );
-            let h = images.add(img);
-            hw.images.push(CursorEntry {
-                pointer: image.0.clone(),
-                scale: scale_bits,
-                image: h,
-                hotspot,
-            });
-            let n = hw.images.len() - 1;
-            hw.index.insert(image, n);
-            if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("cursor")) {
-                eprintln!("[cursor] {} cursor images", hw.images.len());
-            }
-            hw.images.len() - 1
-        }
         None => {
+            // An image made at this scale that looks the same, else a new one; when there are
+            // as many as can be, the most similar one unless it looks quite different.
             let near = nearest_cursor(&hw.images, &image.0, scale_bits);
-            hw.index.insert(image, near);
-            near
+            let at = match near {
+                Some((i, d))
+                    if d <= CURSOR_SAME
+                        || (hw.images.len() >= CURSOR_IMAGES && d <= CURSOR_FAR) =>
+                {
+                    i
+                }
+                _ => {
+                    let h = images.add(cursor_image(&image.0, scale));
+                    let hotspot = scale_cursor(&image.0, scale).hotspot;
+                    hw.images.push(CursorEntry {
+                        pointer: image.0.clone(),
+                        scale: scale_bits,
+                        image: h,
+                        hotspot: (hotspot.0 as u16, hotspot.1 as u16),
+                    });
+                    if std::env::var("RC_TRACE").is_ok_and(|v| v.contains("cursor")) {
+                        eprintln!(
+                            "[cursor] {} cursor images (the nearest differed by {:.4})",
+                            hw.images.len(),
+                            near.map_or(1.0, |n| n.1)
+                        );
+                    }
+                    hw.images.len() - 1
+                }
+            };
+            if hw.index.len() >= CURSOR_INDEX {
+                hw.index.clear();
+            }
+            hw.index.insert(image, at);
+            at
         }
     };
     let (handle, hotspot) = (hw.images[at].image.clone(), hw.images[at].hotspot);
@@ -331,9 +344,25 @@ fn hardware_cursor(
     hw.shown = Some(key);
 }
 
-/// The image of `images` (at scale `scale`) most like `c`: the least difference of their pixels,
-/// aligned at the hotspot.
-fn nearest_cursor(images: &[CursorEntry], c: &crate::cursor::Image, scale: u32) -> usize {
+/// `c` as a cursor image at `scale`.
+fn cursor_image(c: &crate::cursor::Image, scale: f32) -> Image {
+    let scaled = scale_cursor(c, scale);
+    Image::new(
+        Extent3d {
+            width: scaled.width,
+            height: scaled.height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        scaled.rgba,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::MAIN_WORLD,
+    )
+}
+
+/// How different two pointers look, aligned at their hotspots: the mean difference of their
+/// pixels' channels over both their areas, 0 (the same) to 1.
+fn cursor_difference(a: &crate::cursor::Image, b: &crate::cursor::Image) -> f32 {
     let px = |i: &crate::cursor::Image, x: i32, y: i32| -> [u8; 4] {
         let (x, y) = (x + i.hotspot.0 as i32, y + i.hotspot.1 as i32);
         if x < 0 || y < 0 || x >= i.width as i32 || y >= i.height as i32 {
@@ -342,23 +371,38 @@ fn nearest_cursor(images: &[CursorEntry], c: &crate::cursor::Image, scale: u32) 
         let k = 4 * (y as u32 * i.width + x as u32) as usize;
         [i.rgba[k], i.rgba[k + 1], i.rgba[k + 2], i.rgba[k + 3]]
     };
-    let (x0, y0) = (-(c.hotspot.0 as i32), -(c.hotspot.1 as i32));
-    let (x1, y1) = (x0 + c.width as i32, y0 + c.height as i32);
+    let x0 = -(a.hotspot.0.max(b.hotspot.0) as i32);
+    let y0 = -(a.hotspot.1.max(b.hotspot.1) as i32);
+    let x1 = (a.width - a.hotspot.0).max(b.width - b.hotspot.0) as i32;
+    let y1 = (a.height - a.hotspot.1).max(b.height - b.hotspot.1) as i32;
+    let mut d = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let (p, q) = (px(a, x, y), px(b, x, y));
+            // Colour counts as far as it is seen.
+            let (pa, qa) = (u32::from(p[3]), u32::from(q[3]));
+            for k in 0..3 {
+                d += u64::from((u32::from(p[k]) * pa / 255).abs_diff(u32::from(q[k]) * qa / 255));
+            }
+            d += u64::from(pa.abs_diff(qa));
+        }
+    }
+    let n = ((x1 - x0) * (y1 - y0)).max(1) as f32;
+    d as f32 / (n * 4.0 * 255.0)
+}
+
+/// The image of `images` made at scale `scale` most like `c`, and how different it is.
+fn nearest_cursor(
+    images: &[CursorEntry],
+    c: &crate::cursor::Image,
+    scale: u32,
+) -> Option<(usize, f32)> {
     images
         .iter()
         .enumerate()
         .filter(|(_, e)| e.scale == scale)
-        .min_by_key(|(_, e)| {
-            let mut d = 0u64;
-            for y in y0..y1 {
-                for x in x0..x1 {
-                    let (a, b) = (px(c, x, y), px(&e.pointer, x, y));
-                    d += (0..4).map(|k| u64::from(a[k].abs_diff(b[k]))).sum::<u64>();
-                }
-            }
-            d
-        })
-        .map_or(0, |(i, _)| i)
+        .map(|(i, e)| (i, cursor_difference(c, &e.pointer)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 /// `c` enlarged by `scale` with nearest neighbours.

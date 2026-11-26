@@ -200,6 +200,17 @@ fn scripted_input(frame: u64) {
         if f.parse::<u64>().ok() != Some(frame) {
             continue;
         }
+        if let Some(pos) = what.strip_prefix("move@") {
+            let (x, y) = pos.split_once(',').unwrap_or(("0", "0"));
+            let (x, y): (u32, u32) = (x.parse().unwrap_or(0), y.parse().unwrap_or(0));
+            user32::post_input(user32::Msg {
+                hwnd: 0x10010,
+                msg: user32::WM_MOUSEMOVE,
+                wparam: 0,
+                lparam: (y << 16) | (x & 0xffff),
+            });
+            continue;
+        }
         if let Some(pos) = what.strip_prefix("click@") {
             let (x, y) = pos.split_once(',').unwrap_or(("0", "0"));
             let (x, y): (u32, u32) = (x.parse().unwrap_or(0), y.parse().unwrap_or(0));
