@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Build the Android shell: an unsigned APK with the game program without lifted code as
+# libtechnomage.so (arm64-v8a and x86_64), run by Android's own NativeActivity (no Java), the
+# manifest and the icon (android/). The converter adds the game's code and files as assets and
+# signs it (`recomp template --system android --shell OUT.apk`, then `recomp convert`).
+#
+#   tools/build-android OUT.apk [CARGO_PROFILE]
+#
+# CARGO_PROFILE is dist (the default; stripped) or release. Needs the Android SDK (ANDROID_HOME:
+# a platform and build-tools, for aapt2), the NDK (ANDROID_NDK_LATEST_HOME or ANDROID_NDK_HOME,
+# its clang as the linker), rustup and zip; CI has them on its Linux runners. Work happens in
+# build/android, cargo's output in target/android.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+out=${1:?output apk}
+profile=${2:-dist}
+sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:?set ANDROID_HOME to the Android SDK}}
+ndk=${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME to the Android NDK}}
+api=26
+platform=$(ls -d "$sdk"/platforms/android-* | sort -V | tail -1)
+tools=$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)
+bin=$(ls -d "$ndk"/toolchains/llvm/prebuilt/*/bin | head -1)
+work=$PWD/build/android
+rm -rf "$work"
+mkdir -p "$work/apk"
+
+# The program, once per ABI. 16 KiB pages: Android 15 devices may use them.
+for pair in arm64-v8a:aarch64-linux-android x86_64:x86_64-linux-android; do
+    abi=${pair%%:*}
+    triple=${pair#*:}
+    rustup target add "$triple" > /dev/null
+    var=$(printf '%s' "$triple" | tr 'a-z-' 'A-Z_')
+    env "CARGO_TARGET_${var}_LINKER=$bin/$triple$api-clang" \
+        "CARGO_TARGET_${var}_RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384" \
+        RC_NO_GENERATED=1 \
+        cargo rustc --profile "$profile" -p technomage --lib --crate-type cdylib \
+        --target "$triple" --target-dir target/android
+    dir=$profile
+    [ "$profile" = dev ] && dir=debug
+    mkdir -p "$work/apk/lib/$abi"
+    "$bin/llvm-strip" --strip-unneeded -o "$work/apk/lib/$abi/libtechnomage.so" \
+        "target/android/$triple/$dir/libtechnomage.so"
+done
+
+# The version (VERSION) as Android shows it, and as the number it compares on updating: 0.1.0
+# is 100, 1.2.3 would be 10203.
+version=$(git describe --tags --always --dirty 2>/dev/null || cat VERSION)
+IFS=. read -r v_major v_minor v_patch < VERSION
+version_code=$(( ${v_major:-0} * 10000 + ${v_minor:-0} * 100 + ${v_patch:-0} ))
+version_code=$(( version_code > 0 ? version_code : 1 ))
+sed -e "s/android:versionCode=\"1\"/android:versionCode=\"$version_code\"/" \
+    -e "s/android:versionName=\"1\.0\"/android:versionName=\"${version#v}\"/" \
+    android/AndroidManifest.xml > "$work/AndroidManifest.xml"
+
+# Manifest and resources, then the libraries, stored.
+"$tools/aapt2" compile --dir android/res -o "$work/res.zip"
+"$tools/aapt2" link -o "$work/base.apk" -I "$platform/android.jar" \
+    --manifest "$work/AndroidManifest.xml" --min-sdk-version "$api" --target-sdk-version 35 \
+    "$work/res.zip"
+(cd "$work/apk" && zip -q -0 -r "$work/base.apk" lib)
+mkdir -p "$(dirname "$out")"
+cp "$work/base.apk" "$out"
+echo "build-android: $out ($(du -h "$out" | cut -f1))"

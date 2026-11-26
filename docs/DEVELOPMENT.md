@@ -82,6 +82,25 @@ cargo run -p rc-cli --release -- convert orig/2004-03.BIN --templates templates 
 writes a zip that runs on its own: the program, `data/game/` (the installed files and the CD's folders) and
 the code.
 
+### Android
+
+```sh
+export ANDROID_HOME=~/Android/Sdk ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<version>
+tools/build-android build/TechnoMage-shell.apk          # arm64-v8a and x86_64, unsigned
+cargo run -p rc-cli --release -- template --game technomage --system android \
+  --shell build/TechnoMage-shell.apk -o templates/TechnoMage-android.zip
+cargo run -p rc-cli --release -- convert orig/2004-03.BIN --templates templates --system android
+```
+
+The shell is the same program built as `libtechnomage.so` (`cargo rustc --crate-type cdylib`, without lifted
+code) in Android's `NativeActivity`; `tools/build-android` needs the SDK's `platforms/android-*` and
+`build-tools/*` (aapt2) and the NDK (its clang links), no JDK. `convert` writes `TechnoMage.apk`: the shell,
+the code for arm64 and x86-64 and the game's files under `assets/data/`, signed with the converter's built-in
+key. On its first start the app unpacks them into its storage (`rc_platform::android`), and again when an
+update brings a different `files.txt`. The program's log (stderr) goes to `log.txt` in
+`Android/data/io.github.gamerecomp.technomagerecomp/files/`; `adb logcat` has Bevy's. Settings and saves are
+in the app's private storage.
+
 ## The browser (converter page and player)
 
 ```sh

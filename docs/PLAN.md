@@ -6,8 +6,8 @@
    *TechnoMage – Die Rückkehr der Ewigkeit* (Sunflowers, 2000/2001), in **German and English**, the two releases
    archived on archive.org (see [TARGETS.md](TARGETS.md)), each at the **newest official patch level** of its
    language (see "Patches" below).
-2. **Platforms: Windows, Linux and the browser (WebAssembly).** macOS is built in CI but not offered
-   (`platforms.json`, as in the sister projects). No Android.
+2. **Platforms: Windows, Linux, Android and the browser (WebAssembly).** macOS is built in CI but not offered
+   (`platforms.json`, as in the sister projects). Android since 2026-11-26 (decision log).
 3. **Rust only.** The recompiler, the runtime, the HLE layer, the platform layer, the converter **and the lifted
    game code** are Rust. No C, no C++, no assembly sources, no C compiler in any build. `tools/audit.sh` refuses C
    sources.
@@ -24,7 +24,7 @@
    checks it against the pinned SHA-256 and converts it; a local copy of the same file is accepted too. A file
    inside an archive on archive.org is linked directly (`<item>/Disc.rar/TECHNOMAGE.mdf`): nothing is unpacked.
 
-Non-goals: shipping game code or data, remastering assets, widescreen patches, Android, other releases than the
+Non-goals: shipping game code or data, remastering assets, widescreen patches, other releases than the
 pinned ones until their hashes are known, the options program `TM_Setup.exe` (the shell offers its settings).
 
 ## Starting point
@@ -251,6 +251,11 @@ Binary treatment:
 - [x] Windows: the shell and `recomp` check for `x86_64-pc-windows-msvc` (cross, without linking)
 - [ ] The page's flow checked in a real browser with a person at the keyboard (sound, input, saving)
 - [ ] Windows build checked on Windows
+- [x] Android shell: the shell as `libtechnomage.so` in Android's NativeActivity (Bevy's
+      `android-native-activity`, no Java), arm64-v8a and x86_64, the data unpacked from the APK's assets on the
+      first start, touch as the mouse, Back as Escape; `tools/build-android`, the template in the Pages and
+      release workflows, "Android" on the converter page
+- [ ] Android checked on a device (start, unpacking, Vulkan, sound, touch, saving)
 
 ### M9 – Release v0.1
 
@@ -338,6 +343,7 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 
 | Date | Decision |
 |------|----------|
+| 2026-11-26 | **Android after all**, against the first decision (no Android): the shared converter already wrote signed APKs (`rc-convert::apk`) and arm64 Cranelift code, so only the shell was missing. It is the same Rust program as a `cdylib` in Android's own `NativeActivity` (Bevy's `android-native-activity`, `android-activity`): no Java, no SDL, nothing compiled but Rust (the NDK's clang only links). The package's `assets/data/` is unpacked into the app's storage on the first start and again when its `files.txt` changes; the program then finds `data/` as on the desktop. A finger is the mouse (the pointer drawn by the game, no hardware cursor), a second finger the right button, Back is Escape. The libraries are extracted at install (`extractNativeLibs`) and linked for 16 KiB pages. |
 | 2026-11-22 | The project follows TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp: MIT license, the Rust recompiler crates, the manifest, the converter with CLI and browser page. Platforms: Windows, Linux, browser; macOS built in CI, not offered; no Android. |
 | 2026-11-22 | **Rust only**, also for the lifted code: `rc-emit-rust` replaces `rc-emit-c`; the runtime, HLE and platform layers are written in Rust after the sister projects' C design. No C compiler in any build; the audit refuses C sources. |
 | 2026-11-22 | **No SDL**. wgpu for rendering, because the game renders with Direct3D 7 and the browser build needs WebGPU/WebGL2. |

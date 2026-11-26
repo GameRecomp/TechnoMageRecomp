@@ -15,6 +15,11 @@ gpu = ["rc-hle/gpu"]
 # The Bevy window (without it the program runs headless, as with --headless).
 window = ["rc-platform/bevy"]
 
+# The shell. tools/build-android builds it as a cdylib (`cargo rustc --crate-type cdylib`).
+[lib]
+name = "technomage"
+path = "src/lib.rs"
+
 [[bin]]
 name = "technomage"
 path = "src/main.rs"

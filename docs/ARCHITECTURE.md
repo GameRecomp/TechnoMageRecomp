@@ -157,13 +157,14 @@ it locally from the user's own files.
 .github/workflows/   CI: audit, fmt/clippy/test, builds for Linux, Windows (macOS built, not offered), web
 Cargo.toml           the workspace
 docs/                PLAN, ARCHITECTURE, DEVELOPMENT, TARGETS, RESEARCH
+android/             the Android shell's manifest and icon (tools/build-android)
 games/technomage/    game.toml, the shell crate, the lifted-code shards
 games/technomage-web/ the browser player's runtime module
 hle/                 Win32/DirectX/Miles reimplementations (crate rc-hle, one module per DLL)
 platform/            the Bevy app, the GPU renderer, the frame sink (crate rc-platform)
 recomp/crates/       the recompiler and the `recomp` CLI
 runtime/             guest memory, CPU, dispatch, loader, SEH, threads, clock, files (crate rc-runtime)
-tools/               audit.sh, git hooks, build-web, play-node.mjs and web-test/ (the player headless)
+tools/               audit.sh, git hooks, build-web, build-android, play-node.mjs and web-test/ (the player headless)
 web/                 the converter page (index, app, worker) and the player (play, player, gl)
 orig/                YOUR game files (git-ignored)
 generated/           lifted Rust (git-ignored), built in games/technomage/lifted/shard*

@@ -9,6 +9,7 @@ use bevy::audio::{AddAudioSource, AudioPlayer, Decodable};
 use bevy::image::ImageSampler;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
+use bevy::input::touch::{TouchInput, TouchPhase};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -100,6 +101,12 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
                 primary_window: Some(Window {
                     title: title.to_string(),
                     resolution: (1280u32, 960u32).into(),
+                    // A phone's screen is the window.
+                    mode: if cfg!(target_os = "android") {
+                        WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+                    } else {
+                        WindowMode::Windowed
+                    },
                     ..default()
                 }),
                 ..default()
@@ -117,12 +124,14 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
     .add_audio_source::<GameAudio>()
     .insert_resource(ClearColor(Color::BLACK))
     .init_resource::<HardwareCursor>()
+    .init_resource::<Fingers>()
     .add_systems(Startup, setup)
     .add_systems(
         Update,
-        (show_frame, keyboard, mouse, close, hardware_cursor),
+        (show_frame, keyboard, mouse, touch, close, hardware_cursor),
     );
-    crate::cursor::set_enabled(true);
+    // Without a mouse (Android) the game draws its pointer itself, where the finger is.
+    crate::cursor::set_enabled(!cfg!(target_os = "android"));
     app.run();
     std::process::exit(0);
 }
@@ -450,7 +459,13 @@ fn keyboard(
             }
             continue;
         }
-        if let Some((scan, vk)) = key_codes(k.key_code) {
+        // Android's back button is Escape (the pause menu).
+        let code = if k.logical_key == bevy::input::keyboard::Key::BrowserBack {
+            KeyCode::Escape
+        } else {
+            k.key_code
+        };
+        if let Some((scan, vk)) = key_codes(code) {
             input(Input::Key {
                 scan,
                 vk,
@@ -495,17 +510,104 @@ fn mouse(
         return;
     };
     for c in moved.read() {
-        // Window coordinates to the game's, through the letterboxing.
-        let (w, h) = (win.width(), win.height());
-        let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
-        let scale = (w / gw).min(h / gh);
-        let (ox, oy) = ((w - gw * scale) / 2.0, (h - gh * scale) / 2.0);
-        let x = ((c.position.x - ox) / scale).clamp(0.0, gw - 1.0);
-        let y = ((c.position.y - oy) / scale).clamp(0.0, gh - 1.0);
-        input(Input::Cursor {
-            x: x as i32,
-            y: y as i32,
+        let (x, y) = to_game(win, &screen, c.position);
+        input(Input::Cursor { x, y });
+    }
+}
+
+/// Window coordinates to the game's, through the letterboxing.
+fn to_game(win: &Window, screen: &Screen, p: Vec2) -> (i32, i32) {
+    let (w, h) = (win.width(), win.height());
+    let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
+    let scale = (w / gw).min(h / gh);
+    let (ox, oy) = ((w - gw * scale) / 2.0, (h - gh * scale) / 2.0);
+    let x = ((p.x - ox) / scale).clamp(0.0, gw - 1.0);
+    let y = ((p.y - oy) / scale).clamp(0.0, gh - 1.0);
+    (x as i32, y as i32)
+}
+
+/// The fingers on a touch screen, as the mouse: the first one moves the pointer and holds the
+/// left button, a second one meanwhile holds the right button.
+#[derive(Resource, Default)]
+struct Fingers {
+    /// The first finger, where it is in the game, and whether its button is down yet.
+    first: Option<(u64, (i32, i32), bool)>,
+    second: Option<u64>,
+}
+
+fn touch(
+    mut touches: MessageReader<TouchInput>,
+    mut f: ResMut<Fingers>,
+    windows: Query<&Window>,
+    screen: Res<Screen>,
+) {
+    let Ok(win) = windows.single() else {
+        return;
+    };
+    // The button goes down a frame after the pointer moved there: the game takes the position
+    // from its window messages, the button from DirectInput (docs/RESEARCH.md).
+    if let Some((_, _, down @ false)) = &mut f.first {
+        *down = true;
+        input(Input::MouseButton {
+            button: 0,
+            down: true,
         });
+    }
+    for t in touches.read() {
+        let pos = to_game(win, &screen, t.position);
+        let first = f.first.map(|(id, ..)| id);
+        match t.phase {
+            TouchPhase::Started if first.is_none() => {
+                input(Input::Cursor { x: pos.0, y: pos.1 });
+                f.first = Some((t.id, pos, false));
+            }
+            TouchPhase::Started if f.second.is_none() => {
+                f.second = Some(t.id);
+                input(Input::MouseButton {
+                    button: 1,
+                    down: true,
+                });
+            }
+            TouchPhase::Moved if first == Some(t.id) => {
+                if let Some((_, at, _)) = &mut f.first {
+                    input(Input::MouseMotion {
+                        dx: pos.0 - at.0,
+                        dy: pos.1 - at.1,
+                    });
+                    *at = pos;
+                }
+                input(Input::Cursor { x: pos.0, y: pos.1 });
+            }
+            TouchPhase::Ended | TouchPhase::Canceled if first == Some(t.id) => {
+                if let Some((_, _, down)) = f.first.take() {
+                    input(Input::Cursor { x: pos.0, y: pos.1 });
+                    if down {
+                        input(Input::MouseButton {
+                            button: 0,
+                            down: false,
+                        });
+                    } else {
+                        // Lifted within the frame: a click all the same.
+                        input(Input::MouseButton {
+                            button: 0,
+                            down: true,
+                        });
+                        input(Input::MouseButton {
+                            button: 0,
+                            down: false,
+                        });
+                    }
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Canceled if f.second == Some(t.id) => {
+                f.second = None;
+                input(Input::MouseButton {
+                    button: 1,
+                    down: false,
+                });
+            }
+            _ => {}
+        }
     }
 }
 

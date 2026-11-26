@@ -13,6 +13,8 @@
 use std::sync::Condvar;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(all(feature = "bevy", target_os = "android"))]
+pub mod android;
 #[cfg(feature = "bevy")]
 pub mod bevy_app;
 #[cfg(feature = "gpu")]

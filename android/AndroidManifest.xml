@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- The Android shell: Android's own NativeActivity running libtechnomage.so (the game program
+     without lifted code, Bevy on android-activity); no Java. On its first start the program
+     unpacks the game's code and files the converter puts in assets/data. tools/build-android
+     puts the version (VERSION) in place of versionCode and versionName. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.gamerecomp.technomagerecomp"
+    android:versionCode="1"
+    android:versionName="1.0"
+    android:installLocation="auto">
+
+    <uses-feature android:name="android.hardware.vulkan.level" android:required="false" />
+    <uses-feature android:glEsVersion="0x00030000" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <application
+        android:label="TechnoMage"
+        android:icon="@drawable/technomage"
+        android:hasCode="false"
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="true"
+        android:appCategory="game"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <activity
+            android:name="android.app.NativeActivity"
+            android:exported="true"
+            android:label="TechnoMage"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:resizeableActivity="false"
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density">
+            <meta-data android:name="android.app.lib_name" android:value="technomage" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
