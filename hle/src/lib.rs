@@ -143,11 +143,30 @@ fn fps_trace(n: u64) {
     *last = Some(rc_runtime::host::Stamp::now());
 }
 
+/// The frame rate for `rc_platform::fps`: frames shown over about half a second.
+fn measure_fps() {
+    use std::sync::Mutex;
+    static SINCE: Mutex<Option<(rc_runtime::host::Stamp, u32)>> = Mutex::new(None);
+    let mut s = SINCE.lock().expect("fps");
+    match s.as_mut() {
+        Some((t, frames)) => {
+            *frames += 1;
+            let secs = t.elapsed_secs();
+            if secs >= 0.5 {
+                rc_platform::fps::set((f64::from(*frames) / secs) as f32);
+                *s = Some((rc_runtime::host::Stamp::now(), 0));
+            }
+        }
+        None => *s = Some((rc_runtime::host::Stamp::now(), 0)),
+    }
+}
+
 pub(crate) fn frame_done(c: &mut Cpu) {
     if rc_runtime::clock::is_virtual() {
         rc_runtime::clock::advance_ms(16);
     }
     let n = rc_platform::frame_number();
+    measure_fps();
     fps_trace(n);
     scripted_input(n);
     if let Some(limit) = rc_runtime::host::env("RC_FRAMES").and_then(|v| v.parse::<u64>().ok()) {

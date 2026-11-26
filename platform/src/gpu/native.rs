@@ -198,7 +198,38 @@ fn compare_fn(f: u32) -> wgpu::CompareFunction {
     }
 }
 
-type PipelineKey = (Option<(u32, u32)>, Option<(u32, bool)>);
+/// Blend factors, depth test and write, and the target's samples per pixel.
+type PipelineKey = (Option<(u32, u32)>, Option<(u32, bool)>, u32);
+
+/// Samples per pixel with antialiasing on (`render::antialias`).
+const MSAA: u32 = 4;
+
+/// The target's pixels into a multisampled target: every sample of a pixel gets its colour.
+const BLIT: &str = r#"
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let p = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4<f32>(p * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(src, vec2<i32>(p.xy), 0);
+}
+"#;
+
+/// The render target: its size and samples, the single-sampled colour the CPU's pixels go in
+/// and out through, the depth, and with several samples the multisampled colour.
+struct Target {
+    width: u32,
+    height: u32,
+    samples: u32,
+    color: wgpu::Texture,
+    depth: wgpu::Texture,
+    msaa: Option<wgpu::Texture>,
+}
 
 /// The renderer: a wgpu device of its own and the caches.
 pub struct Renderer {
@@ -212,8 +243,12 @@ pub struct Renderer {
     textures: HashMap<(u32, u32, bool), (wgpu::TextureView, u64)>,
     samplers: HashMap<(bool, bool, bool), wgpu::Sampler>,
     white: wgpu::TextureView,
-    target: Option<(u32, u32, wgpu::Texture, wgpu::Texture)>,
+    target: Option<Target>,
     frame: u64,
+    /// Whether the adapter renders the target's formats with `MSAA` samples.
+    msaa: bool,
+    blit_layout: wgpu::BindGroupLayout,
+    blit: Option<wgpu::RenderPipeline>,
 }
 
 impl Renderer {
@@ -230,6 +265,17 @@ impl Renderer {
             ..Default::default()
         }))
         .ok()?;
+        let msaa = [
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Depth32Float,
+        ]
+        .iter()
+        .all(|&f| {
+            adapter
+                .get_texture_format_features(f)
+                .flags
+                .sample_count_supported(MSAA)
+        });
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("technomage renderer"),
             required_features: wgpu::Features::empty(),
@@ -302,7 +348,23 @@ impl Renderer {
                 &[255, 255, 255, 255],
             )
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let blit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("blit"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
         Some(Renderer {
+            msaa,
+            blit_layout,
+            blit: None,
             device,
             queue,
             shader,
@@ -359,7 +421,10 @@ impl Renderer {
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
-                multisample: wgpu::MultisampleState::default(),
+                multisample: wgpu::MultisampleState {
+                    count: key.2,
+                    ..Default::default()
+                },
                 fragment: Some(wgpu::FragmentState {
                     module: shader,
                     entry_point: Some("fs"),
@@ -367,6 +432,50 @@ impl Renderer {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
                         blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        })
+    }
+
+    /// The pipeline that copies the target's pixels into its multisampled colour.
+    fn blit_pipeline(&mut self) -> &wgpu::RenderPipeline {
+        let (device, blit_layout) = (&self.device, &self.blit_layout);
+        self.blit.get_or_insert_with(|| {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("blit"),
+                source: wgpu::ShaderSource::Wgsl(BLIT.into()),
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("blit"),
+                bind_group_layouts: &[Some(blit_layout)],
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("blit"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: MSAA,
+                    ..Default::default()
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -465,21 +574,26 @@ impl Renderer {
         commands: &[Command],
     ) -> Vec<u8> {
         self.frame += 1;
+        let samples = if self.msaa && crate::render::antialias() {
+            MSAA
+        } else {
+            1
+        };
         if self
             .target
             .as_ref()
-            .is_none_or(|t| (t.0, t.1) != (width, height))
+            .is_none_or(|t| (t.width, t.height, t.samples) != (width, height, samples))
         {
-            let mk = |format, usage| {
+            let mk = |label, format, usage, samples| {
                 self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("target"),
+                    label: Some(label),
                     size: wgpu::Extent3d {
                         width,
                         height,
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
-                    sample_count: 1,
+                    sample_count: samples,
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage,
@@ -487,20 +601,40 @@ impl Renderer {
                 })
             };
             let color = mk(
+                "target",
                 wgpu::TextureFormat::Rgba8Unorm,
                 wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::COPY_SRC,
+                1,
             );
             let depth = mk(
+                "depth",
                 wgpu::TextureFormat::Depth32Float,
                 wgpu::TextureUsages::RENDER_ATTACHMENT,
+                samples,
             );
-            self.target = Some((width, height, color, depth));
+            let msaa = (samples > 1).then(|| {
+                mk(
+                    "multisampled target",
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    samples,
+                )
+            });
+            self.target = Some(Target {
+                width,
+                height,
+                samples,
+                color,
+                depth,
+                msaa,
+            });
         }
-        let (color, depth) = {
+        let (color, depth, msaa) = {
             let t = self.target.as_ref().expect("target");
-            (t.2.clone(), t.3.clone())
+            (t.color.clone(), t.depth.clone(), t.msaa.clone())
         };
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -523,6 +657,9 @@ impl Renderer {
         );
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+        let msaa_view = msaa
+            .as_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
 
         // Uniforms of every draw in one buffer, 256 bytes apart.
         let draws: Vec<&Draw> = commands
@@ -617,7 +754,7 @@ impl Renderer {
         // Per draw: its pipeline and texture bind group (made before the pass borrows them).
         let mut per_draw = Vec::new();
         for d in &draws {
-            let key: PipelineKey = (d.blend, d.depth);
+            let key: PipelineKey = (d.blend, d.depth, samples);
             self.pipeline(key);
             let mut views = Vec::new();
             let mut samplers = Vec::new();
@@ -662,6 +799,38 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame"),
             });
+        // Multisampled: the target's pixels into every sample first; each pass below resolves
+        // into the target again.
+        if let Some(view) = &msaa_view {
+            let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blit"),
+                layout: &self.blit_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&color_view),
+                }],
+            });
+            let pipeline = self.blit_pipeline().clone();
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("blit"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
         // A render pass per run of draws between depth clears.
         let mut k = 0;
         let mut i = 0;
@@ -676,9 +845,9 @@ impl Renderer {
                 let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("draws"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &color_view,
+                        view: msaa_view.as_ref().unwrap_or(&color_view),
                         depth_slice: None,
-                        resolve_target: None,
+                        resolve_target: msaa_view.as_ref().map(|_| &color_view),
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,

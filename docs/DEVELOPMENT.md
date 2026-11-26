@@ -58,9 +58,10 @@ RC_HEADLESS=1 RC_INPUT="20:esc 60:esc 100:esc 140:esc 180:esc 220:esc 300:enter 
 `patches::register` installs the wrappers, and a wrapper runs the game's own function with
 `dispatch::call_original`. Changing the list needs a new lift. What the hooks touch is in RESEARCH.md ("The pause
 menu, the options panel and the texts"). So far two entries in the pause menu (its box grows by their lines), each
-opening the options panel with lines of its own: "Configure graphics" (the render resolution and the "native
-resolution" switch, kept in `TechnoMageRecomp.cfg` in the user directory; `rc_platform::render`, the HLE's shadows
-of the screen's surfaces in `d3d.rs`) and "Show information" (this program's version, build time and commit, the
+opening the options panel with lines of its own: "Configure graphics" (the render resolution and the switches
+"native resolution", "antialiasing" and "show frame rate", kept in `TechnoMageRecomp.cfg` in the user directory;
+`rc_platform::render`, the HLE's shadows of the screen's surfaces in `d3d.rs`, multisampling in the GPU renderer,
+`rc_platform::fps`) and "Show information" (this program's version, build time and commit, the
 platform, the game's version and language). Their texts are in a table in the game's six languages. The build time
 and commit come from `games/technomage/build_info.rs`, which both build scripts include (`SOURCE_DATE_EPOCH` fixes
 the time; `-dirty` marks uncommitted changes). With a window the mouse pointer is a hardware cursor (RESEARCH.md,

@@ -55,6 +55,8 @@ files:
 - **Native resolution** (in "Configure graphics", kept): the 3D scene is drawn at the size of the window, or of
   the screen in full screen, keeping the game's 4:3 picture with black bars; menus, texts and the HUD stay as they
   were, only enlarged.
+- **Antialiasing** and **Show frame rate** (in "Configure graphics", kept): the 3D scene drawn with four samples
+  per pixel on the GPU (natively); the frames per second in the top right corner.
 - **Hardware cursor:** the game's stone pointer is the system's mouse cursor, so it follows the mouse without
   delay, at the size it had in the picture. It keeps turning towards the hero as in the game, without the glow
   around it (a system cursor can cover, not add light). In the browser it is the page's cursor.

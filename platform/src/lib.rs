@@ -150,9 +150,9 @@ pub mod cursor {
     }
 }
 
-/// The render resolution: with "native resolution" on (the project's graphics page), Direct3D
+/// The graphics page's settings. The render resolution: with "native resolution" on, Direct3D
 /// draws at the largest size of the game's proportions that fits the window (the screen in full
-/// screen); the backend tells its size.
+/// screen); the backend tells its size. Antialiasing, and the frame rate shown.
 pub mod render {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -165,6 +165,27 @@ pub mod render {
 
     pub fn native() -> bool {
         NATIVE.load(Ordering::Relaxed)
+    }
+
+    static ANTIALIAS: AtomicBool = AtomicBool::new(false);
+    static SHOW_FPS: AtomicBool = AtomicBool::new(false);
+
+    /// Antialiasing: the GPU renderer draws with several samples per pixel (multisampling).
+    pub fn set_antialias(on: bool) {
+        ANTIALIAS.store(on, Ordering::Relaxed);
+    }
+
+    pub fn antialias() -> bool {
+        ANTIALIAS.load(Ordering::Relaxed)
+    }
+
+    /// The frame rate shown in a corner of the picture.
+    pub fn set_show_fps(on: bool) {
+        SHOW_FPS.store(on, Ordering::Relaxed);
+    }
+
+    pub fn show_fps() -> bool {
+        SHOW_FPS.load(Ordering::Relaxed)
     }
 
     /// The size the picture is shown at (window pixels; 0 × 0 without a window).
@@ -208,6 +229,94 @@ pub mod render {
     }
 }
 
+/// The frame rate shown with `render::show_fps` (the HLE measures it, frames are drawn with it).
+pub mod fps {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static FPS: AtomicU32 = AtomicU32::new(0);
+
+    /// The latest measurement, in frames per second.
+    pub fn set(fps: f32) {
+        FPS.store(fps.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn get() -> f32 {
+        f32::from_bits(FPS.load(Ordering::Relaxed))
+    }
+
+    /// 3 × 5 glyphs, a row per byte, the high of three bits left.
+    fn glyph(ch: u8) -> [u8; 5] {
+        match ch {
+            b'0' => [7, 5, 5, 5, 7],
+            b'1' => [2, 6, 2, 2, 7],
+            b'2' => [7, 1, 7, 4, 7],
+            b'3' => [7, 1, 3, 1, 7],
+            b'4' => [5, 5, 7, 1, 1],
+            b'5' => [7, 4, 7, 1, 7],
+            b'6' => [7, 4, 7, 5, 7],
+            b'7' => [7, 1, 2, 2, 2],
+            b'8' => [7, 5, 7, 5, 7],
+            b'9' => [7, 5, 7, 1, 7],
+            b'F' => [7, 4, 6, 4, 4],
+            b'P' => [7, 5, 7, 4, 4],
+            b'S' => [7, 4, 7, 1, 7],
+            _ => [0; 5],
+        }
+    }
+
+    /// The text into the top right corner of a `width` × `height` RGBA8 picture: white on a
+    /// dark box, a glyph pixel as large as the picture is tall in multiples of 240.
+    pub fn draw_text(rgba: &mut [u8], width: u32, height: u32, text: &str) {
+        let px = (height / 240).max(1) as usize;
+        let (w, h) = (width as usize, height as usize);
+        if rgba.len() < 4 * w * h {
+            return;
+        }
+        let n = text.len();
+        let box_w = (4 * n + 1) * px;
+        let box_h = 7 * px;
+        let (x0, y0) = (w.saturating_sub(box_w + 2 * px), 2 * px);
+        let mut put = |x: usize, y: usize, c: [u8; 3], keep: u32| {
+            if x < w && y < h {
+                let i = 4 * (y * w + x);
+                for k in 0..3 {
+                    let v = u32::from(rgba[i + k]) * keep / 256 + u32::from(c[k]);
+                    rgba[i + k] = v.min(255) as u8;
+                }
+            }
+        };
+        for y in 0..box_h {
+            for x in 0..box_w {
+                put(x0 + x, y0 + y, [0, 0, 0], 80);
+            }
+        }
+        for (k, ch) in text.bytes().enumerate() {
+            let g = glyph(ch);
+            for (row, bits) in g.iter().enumerate() {
+                for col in 0..3 {
+                    if bits >> (2 - col) & 1 == 0 {
+                        continue;
+                    }
+                    for dy in 0..px {
+                        for dx in 0..px {
+                            let x = x0 + (1 + 4 * k + col) * px + dx;
+                            let y = y0 + (1 + row) * px + dy;
+                            put(x, y, [255, 255, 255], 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The frame rate into a frame, if it is to be shown.
+    pub(crate) fn overlay(rgba: &mut [u8], width: u32, height: u32) {
+        if crate::render::show_fps() {
+            draw_text(rgba, width, height, &format!("{:.0} FPS", get()));
+        }
+    }
+}
+
 /// A finished frame: RGBA8, `width * height * 4` bytes.
 #[derive(Debug, Clone, Default)]
 pub struct Frame {
@@ -244,7 +353,8 @@ pub fn submit_frame(width: u32, height: u32, rgba: Vec<u8>) {
 }
 
 /// Hand over a finished frame of the `game`-sized screen, rendered at `width` × `height`.
-pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, rgba: Vec<u8>) {
+pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, mut rgba: Vec<u8>) {
+    fps::overlay(&mut rgba, width, height);
     let mut f = FRAME.lock().expect("frame");
     f.width = width;
     f.height = height;

@@ -98,6 +98,8 @@ const KEY_GRAPHICS: &str = "RC_GRAPHICS";
 const KEY_INFO: &str = "RC_INFO";
 const KEY_RESOLUTION: &str = "RC_RESOLUTION";
 const KEY_NATIVE: &str = "RC_NATIVE";
+const KEY_ANTIALIAS: &str = "RC_ANTIALIAS";
+const KEY_SHOW_FPS: &str = "RC_SHOW_FPS";
 const KEY_VERSION: &str = "RC_VERSION";
 const KEY_BUILT: &str = "RC_BUILT";
 const KEY_COMMIT: &str = "RC_COMMIT";
@@ -149,6 +151,28 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Risoluzione nativa",
             "Resolución nativa",
             "Native resolutie",
+        ],
+    ),
+    (
+        KEY_ANTIALIAS,
+        [
+            "Kantenglättung",
+            "Antialiasing",
+            "Anticrénelage",
+            "Antialiasing",
+            "Suavizado de bordes",
+            "Anti-aliasing",
+        ],
+    ),
+    (
+        KEY_SHOW_FPS,
+        [
+            "Bildrate anzeigen",
+            "Show frame rate",
+            "Afficher les images par seconde",
+            "Mostra fotogrammi al secondo",
+            "Mostrar fotogramas por segundo",
+            "Framerate tonen",
         ],
     ),
     (
@@ -521,7 +545,10 @@ fn show_page(c: &mut Cpu, page: Page) {
     // Laid out as the first volume line; not selectable, no slider (drawn in options_entry).
     let e = OPTIONS_TABLE;
     let like = m.ld32(e + 4);
-    m.write(e, &[0u8; 3 * OPTIONS_ENTRY_SIZE as usize]);
+    m.write(
+        e,
+        &[0u8; (1 + SWITCHES.len()) * OPTIONS_ENTRY_SIZE as usize],
+    );
     m.st32(e, key_addr(b, rows(m, page)[0].0));
     m.st32(e + 4, like);
     m.st16(e + 8, (-60i16) as u16);
@@ -533,19 +560,24 @@ fn show_page(c: &mut Cpu, page: Page) {
         std::sync::atomic::Ordering::Relaxed,
     );
     if page == Page::Graphics {
-        // The "native resolution" box below: selectable, a value of 0 or 1 that the panel's own
-        // left and right keys change.
-        let k = CHECKBOX;
-        m.st32(k, key_addr(b, KEY_NATIVE));
-        m.st32(k + 4, like);
-        m.st16(k + 6, (i32::from(m.ld16(e + 6) as i16) + ROW_STEP) as u16);
-        m.st16(k + 8, (-60i16) as u16);
-        m.st16(k + 0xc, 2);
-        m.st16(k + 0xe, 1);
-        m.st16(k + 0x10, u16::from(rc_platform::render::native()));
-        m.st16(k + 0x12, 1);
-        m.st16(k + 0x20, 0xffff);
-        selected = k;
+        // The switches below: selectable, a value of 0 or 1 that the panel's own left and right
+        // keys change.
+        for (i, sw) in SWITCHES.iter().enumerate() {
+            let k = switch_entry(i);
+            m.st32(k, key_addr(b, sw.key));
+            m.st32(k + 4, like);
+            m.st16(
+                k + 6,
+                (i32::from(m.ld16(e + 6) as i16) + ROW_STEP * (i as i32 + 1)) as u16,
+            );
+            m.st16(k + 8, (-60i16) as u16);
+            m.st16(k + 0xc, 2);
+            m.st16(k + 0xe, 1);
+            m.st16(k + 0x10, u16::from((sw.get)()));
+            m.st16(k + 0x12, 1);
+            m.st16(k + 0x20, 0xffff);
+        }
+        selected = switch_entry(0);
     }
     let title_key = OURS
         .iter()
@@ -590,8 +622,47 @@ fn options_frame(c: &mut Cpu) {
 /// The distance of our lines (thousandths of the screen height; the volumes' is 70).
 const ROW_STEP: i32 = 55;
 
-/// The graphics page's "native resolution" box: the options panel's second entry.
-const CHECKBOX: u32 = OPTIONS_TABLE + OPTIONS_ENTRY_SIZE;
+/// A switch of the graphics page: its label, and the setting it turns on and off.
+struct Switch {
+    key: &'static str,
+    /// Its name in the settings file.
+    name: &'static str,
+    get: fn() -> bool,
+    set: fn(bool),
+}
+
+/// The graphics page's switches, the options panel's entries from the second on (the panel has
+/// five: four and the end).
+const SWITCHES: [Switch; 3] = [
+    Switch {
+        key: KEY_NATIVE,
+        name: "native_resolution",
+        get: rc_platform::render::native,
+        set: rc_platform::render::set_native,
+    },
+    Switch {
+        key: KEY_ANTIALIAS,
+        name: "antialiasing",
+        get: rc_platform::render::antialias,
+        set: rc_platform::render::set_antialias,
+    },
+    Switch {
+        key: KEY_SHOW_FPS,
+        name: "show_fps",
+        get: rc_platform::render::show_fps,
+        set: rc_platform::render::set_show_fps,
+    },
+];
+
+/// The options entry of switch `i`.
+fn switch_entry(i: usize) -> u32 {
+    OPTIONS_TABLE + OPTIONS_ENTRY_SIZE * (1 + i as u32)
+}
+
+/// The switch an options entry is, if it is one.
+fn switch_at(e: u32) -> Option<usize> {
+    (0..SWITCHES.len()).find(|&i| switch_entry(i) == e)
+}
 
 /// The first frame the switch takes input again (a moment after each turn and after the page
 /// opened: the press that chose the page is still down).
@@ -658,27 +729,29 @@ fn options_entry(c: &mut Cpu) {
             }
             ret_cdecl(c, c.r[EAX]);
         }
-        Some(Page::Graphics) if e == CHECKBOX => {
+        Some(Page::Graphics) if switch_at(e).is_some() => {
             // The game's own drawing of a non-slider entry: the highlight when selected, the
             // selection by the mouse.
             call_original(c, OPTIONS_ENTRY);
-            checkbox(c);
+            checkbox(c, switch_at(e).expect("a switch"));
         }
         _ => call_original(c, OPTIONS_ENTRY),
     }
 }
 
-/// The "native resolution" switch: its value from the panel's left and right keys, Enter or
+/// Switch `i` of the graphics page: its value from the panel's left and right keys, Enter or
 /// Space while it is selected, or a click on its line; the setting kept. Shown with the game's
 /// own words for on and off (its font has no box or brackets).
-fn checkbox(c: &mut Cpu) {
+fn checkbox(c: &mut Cpu, i: usize) {
     use std::sync::atomic::{AtomicU8, Ordering};
-    /// The left button, Enter and Space as last seen (bits 0, 1, 2), to act on presses only.
-    static HELD: AtomicU8 = AtomicU8::new(0);
+    /// Per switch, the left button, Enter and Space as last seen (bits 0, 1, 2), to act on
+    /// presses only.
+    static HELD: [AtomicU8; SWITCHES.len()] = [const { AtomicU8::new(0) }; SWITCHES.len()];
     const DIK_RETURN: u8 = 0x1c;
     const DIK_SPACE: u8 = 0x39;
     let m = c.mem();
-    let k = CHECKBOX;
+    let sw = &SWITCHES[i];
+    let k = switch_entry(i);
     let place = entry_place(m, k);
     let h = m.ld32(SCREEN_H) as i32;
     // The mouse position as the platform has it (the game's own follows a frame later).
@@ -687,7 +760,7 @@ fn checkbox(c: &mut Cpu) {
     let now = u8::from(rc_hle::dinput::mouse_button_down(0))
         | u8::from(rc_hle::dinput::key_down(DIK_RETURN)) << 1
         | u8::from(rc_hle::dinput::key_down(DIK_SPACE)) << 2;
-    let pressed = now & !HELD.swap(now, Ordering::Relaxed);
+    let pressed = now & !HELD[i].swap(now, Ordering::Relaxed);
     let selected = m.ld32(OPTIONS_SELECTED) == k;
     // One turn per press (the keys' state can flicker within one), and none from the press
     // that opened the page.
@@ -699,12 +772,12 @@ fn checkbox(c: &mut Cpu) {
         m.st16(k + 0x10, 1 - m.ld16(k + 0x10).min(1));
     }
     let on = m.ld16(k + 0x10) != 0;
-    if on != rc_platform::render::native() {
-        rc_platform::render::set_native(on);
+    if on != (sw.get)() {
+        (sw.set)(on);
         save_settings();
     }
     let b = blocks(m);
-    let label = our_text(m, KEY_NATIVE.as_bytes()).unwrap_or(0);
+    let label = our_text(m, sw.key.as_bytes()).unwrap_or(0);
     let key = put_str(
         m,
         b.strings + STR_VALUES + STR_VALUE_SIZE * (ROWS_MAX - 1),
@@ -728,8 +801,8 @@ fn load_settings() {
     let text = settings_path().and_then(|p| rc_runtime::host::read_to_string(&p));
     for line in text.unwrap_or_default().lines() {
         if let Some((k, v)) = line.split_once('=') {
-            if k.trim() == "native_resolution" {
-                rc_platform::render::set_native(v.trim() == "1");
+            if let Some(sw) = SWITCHES.iter().find(|sw| sw.name == k.trim()) {
+                (sw.set)(v.trim() == "1");
             }
         }
     }
@@ -742,10 +815,10 @@ fn save_settings() {
     if let Some(dir) = p.parent() {
         rc_runtime::host::create_dir_all(dir);
     }
-    let text = format!(
-        "native_resolution={}\n",
-        u8::from(rc_platform::render::native())
-    );
+    let text: String = SWITCHES
+        .iter()
+        .map(|sw| format!("{}={}\n", sw.name, u8::from((sw.get)())))
+        .collect();
     let how = rc_runtime::host::Open {
         write: true,
         create: true,
