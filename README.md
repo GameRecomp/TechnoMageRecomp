@@ -2,8 +2,8 @@
 
 <p align="center"><img src="tools/icons/technomage.svg" width="128" height="128" alt=""></p>
 
-**Play *TechnoMage: Return of Eternity* (*TechnoMage – Die Rückkehr der Ewigkeit*) natively on Windows and
-Linux, or right in your browser.** The game by Sunflowers is abandonware and archived on archive.org; the
+**Play *TechnoMage: Return of Eternity* (*TechnoMage – Die Rückkehr der Ewigkeit*) natively on Windows,
+Linux and Android, or right in your browser.** The game by Sunflowers is abandonware and archived on archive.org; the
 converter downloads the release in the language you choose (German or English) and builds the game from it, on
 your machine.
 
@@ -40,8 +40,14 @@ hand. See [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md) and [docs/PLAN.md](docs
 3. Run `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`): it writes a zip with
    the game ready to run. Unpack it and start `technomage`.
 
-Or play in the browser: on the converter page, choose "Browser" and a language; the game is stored in the browser
-and runs on its page (a current Chrome, Edge or Firefox).
+Or play in the browser: on the [converter page](https://gamerecomp.github.io/TechnoMageRecomp/), choose
+"Browser" and a language; the game is stored in the browser and runs on its page (a current Chrome, Edge or
+Firefox).
+
+On Android: choose "Android" on the converter page (or `--system android`), copy the APK to the phone or tablet
+and install it. The first start unpacks the game's files once. A finger is the mouse (tap to click, a second
+finger is the right button), Back opens the menu; a keyboard, mouse or gamepad work too. Not yet tried on a
+device (docs/PLAN.md).
 
 ## Improvements over the original
 

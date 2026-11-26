@@ -12,7 +12,26 @@ env:
   RC_NO_GENERATED: "1"
 
 jobs:
+  android:
+    # The Android shell's template, for every converter (`recomp convert --system android`).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - run: tools/build-android build/TechnoMage-shell.apk
+      - run: cargo build --profile dist -p rc-cli
+      - run: |
+          mkdir -p build/templates
+          target/dist/recomp template --game technomage --system android \
+            --shell build/TechnoMage-shell.apk -o build/templates/TechnoMage-android.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: template-android
+          path: build/templates
   converter:
+    needs: android
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +50,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo build --profile dist -p technomage -p rc-cli
+      - uses: actions/download-artifact@v4
+        with:
+          name: template-android
+          path: dist/templates
       - name: Shell template
         shell: bash
         run: |

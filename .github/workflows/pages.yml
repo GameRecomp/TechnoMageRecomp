@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # The converter page on GitHub Pages (tools/build-web): the converter as WebAssembly and the
-# shell templates it fills, one per system, built here without lifted code.
+# shell templates it fills, one per system (Windows, Linux, Android), built here without lifted
+# code.
 name: pages
 on:
   push:
@@ -50,8 +51,28 @@ jobs:
         with:
           name: template-${{ matrix.system }}
           path: build/templates
+  android:
+    # The Android shell (tools/build-android): the runner has the Android SDK (ANDROID_HOME) and
+    # NDK (ANDROID_NDK_LATEST_HOME).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - run: tools/build-android build/TechnoMage-shell.apk
+      - run: cargo build --profile dist -p rc-cli
+      - name: Template
+        run: |
+          mkdir -p build/templates
+          target/dist/recomp template --game technomage --system android \
+            --shell build/TechnoMage-shell.apk -o build/templates/TechnoMage-android.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: template-android
+          path: build/templates
   site:
-    needs: shell
+    needs: [shell, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

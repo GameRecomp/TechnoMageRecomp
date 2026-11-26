@@ -39,11 +39,20 @@ function systems() {
       after: 'The game is stored in this browser, for this site only. Play it now, or come back to this page '
         + 'any time. Saved games and settings are kept in the browser too.',
     },
+    android: {
+      label: 'Android',
+      file: `${app}.apk`,
+      type: { description: 'Android app', accept: { 'application/vnd.android.package-archive': ['.apk'] } },
+      after: `Copy ${app}.apk to your phone or tablet and open it there to install it (allow installing from `
+        + 'that app when asked). On its first start the game unpacks its files once, which takes a minute or two. '
+        + 'A finger is the mouse: tap to click, a second finger is the right button; Back opens the menu.',
+    },
   };
 }
 
 function guessSystem() {
   const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent;
+  if (/android/i.test(p) || /android/i.test(navigator.userAgent)) return 'android';
   if (/win/i.test(p)) return 'windows';
   if (/mac|iphone|ipad/i.test(p)) return 'macos';
   return 'linux';
@@ -109,7 +118,7 @@ function updateNote() {
   const web = document.querySelector('input[name=system]:checked')?.value === 'web';
   $('convert-note').textContent = web
     ? `The game (${game.size}) is stored in this browser. Converting takes a few minutes.`
-    : `The result is a zip of ${game.size} with the game in it. You choose where it is saved.`;
+    : `The result is a zip (for Android an APK) of ${game.size} with the game in it. You choose where it is saved.`;
   updateView();
 }
 
@@ -549,7 +558,7 @@ fetch('platforms.json', { cache: 'no-cache' })
   .then((r) => (r.ok ? r.json() : {}))
   .catch(() => ({}))
   .then((on) => {
-    for (const system of ['windows', 'linux', 'macos', 'web']) {
+    for (const system of ['windows', 'linux', 'macos', 'android', 'web']) {
       if (on[system] === false) offAlways.set(system, 'disabled on this site for now');
     }
     showGame();

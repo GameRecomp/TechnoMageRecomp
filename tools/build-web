@@ -5,8 +5,8 @@
 #
 #   tools/build-web SITE_DIR [TEMPLATE_DIR [WEB_SHELL_DIR]]
 #
-# TEMPLATE_DIR holds TechnoMage-<system>.zip for windows, linux and macos
-# (made by `recomp template`); those present are copied. The browser player's
+# TEMPLATE_DIR holds TechnoMage-<system>.zip for windows, linux, macos and
+# android (made by `recomp template`); those present are copied. The browser player's
 # runtime (technomage-web) is built for wasm32 and goes to
 # player/technomage.wasm; WEB_SHELL_DIR, if given, is copied over player/ too.
 # Systems that platforms.json has off get neither; the file goes to the site
@@ -31,7 +31,7 @@ sed -i "s/@VERSION@/$version/" "$site/index.html"
 cp platforms.json "$site/platforms.json"
 on() { python3 -c 'import json, sys; sys.exit(0 if json.load(open("platforms.json")).get(sys.argv[1], True) else 1)' "$1"; }
 if [ -n "$templates" ]; then
-    for s in windows linux macos; do
+    for s in windows linux macos android; do
         if on "$s" && [ -f "$templates/TechnoMage-$s.zip" ]; then
             cp "$templates/TechnoMage-$s.zip" "$site/templates/"
         fi
