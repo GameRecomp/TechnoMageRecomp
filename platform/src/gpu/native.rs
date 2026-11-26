@@ -17,7 +17,10 @@ struct Uniforms {
     /// alpha func (0 off), alpha ref bits, fog mode (0 off, 1 vertex, 2 table), flags
     /// (1 specular add, 2 keyed, 4 texture 0, 8 texture 1)
     misc: [u32; 4],
-    _pad: [u32; 8],
+    /// Target pixels per screen pixel (x, y), and 1 to sample a pixel-exact draw at the
+    /// screen's pixel centres.
+    snap: [f32; 4],
+    _pad: [u32; 4],
 }
 
 const SHADER: &str = r#"
@@ -27,6 +30,7 @@ struct U {
     fog_color: vec4<f32>,
     view: vec4<f32>,
     misc: vec4<u32>,
+    snap: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(1) @binding(0) var t0: texture_2d<f32>;
@@ -41,6 +45,7 @@ struct In {
     @location(3) uv0: vec2<f32>,
     @location(4) uv1: vec2<f32>,
     @location(5) eye: f32,
+    @location(6) exact: f32,
 };
 struct Out {
     @builtin(position) clip: vec4<f32>,
@@ -49,6 +54,7 @@ struct Out {
     @location(2) uv0: vec2<f32>,
     @location(3) uv1: vec2<f32>,
     @location(4) eye: f32,
+    @location(5) @interpolate(flat) exact: f32,
 };
 
 @vertex
@@ -65,6 +71,7 @@ fn vs(i: In) -> Out {
     o.uv0 = i.uv0;
     o.uv1 = i.uv1;
     o.eye = i.eye;
+    o.exact = i.exact;
     return o;
 }
 
@@ -117,9 +124,15 @@ fn compare(f: u32, a: f32, b: f32) -> bool {
 
 @fragment
 fn fs(i: Out) -> @location(0) vec4<f32> {
+    // A pixel-exact draw on a larger target: its coordinates moved to the centre of the screen
+    // pixel this pixel belongs to (along their gradients).
+    let centre = (floor(i.clip.xy / u.snap.xy) + 0.5) * u.snap.xy;
+    let d = select(vec2<f32>(0.0), centre - i.clip.xy, u.snap.z != 0.0 && i.exact > 0.5);
+    let uv0 = i.uv0 + dpdx(i.uv0) * d.x + dpdy(i.uv0) * d.y;
+    let uv1 = i.uv1 + dpdx(i.uv1) * d.x + dpdy(i.uv1) * d.y;
     // Both textures are sampled in uniform control flow, then used as the stages say.
-    let c0 = textureSample(t0, s0, select(i.uv0, i.uv1, u.stage[1].z == 1u));
-    let c1 = textureSample(t1, s1, select(i.uv0, i.uv1, u.stage[3].z == 1u));
+    let c0 = textureSample(t0, s0, select(uv0, uv1, u.stage[1].z == 1u));
+    let c1 = textureSample(t1, s1, select(uv0, uv1, u.stage[3].z == 1u));
     var current = i.diffuse;
     var keyed = false;
     for (var s = 0u; s < 2u; s = s + 1u) {
@@ -308,7 +321,7 @@ impl Renderer {
     fn pipeline(&mut self, key: PipelineKey) -> &wgpu::RenderPipeline {
         let (device, shader, layout) = (&self.device, &self.shader, &self.layout);
         self.pipelines.entry(key).or_insert_with(|| {
-            let attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x2, 4 => Float32x2, 5 => Float32];
+            let attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x2, 4 => Float32x2, 5 => Float32, 6 => Float32];
             let blend = key.0.map(|(s, d)| wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: blend_factor(s),
@@ -532,7 +545,17 @@ impl Renderer {
                 fog_color: d.fog.map_or([0.0; 4], |f| f.0),
                 view: [view.0 as f32, view.1 as f32, 0.0, 0.0],
                 misc: [0; 4],
-                _pad: [0; 8],
+                snap: [
+                    width as f32 / view.0 as f32,
+                    height as f32 / view.1 as f32,
+                    if d.pixel_exact && (width, height) != view {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                    0.0,
+                ],
+                _pad: [0; 4],
             };
             for (s, st) in d.stages.iter().take(2).enumerate() {
                 u.stage[2 * s] = [st.cop, st.ca1, st.ca2, st.aop];

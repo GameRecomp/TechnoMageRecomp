@@ -973,6 +973,39 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     }
 }
 
+/// Mark the triangles that map their texture (`width` × `height` texels, coordinates of set 0)
+/// one texel to one screen pixel along the axes, 2D drawn with Direct3D (`Vertex::exact`);
+/// whether there are any.
+#[cfg(feature = "gpu")]
+fn mark_texel_for_pixel(tris: &mut [rc_platform::gpu::Vertex], width: f32, height: f32) -> bool {
+    let near = |a: f32, b: f32| (a - b).abs() < 0.02;
+    let mut any = false;
+    for t in tris.as_chunks_mut::<3>().0 {
+        let [a, b, c] = &*t;
+        let (x1, y1) = (b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]);
+        let (x2, y2) = (c.pos[0] - a.pos[0], c.pos[1] - a.pos[1]);
+        let det = x1 * y2 - x2 * y1;
+        if det.abs() < 1e-3 {
+            continue;
+        }
+        // The texture coordinates' gradients over the screen (an affine map per triangle).
+        let grad = |d1: f32, d2: f32| ((d1 * y2 - d2 * y1) / det, (x1 * d2 - x2 * d1) / det);
+        let (ux, uy) = grad(b.uv0[0] - a.uv0[0], c.uv0[0] - a.uv0[0]);
+        let (vx, vy) = grad(b.uv0[1] - a.uv0[1], c.uv0[1] - a.uv0[1]);
+        let exact = near((ux * width).abs(), 1.0)
+            && near((vy * height).abs(), 1.0)
+            && near(uy * width, 0.0)
+            && near(vx * height, 0.0);
+        if exact {
+            any = true;
+            for v in t.iter_mut() {
+                v.exact = 1.0;
+            }
+        }
+    }
+    any
+}
+
 /// The draw as the GPU renderer takes it: culled screen-space triangles, the textures decoded
 /// (shared with the software path's cache), the stage setup and the pixel state. `None` when
 /// it draws nothing.
@@ -1031,7 +1064,8 @@ pub fn gpu_draw(
         uv0: v.uv[0],
         uv1: v.uv[1],
         eye: v.eye_z,
-        _pad: [0.0; 3],
+        exact: 0.0,
+        _pad: [0.0; 2],
     };
     let mut out = Vec::with_capacity(tris.len() * 3);
     for (a, b, c) in tris {
@@ -1102,7 +1136,11 @@ pub fn gpu_draw(
             .flatten()
             .any(|(o, _)| ddraw::info(m, *o).is_some_and(|i| i.src_key.is_some()));
     let zbuffer = rs(st, RS_ZENABLE, 1) != 0 && ddraw::zbuffer_info(m, st.target).is_some();
+    let pixel_exact = textures[0]
+        .as_ref()
+        .is_some_and(|t| mark_texel_for_pixel(&mut out, t.width as f32, t.height as f32));
     Some(gpu::Draw {
+        pixel_exact,
         vertices: out,
         textures,
         stages,

@@ -260,6 +260,11 @@ mod shadow {
     struct Shadow {
         size: (u32, u32),
         rgba: Vec<u8>,
+        /// Drawn since the surface was last shown: the next draws of the frame build on it.
+        /// Once shown, a new frame's first draws start from the surface itself (what the
+        /// scene does not cover, a strip half a screen pixel wide along its edges, would keep
+        /// old pictures).
+        fresh: bool,
         /// The surface's bytes as last written from the shadow (rows without padding).
         written: Vec<u8>,
     }
@@ -297,6 +302,16 @@ mod shadow {
     /// The `size` picture of the surface: its shadow where the surface is as written from it,
     /// else its own pixels (`low`, RGBA8) enlarged.
     pub fn compose(m: Mem, info: &SurfaceInfo, low: &[u8], size: (u32, u32)) -> Vec<u8> {
+        compose_with(m, info, low, size, true)
+    }
+
+    fn compose_with(
+        m: Mem,
+        info: &SurfaceInfo,
+        low: &[u8],
+        size: (u32, u32),
+        to_draw_on: bool,
+    ) -> Vec<u8> {
         let (lw, lh) = (info.width as usize, info.height as usize);
         let (w, h) = (size.0 as usize, size.1 as usize);
         let bytes = (info.bpp / 8) as usize;
@@ -305,7 +320,8 @@ mod shadow {
         let shadow = shadows
             .as_ref()
             .and_then(|map| map.get(&info.buf))
-            .filter(|s| s.size == size && s.written.len() == now.len());
+            .filter(|s| s.size == size && s.written.len() == now.len())
+            .filter(|s| s.fresh || !to_draw_on);
         let mut out = vec![0u8; w * h * 4];
         // Which of the surface's pixels a row and column of the large picture show.
         let xs: Vec<usize> = (0..w).map(|x| (x * lw / w).min(lw - 1)).collect();
@@ -352,6 +368,7 @@ mod shadow {
                     size,
                     rgba,
                     written,
+                    fresh: true,
                 },
             );
     }
@@ -363,7 +380,16 @@ mod shadow {
             shadows.as_ref()?.get(&info.buf)?.size
         };
         let low = crate::raster::to_rgba8(m, info);
-        Some((size.0, size.1, compose(m, info, &low, size)))
+        let picture = compose_with(m, info, &low, size, false);
+        if let Some(s) = SHADOWS
+            .lock()
+            .expect("shadows")
+            .as_mut()
+            .and_then(|map| map.get_mut(&info.buf))
+        {
+            s.fresh = false;
+        }
+        Some((size.0, size.1, picture))
     }
 }
 

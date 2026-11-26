@@ -37,7 +37,9 @@ pub struct Vertex {
     pub uv1: [f32; 2],
     /// Distance from the eye (table fog).
     pub eye: f32,
-    pub _pad: [f32; 3],
+    /// 1 when the triangle lies on the screen texel for pixel (see [`Draw::pixel_exact`]).
+    pub exact: f32,
+    pub _pad: [f32; 2],
 }
 
 /// A texture's pixels (RGBA8), identified by `key` for the GPU-side cache.
@@ -81,6 +83,11 @@ pub struct Draw {
     pub depth: Option<(u32, bool)>,
     /// Fog: colour, and for linear table fog (start, end); vertex fog otherwise.
     pub fog: Option<Fog>,
+    /// Some of its triangles lie on the screen texel for pixel (2D drawn with Direct3D:
+    /// panels, text; [`Vertex::exact`]): drawn larger than the screen, they are sampled at the
+    /// centre of the screen's pixel each drawn pixel belongs to, so they look as at the game's
+    /// size, only enlarged.
+    pub pixel_exact: bool,
 }
 
 /// Fog: the colour and, for linear table fog, (start, end); vertex fog without.

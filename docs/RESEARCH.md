@@ -149,6 +149,11 @@ format needs a host service **(open)**.
   Run at 1024×768 (set before the start), the camera shows more of the level, the videos sit top left and the
   fonts and HUD keep their pixel size. The HLE offers 640×480, 800×600 and 1024×768; another size ends the start
   with a DirectX error.
+- **2D with Direct3D.** The dialog windows (frames, text, portraits) and other panels are Direct3D triangles drawn
+  pre-transformed, axis-aligned, one texel to one screen pixel (some 1.005 to 1.013); the game locks the whole
+  back buffer several times a frame for its other 2D work, never `Blt`s to it. At native resolution such triangles
+  are sampled at the centre of the screen pixel each drawn pixel belongs to (`Vertex::exact`), else texel edges
+  show as lines and the colour key (cyan) bleeds in.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click
