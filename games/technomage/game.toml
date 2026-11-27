@@ -194,6 +194,10 @@ hooks = [
   0x401357,
   0x40201d,
   0x4025a4, # widescreen: the level's tile radius (more tiles drawn beside)
+  0x401654, # widescreen: texture scrolling (asks SCREEN_W == 640)
+  0x402135, # widescreen: an object's sprite animation (asks SCREEN_W == 640)
+  0x401910, # widescreen: a sprite sized by 320 / SCREEN_W (the hero's body)
+  0x402504, # widescreen: input, the pointer against the hero's place on the screen
   0x53c8d0, # widescreen: a video played (only its picture shown)
   0x401140, # the input page each frame: its tabs (keyboard and mouse, gamepad, touch)
   0x538790, # the joystick's button table set: the PlayStation version's set-up in front

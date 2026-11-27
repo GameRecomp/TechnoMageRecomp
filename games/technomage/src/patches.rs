@@ -109,8 +109,18 @@ const WORLD: [u32; 7] = [
 /// Sets how many tiles around the camera the level's geometry is drawn for (its argument, 12
 /// in the rooms seen; the square's corner shows on a wider screen as floor cut off in steps).
 const SET_TILE_RADIUS: u32 = 0x0040_25a4;
-/// How far widescreen enlarges it at most (more breaks the level's drawing).
+/// How far widescreen enlarges it at most (to 16: more breaks the level's drawing, its
+/// buffers are made for 16).
 const TILE_RADIUS_WIDER: u32 = 4;
+/// Functions the widened world functions call that ask whether `SCREEN_W` is 640 (else the
+/// 320-pixel mode: texture scrolling and sprite animation at half the steps, a cape wrong).
+/// Also one that sizes a sprite by `320 / SCREEN_W` (the hero's body; on the wider screen he
+/// shrank by its share, smaller than his cape).
+const ASKS_640: [u32; 3] = [0x0040_1654, 0x0040_2135, 0x0040_1910];
+/// Reads the input; with the mouse it compares the pointer with the hero's place on the screen
+/// (`HERO`'s +0x38, +0x3a), which the widened projection put a margin further right.
+const READ_INPUT: u32 = 0x0040_2504;
+const HERO: u32 = 0x0059_142c;
 /// Plays a video (Bink, into the primary surface, centred in 640 × 480); the handle of the one
 /// playing (its width and height first).
 const PLAY_VIDEO: u32 = 0x0053_c8d0;
@@ -1010,6 +1020,56 @@ fn set_tile_radius(c: &mut Cpu) {
     call_original(c, SET_TILE_RADIUS);
 }
 
+/// Whether a world function ran since the last ordering table was drawn, and whether one did
+/// for the table being drawn.
+static WORLD_DRAWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WORLD_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// `SCREEN_W` as the game set it while a world function sees the wider screen (0: none does).
+static NARROW_W: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A function of `ASKS_640` with the game's own `SCREEN_W`.
+fn narrow(c: &mut Cpu, f: u32) {
+    let w = NARROW_W.load(std::sync::atomic::Ordering::Relaxed);
+    if w == 0 {
+        return call_original(c, f);
+    }
+    let m = c.mem();
+    let wide = m.ld32(SCREEN_W);
+    m.st32(SCREEN_W, w);
+    call_original(c, f);
+    m.st32(SCREEN_W, wide);
+}
+
+fn asks_640_0(c: &mut Cpu) {
+    narrow(c, ASKS_640[0]);
+}
+
+fn asks_640_1(c: &mut Cpu) {
+    narrow(c, ASKS_640[1]);
+}
+
+fn asks_640_2(c: &mut Cpu) {
+    narrow(c, ASKS_640[2]);
+}
+
+/// The input read with the hero's place on the screen in the game's pixels, as the pointer is.
+fn read_input(c: &mut Cpu) {
+    let m = c.mem();
+    let ox = rc_hle::ddraw::margin() as i16;
+    let hero = m.ld32(HERO);
+    if ox == 0 || hero == 0 {
+        return call_original(c, READ_INPUT);
+    }
+    let x = m.ld16(hero + 0x38);
+    m.st16(hero + 0x38, (x as i16).wrapping_sub(ox) as u16);
+    call_original(c, READ_INPUT);
+    // Put back unless the function placed the hero anew.
+    if m.ld16(hero + 0x38) == (x as i16).wrapping_sub(ox) as u16 {
+        m.st16(hero + 0x38, x);
+    }
+}
+
 fn wide_screen<R>(c: &mut Cpu, f: impl FnOnce(&mut Cpu) -> R) -> R {
     let m = c.mem();
     let ox = rc_hle::ddraw::margin();
@@ -1019,7 +1079,9 @@ fn wide_screen<R>(c: &mut Cpu, f: impl FnOnce(&mut Cpu) -> R) -> R {
     let (w, cx) = (m.ld32(SCREEN_W), m.ld32(CENTER_X));
     m.st32(SCREEN_W, w + 2 * ox);
     m.st32(CENTER_X, cx.wrapping_add(ox));
+    let outer = NARROW_W.swap(w, std::sync::atomic::Ordering::Relaxed);
     let r = f(c);
+    NARROW_W.store(outer, std::sync::atomic::Ordering::Relaxed);
     m.st32(SCREEN_W, w);
     m.st32(CENTER_X, m.ld32(CENTER_X).wrapping_sub(ox));
     r
@@ -1066,6 +1128,7 @@ fn camera(c: &mut Cpu) {
 macro_rules! world_fns {
     ($($name:ident = $i:expr),*) => {
         $(fn $name(c: &mut Cpu) {
+            WORLD_DRAWN.store(true, std::sync::atomic::Ordering::Relaxed);
             wide_screen(c, |c| call_original(c, WORLD[$i]));
         })*
         const WORLD_FNS: [fn(&mut Cpu); WORLD.len()] = [$($name),*];
@@ -1107,6 +1170,11 @@ fn draw_split(c: &mut Cpu) {
     }
     let first = last - 0x3ff * 16;
     let gw = m.ld32(SCREEN_W);
+    // Whether the world is drawn this frame (not in the load and save book): `ui_shift`.
+    WORLD_SHOWN.store(
+        WORLD_DRAWN.swap(false, std::sync::atomic::Ordering::Relaxed),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     // What changes for the draw (an address and its value before), put back after it.
     let mut changed: Vec<(u32, u8)> = Vec::new();
     let mut set = |a: u32, v: u8| {
@@ -1210,14 +1278,21 @@ fn rect_width(m: Mem, node: u32, code: u8) -> Option<(u32, i32)> {
 
 /// How far an interface primitive of `bucket` (its middle at `centre`, its top at `top`)
 /// moves on the wider screen: into the middle (`ox`), or to an edge. The life and mana tubes
-/// (buckets 12 to 15) keep to the left edge in every state (a menu, a dialogue). The character
+/// (buckets 12 to 15, in the bottom left corner) keep to the left edge while the world is drawn
+/// (a menu, a dialogue over it); the pause menu's title shares the buckets, the load and save
+/// book draws its question there. The character
 /// menu's buckets (2 to 11, 16 to 24) above its description (y 340) go to the edge they are
 /// nearer to, while it is open (state 0x40) and while it slides out (the game is played again
 /// then): left of the middle to the left edge, right of it to the right one. Its description
 /// (with the key pictures in its text), a dialogue, the pause menu, the map stay in the middle
 /// (RESEARCH.md, "Widescreen").
 pub(crate) fn ui_shift(m: Mem, bucket: u32, centre: i32, top: i32, gw: i32, ox: i32) -> i32 {
-    if (12..=15).contains(&bucket) {
+    // The tubes: their buckets' bottom left corner (the pause menu's title shares them).
+    if (12..=15).contains(&bucket)
+        && centre < 140
+        && top > 300
+        && WORLD_SHOWN.load(std::sync::atomic::Ordering::Relaxed)
+    {
         return 0;
     }
     let state = m.ld32(PAUSE_STATE);
@@ -1428,6 +1503,10 @@ pub fn register() {
     hook(DRAW_OT, draw_ot);
     hook(CAMERA, camera);
     hook(SET_TILE_RADIUS, set_tile_radius);
+    hook(ASKS_640[0], asks_640_0);
+    hook(ASKS_640[1], asks_640_1);
+    hook(ASKS_640[2], asks_640_2);
+    hook(READ_INPUT, read_input);
     hook(PLAY_VIDEO, play_video);
     hook(crate::controls::CONFIG_PAGE, crate::controls::config_page);
     hook(

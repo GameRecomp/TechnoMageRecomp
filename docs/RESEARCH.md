@@ -208,7 +208,19 @@ format needs a host service **(open)**.
   camera, its radius set per level (`0x4025a4`, argument 12 in the house, doubled into `0x55f420`, also
   `(r-3)<<11` into `0x97e18c`): on a wider screen the square's corner shows on the right as floor cut off in
   steps (nothing beyond x ≈ 700 reaches the ordering table). Widescreen enlarges the argument by the screen's
-  share, at most by 4 (16: the room complete at 16:9; 20 draws nothing). Many functions also branch on
+  share, at most by 4: from 17 on the level's geometry falls apart (its buffers are made for 16; from 19 on
+  `(r-3)<<11` also overflows its 16 bits), so at 16:9 the room is complete but at 21:9 a corner on the right
+  still shows. The tubes' buckets 12 to 15 also hold the pause menu's title and the load and save book's
+  question (the book draws no world): only what lies in the bottom left corner keeps to the edge, and only
+  while the world is drawn. Three functions the widened world functions call ask the width: texture
+  scrolling (`0x401654`) and an object's sprite animation (`0x402135`) whether it is 640 (else the 320-pixel
+  mode's half steps), and the sprite of the hero's body (`0x401910`) is sized by `320 / SCREEN_W`, so on the
+  wider screen he shrank by its share, smaller than his cape; they run with the game's width. The input
+  (`0x402504`) compares the pointer (the game's pixels) with the hero's place on the screen (`[0x59142c]` +0x38,
+  +0x3a), which the widened projection puts a margin further right: the pointer's centre was right of the
+  hero; the input sees his place a margin to the left. On the right a hard edge at about x 700 of the screen
+  surface remains in the house at 16:9 whatever the tile radius (nothing beyond reaches the ordering table):
+  its cause is **(open)** (a visibility table made for the 4:3 view?). Many functions also branch on
   `SCREEN_W == 640` (else the 320-pixel mode's halved steps, e.g. texture scrolling at `0x405f69`); inside the
   widened world functions they take the 320 path: harmless so far **(open)**. The hero off the middle could not
   be reproduced (in the middle at 16:9 and 16:10, standing, after walks) **(open)**.
