@@ -1285,8 +1285,9 @@ fn rect_width(m: Mem, node: u32, code: u8) -> Option<(u32, i32)> {
 
 /// How far an interface primitive of `bucket` (its middle at `centre`, its top at `top`)
 /// moves on the wider screen: into the middle (`ox`), or to an edge. The life and mana tubes
-/// (buckets 12 to 15, in the bottom left corner) keep to the left edge while the world is drawn
-/// (a menu, a dialogue over it); the pause menu's title shares the buckets, the load and save
+/// (buckets 12 to 15, in the bottom left corner) and the coins (the same buckets, in the top
+/// left corner, shown in the menus) keep to the left edge while the world is drawn (a menu, a
+/// dialogue over it); the pause menu's title shares the buckets, the load and save
 /// book draws its question there. The character
 /// menu's buckets (2 to 11, 16 to 24) above its description (y 340) go to the edge they are
 /// nearer to, while it is open (state 0x40) and while it slides out (the game is played again
@@ -1294,10 +1295,11 @@ fn rect_width(m: Mem, node: u32, code: u8) -> Option<(u32, i32)> {
 /// (with the key pictures in its text), a dialogue, the pause menu, the map stay in the middle
 /// (RESEARCH.md, "Widescreen").
 pub(crate) fn ui_shift(m: Mem, bucket: u32, centre: i32, top: i32, gw: i32, ox: i32) -> i32 {
-    // The tubes: their buckets' bottom left corner (the pause menu's title shares them).
+    // The tubes and the coins: their buckets' bottom and top left corners (the pause menu's
+    // title shares them).
     if (12..=15).contains(&bucket)
         && centre < 140
-        && top > 300
+        && !(60..=300).contains(&top)
         && WORLD_SHOWN.load(std::sync::atomic::Ordering::Relaxed)
     {
         return 0;

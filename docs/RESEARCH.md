@@ -212,7 +212,8 @@ format needs a host service **(open)**.
   `(r-3)<<11` also overflows its 16 bits), so at 16:9 the room is complete but at 21:9 a corner on the right
   still shows. The tubes' buckets 12 to 15 also hold the pause menu's title and the load and save book's
   question (the book draws no world): only what lies in the bottom left corner keeps to the edge, and only
-  while the world is drawn. A rectangle in the
+  while the world is drawn. The coins (their icon and digits, shown in the menus and when gold changes) lie in
+  the same buckets in the top left corner (top above y 60) and keep to that edge too. A rectangle in the
   background bucket (the input page's dark tile over the 640 pixels) is widened by its width as well: beyond
   it nothing clears the screen, and the keyboard tab's long names stayed beside the gamepad tab's. Three functions the widened world functions call ask the width: texture
   scrolling (`0x401654`) and an object's sprite animation (`0x402135`) whether it is 640 (else the 320-pixel
