@@ -206,11 +206,16 @@ format needs a host service **(open)**.
   key pictures in its text, stays in the middle), maps the pointer back (`screen_to_game`), and widens what
   covers the whole 640 pixels (bars, fades). The level's geometry is drawn for a square of tiles around the
   camera, its radius set per level (`0x4025a4`, argument 12 in the house, doubled into `0x55f420`, also
-  `(r-3)<<11` into `0x97e18c`): on a wider screen the square's corner shows on the right as floor cut off in
-  steps (nothing beyond x ≈ 700 reaches the ordering table). Widescreen enlarges the argument by the screen's
-  share, at most by 4: from 17 on the level's geometry falls apart (its buffers are made for 16; from 19 on
-  `(r-3)<<11` also overflows its 16 bits), so at 16:9 the room is complete but at 21:9 a corner on the right
-  still shows. The tubes' buckets 12 to 15 also hold the pause menu's title and the load and save book's
+  `(r-3)<<11` into `0x97e18c`, the Chebyshev distance from which a tile's corners fade to black over two
+  tiles, `0x4490f5`). Widescreen enlarges the argument by the screen's share, at most by 4: from 17 on the
+  level's geometry falls apart (its buffers are made for 16; from 19 on `(r-3)<<11` also overflows its 16
+  bits). The hard edge on the right in steps (about x 650 to 700 of a 16:9 screen, at every camera angle,
+  nothing beyond it in the ordering table) was the clip rectangle instead: set once with the display mode
+  (`0x40c0a0` from `0x41b816`: x, y, width, height at `0x14f6ce0`..`0x14f6cec`, 0, 0, 640, 480), the level's
+  geometry (`0x4482e0`, a PlayStation-style test of the packed vertices against the packed width and height)
+  and objects and effects (`0x45a820`, `0x45cbe0`, `0x50d9c0`, `0x51bd80`, `0x52b8f0`) skip what lies wholly
+  outside it; the world functions see its width widened too. Seen in Dreamertown (a save moved there with
+  `tmsave`): complete at 16:9 and 21:9, at 21:9 the square's fade shows in a far corner. The tubes' buckets 12 to 15 also hold the pause menu's title and the load and save book's
   question (the book draws no world): only what lies in the bottom left corner keeps to the edge, and only
   while the world is drawn. The coins (their icon and digits, shown in the menus and when gold changes) lie in
   the same buckets in the top left corner (top above y 60) and keep to that edge too. A rectangle in the
@@ -224,9 +229,7 @@ format needs a host service **(open)**.
   wider screen he shrank by its share, smaller than his cape; they run with the game's width. The input
   (`0x402504`) compares the pointer (the game's pixels) with the hero's place on the screen (`[0x59142c]` +0x38,
   +0x3a), which the widened projection puts a margin further right: the pointer's centre was right of the
-  hero; the input sees his place a margin to the left. On the right a hard edge at about x 700 of the screen
-  surface remains in the house at 16:9 whatever the tile radius (nothing beyond reaches the ordering table):
-  its cause is **(open)** (a visibility table made for the 4:3 view?). Many functions also branch on
+  hero; the input sees his place a margin to the left. Many functions also branch on
   `SCREEN_W == 640` (else the 320-pixel mode's halved steps, e.g. texture scrolling at `0x405f69`); inside the
   widened world functions they take the 320 path: harmless so far **(open)**. The hero off the middle could not
   be reproduced (in the middle at 16:9 and 16:10, standing, after walks) **(open)**.

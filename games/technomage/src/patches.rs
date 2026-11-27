@@ -92,6 +92,10 @@ const SCREEN_W: u32 = 0x00f5_b320;
 /// The projection's centre on the screen (x; y follows), set each frame by `CAMERA` from the
 /// screen size and the camera's shake.
 const CENTER_X: u32 = 0x014f_c7a0;
+/// The clip rectangle's width (x, y, width, height from `0x14f6ce0`), set once with the display
+/// mode (`0x40c0a0`, from `0x41b816`): the level's geometry (`0x4482e0`, a test on its packed
+/// vertices), objects and effects skip what lies wholly outside it.
+const CLIP_W: u32 = 0x014f_6ce8;
 /// Each frame of a level the game's main loop calls the camera (it sets the projection's centre
 /// from the screen size and the camera's shake), the functions that put the world's primitives
 /// into the ordering table (the level's geometry first: projected, culled to the screen,
@@ -1004,7 +1008,7 @@ fn draw_ot(c: &mut Cpu) {
 /// (`rc_hle::ddraw::margin`), so menus, panels, maps and videos stay as they are, in the middle.
 /// The world is drawn over the whole width: the camera and the functions that put the world's
 /// primitives into the ordering table see the wider screen (its size, the projection's centre
-/// moved by the margin), so they cull to it and place the world on its pixels; the ordering
+/// moved by the margin, the clip rectangle's width), so they cull to it and place the world on its pixels; the ordering
 /// table's world buckets are then drawn on the whole width, the rest moved into the middle.
 /// The tile radius, larger by the wider screen's share (at the level's start: a window
 /// resized later keeps it until the next level).
@@ -1076,14 +1080,16 @@ fn wide_screen<R>(c: &mut Cpu, f: impl FnOnce(&mut Cpu) -> R) -> R {
     if ox == 0 {
         return f(c);
     }
-    let (w, cx) = (m.ld32(SCREEN_W), m.ld32(CENTER_X));
+    let (w, cx, clip) = (m.ld32(SCREEN_W), m.ld32(CENTER_X), m.ld32(CLIP_W));
     m.st32(SCREEN_W, w + 2 * ox);
     m.st32(CENTER_X, cx.wrapping_add(ox));
+    m.st32(CLIP_W, clip + 2 * ox);
     let outer = NARROW_W.swap(w, std::sync::atomic::Ordering::Relaxed);
     let r = f(c);
     NARROW_W.store(outer, std::sync::atomic::Ordering::Relaxed);
     m.st32(SCREEN_W, w);
     m.st32(CENTER_X, m.ld32(CENTER_X).wrapping_sub(ox));
+    m.st32(CLIP_W, clip);
     r
 }
 
