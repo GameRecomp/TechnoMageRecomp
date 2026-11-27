@@ -177,6 +177,8 @@ export async function run({ runtime, code, fs, present, pointer, frame, env = {}
     button: (b, down) => ex.rc_button(b, down ? 1 : 0),
     wheel: (dz) => ex.rc_wheel(dz),
     cursor: (x, y) => ex.rc_cursor(x, y),
+    /* The size the picture is shown at (its proportions: widescreen follows them). */
+    output: (w, h) => ex.rc_output(w, h),
     /* `n` interleaved stereo samples (44.1 kHz) as a Float32Array (valid until the next call). */
     mix: (n) => {
       if (audio.n < n) { audio.buf = (ex.rc_alloc(n * 4 + 4) + 3) & ~3; audio.n = n; }

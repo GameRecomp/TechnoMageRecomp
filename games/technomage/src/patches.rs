@@ -53,10 +53,11 @@ const MENU_BOX_HEIGHT: u32 = 0x0059_e23c;
 const MENU_FONT: u32 = 0x0059_e2a0;
 const FONT_LINE: u32 = 0x13;
 
-/// The options panel's entries (0x24 bytes each, ended by a NULL key), five of them with the end.
+/// The options panel's entries (0x24 bytes each, ended by a NULL key): four and the end, and room
+/// for one more before the next data (zeros, so it ends a table of five).
 const OPTIONS_TABLE: u32 = 0x0056_4c80;
 const OPTIONS_ENTRY_SIZE: u32 = 0x24;
-const OPTIONS_BYTES: usize = 5 * OPTIONS_ENTRY_SIZE as usize;
+const OPTIONS_BYTES: usize = 6 * OPTIONS_ENTRY_SIZE as usize;
 /// The panel's title text, its fonts (entries; metrics), the selected entry, the slide position.
 const OPTIONS_TITLE: u32 = 0x0059_fb80;
 const OPTIONS_FONT: u32 = 0x0059_fb84;
@@ -88,6 +89,30 @@ const DRAW_OT: u32 = 0x0053_0e60;
 
 /// The screen size the game lays its menus out on, and a 4096-step sine table (i16 every 4 bytes).
 const SCREEN_W: u32 = 0x00f5_b320;
+/// The projection's centre on the screen (x; y follows), set each frame by `CAMERA` from the
+/// screen size and the camera's shake.
+const CENTER_X: u32 = 0x014f_c7a0;
+/// Each frame of a level the game's main loop calls the camera (it sets the projection's centre
+/// from the screen size and the camera's shake), the functions that put the world's primitives
+/// into the ordering table (the level's geometry first: projected, culled to the screen,
+/// `SCREEN_W`), and functions that tell which objects are on the screen.
+const CAMERA: u32 = 0x0040_10b9;
+const WORLD: [u32; 7] = [
+    0x0040_148d, // the level's geometry
+    0x0040_1ff0, // objects, effects
+    0x0040_25ef,
+    0x0040_1721,
+    0x0040_21da, // which objects are on the screen
+    0x0040_1357,
+    0x0040_201d,
+];
+/// Plays a video (Bink, into the primary surface, centred in 640 × 480); the handle of the one
+/// playing (its width and height first).
+const PLAY_VIDEO: u32 = 0x0053_c8d0;
+const VIDEO: u32 = 0x0080_8ce8;
+/// The ordering table's buckets the world's primitives go to start here (their depth); the
+/// menus', texts' and panels' are below (0 to 0x1b seen, the world from 0xf8 on).
+const WORLD_BUCKET: u32 = 0x80;
 const SCREEN_H: u32 = 0x00f5_b324;
 const SINE: u32 = 0x0058_6a30;
 
@@ -98,6 +123,7 @@ const KEY_GRAPHICS: &str = "RC_GRAPHICS";
 const KEY_INFO: &str = "RC_INFO";
 const KEY_RESOLUTION: &str = "RC_RESOLUTION";
 const KEY_NATIVE: &str = "RC_NATIVE";
+const KEY_WIDESCREEN: &str = "RC_WIDESCREEN";
 const KEY_ANTIALIAS: &str = "RC_ANTIALIAS";
 const KEY_SHOW_FPS: &str = "RC_SHOW_FPS";
 const KEY_VERSION: &str = "RC_VERSION";
@@ -151,6 +177,17 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Risoluzione nativa",
             "Resolución nativa",
             "Native resolutie",
+        ],
+    ),
+    (
+        KEY_WIDESCREEN,
+        [
+            "Breitbild",
+            "Widescreen",
+            "Écran large",
+            "Schermo panoramico",
+            "Pantalla panorámica",
+            "Breedbeeld",
         ],
     ),
     (
@@ -631,14 +668,20 @@ struct Switch {
     set: fn(bool),
 }
 
-/// The graphics page's switches, the options panel's entries from the second on (the panel has
-/// five: four and the end).
-const SWITCHES: [Switch; 3] = [
+/// The graphics page's switches, the options panel's entries from the second on (the table
+/// has room for five entries and the end).
+const SWITCHES: [Switch; 4] = [
     Switch {
         key: KEY_NATIVE,
         name: "native_resolution",
         get: rc_platform::render::native,
         set: rc_platform::render::set_native,
+    },
+    Switch {
+        key: KEY_WIDESCREEN,
+        name: "widescreen",
+        get: rc_platform::render::widescreen,
+        set: rc_platform::render::set_widescreen,
     },
     Switch {
         key: KEY_ANTIALIAS,
@@ -653,6 +696,9 @@ const SWITCHES: [Switch; 3] = [
         set: rc_platform::render::set_show_fps,
     },
 ];
+
+// Our page's entries and the end fit the table.
+const _: () = assert!((2 + SWITCHES.len()) * OPTIONS_ENTRY_SIZE as usize <= OPTIONS_BYTES);
 
 /// The options entry of switch `i`.
 fn switch_entry(i: usize) -> u32 {
@@ -850,8 +896,16 @@ static DRAWING_POINTER: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 
 fn draw_object(c: &mut Cpu) {
     let m = c.mem();
-    if m.ld32(c.r[ESP]) != POINTER_RETURN || !rc_platform::cursor::enabled() {
+    if m.ld32(c.r[ESP]) != POINTER_RETURN {
         call_original(c, DRAW_OBJECT);
+        return;
+    }
+    if !rc_platform::cursor::enabled() {
+        // Drawn in the frame, among the world's buckets: placed on the wider screen like it.
+        let ox = rc_hle::ddraw::margin();
+        let at = c.r[ESP] + 4 + 4 * 2;
+        m.st32(at, m.ld32(at).wrapping_add(ox));
+        wide_screen(c, |c| call_original(c, DRAW_OBJECT));
         return;
     }
     let (x, y) = (arg(c, 2) as i32, arg(c, 3) as i32);
@@ -882,7 +936,7 @@ fn draw_ot(c: &mut Cpu) {
         call_original(c, DRAW_OT);
         return;
     }
-    call_original(c, DRAW_OT);
+    draw_split(c);
     let Some((prims, x, y)) = POINTER.lock().expect("pointer").take() else {
         return;
     };
@@ -907,6 +961,145 @@ fn draw_ot(c: &mut Cpu) {
     DRAWING_POINTER.store(false, Ordering::Relaxed);
     if let Some(image) = render_pointer(m, &draws, x, y) {
         rc_platform::cursor::show(image);
+    }
+}
+
+// --- Widescreen ------------------------------------------------------------------------------------
+
+/// Widescreen (`rc_platform::render::widescreen`): the HLE makes the screen wider than the
+/// game's 640 × 480 by a margin on each side and moves what the game draws into the middle
+/// (`rc_hle::ddraw::margin`), so menus, panels, maps and videos stay as they are, in the middle.
+/// The world is drawn over the whole width: the camera and the functions that put the world's
+/// primitives into the ordering table see the wider screen (its size, the projection's centre
+/// moved by the margin), so they cull to it and place the world on its pixels; the ordering
+/// table's world buckets are then drawn on the whole width, the rest moved into the middle.
+fn wide_screen<R>(c: &mut Cpu, f: impl FnOnce(&mut Cpu) -> R) -> R {
+    let m = c.mem();
+    let ox = rc_hle::ddraw::margin();
+    if ox == 0 {
+        return f(c);
+    }
+    let (w, cx) = (m.ld32(SCREEN_W), m.ld32(CENTER_X));
+    m.st32(SCREEN_W, w + 2 * ox);
+    m.st32(CENTER_X, cx.wrapping_add(ox));
+    let r = f(c);
+    m.st32(SCREEN_W, w);
+    m.st32(CENTER_X, m.ld32(CENTER_X).wrapping_sub(ox));
+    r
+}
+
+static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn play_video(c: &mut Cpu) {
+    use std::sync::atomic::Ordering;
+    PLAYING.store(true, Ordering::Relaxed);
+    call_original(c, PLAY_VIDEO);
+    PLAYING.store(false, Ordering::Relaxed);
+}
+
+/// Where the video playing is on the screen (the game centres it): widescreen shows only it,
+/// enlarged (the cut scenes are 640 × 368, nearly 16:9).
+fn video_picture(m: Mem) -> Option<(u32, u32, u32, u32)> {
+    if !PLAYING.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    let h = m.ld32(VIDEO);
+    if h == 0 {
+        return None;
+    }
+    let (w, ht) = (m.ld32(h), m.ld32(h + 4));
+    let (gw, gh, _) = rc_hle::ddraw::display_mode();
+    (w <= gw && ht <= gh).then(|| ((gw - w) / 2, (gh - ht) / 2, w, ht))
+}
+
+fn camera(c: &mut Cpu) {
+    wide_screen(c, |c| call_original(c, CAMERA));
+}
+
+/// The world's functions (`WORLD`), each on the wider screen.
+macro_rules! world_fns {
+    ($($name:ident = $i:expr),*) => {
+        $(fn $name(c: &mut Cpu) {
+            wide_screen(c, |c| call_original(c, WORLD[$i]));
+        })*
+        const WORLD_FNS: [fn(&mut Cpu); WORLD.len()] = [$($name),*];
+    };
+}
+world_fns!(w0 = 0, w1 = 1, w2 = 2, w3 = 3, w4 = 4, w5 = 5, w6 = 6);
+
+/// The offsets of a primitive's screen positions (x, then y: two i16), by its command byte
+/// (`+0xf`). The primitives are PlayStation GPU packets after an 8-byte link: a colour and the
+/// command, then the vertices, each with its texture coordinates (textured) and the next
+/// vertex's colour before it (Gouraud).
+fn vertex_offsets(code: u8) -> Vec<u32> {
+    match code & 0xe0 {
+        0x20 => {
+            let n = if code & 0x08 != 0 { 4 } else { 3 };
+            let stride = 4 + 4 * u32::from(code & 0x04 != 0) + 4 * u32::from(code & 0x10 != 0);
+            (0..n).map(|i| 0x10 + i * stride).collect()
+        }
+        // Lines (not poly-lines, whose length the packet does not say).
+        0x40 if code & 0x08 == 0 => {
+            let stride = 4 + 4 * u32::from(code & 0x10 != 0);
+            vec![0x10, 0x10 + stride]
+        }
+        0x60 => vec![0x10],
+        _ => Vec::new(),
+    }
+}
+
+/// Draw the frame's ordering table (from its last node, the argument) on the whole width: the
+/// world as it was put there (on the wider screen), the other buckets' primitives moved into
+/// the middle for the draw and back after it.
+fn draw_split(c: &mut Cpu) {
+    let m = c.mem();
+    let last = arg(c, 0);
+    let ox = rc_hle::ddraw::margin();
+    if ox == 0 {
+        call_original(c, DRAW_OT);
+        return;
+    }
+    let first = last - 0x3ff * 16;
+    let gw = m.ld32(SCREEN_W);
+    let mut moved: Vec<(u32, u16)> = Vec::new();
+    let mut node = m.ld32(last);
+    let mut bucket = 0x3ff;
+    let mut guard = 0;
+    while node != 0 && guard < 1 << 20 {
+        if (first..=last).contains(&node) {
+            bucket = (node - first) / 16;
+        } else if bucket == 0x3ff {
+            // The background: quads of a gradient over the 640 pixels, drawn first and setting
+            // the depth (the game clears it no other way). Over the whole width.
+            let offsets = vertex_offsets(m.ld8(node + 0xf));
+            let xs: Vec<i16> = offsets.iter().map(|&o| m.ld16(node + o) as i16).collect();
+            if xs.iter().all(|x| (0..=gw as i16).contains(x)) {
+                for (o, x) in offsets.into_iter().zip(xs) {
+                    moved.push((node + o, x as u16));
+                    let wide = i32::from(x) * (gw + 2 * ox) as i32 / gw as i32;
+                    m.st16(node + o, wide as u16);
+                }
+            }
+        } else if bucket < WORLD_BUCKET {
+            for o in vertex_offsets(m.ld8(node + 0xf)) {
+                let x = m.ld16(node + o);
+                moved.push((node + o, x));
+                m.st16(node + o, (x as i16).wrapping_add(ox as i16) as u16);
+            }
+        }
+        node = m.ld32(node);
+        guard += 1;
+    }
+    // The renderer drops a primitive wholly beyond the screen's size: the wider screen's.
+    if std::env::var("RC_NOWIDEOT").is_ok() {
+        rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT));
+    } else {
+        wide_screen(c, |c| {
+            rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT))
+        });
+    }
+    for (a, x) in moved.into_iter().rev() {
+        m.st16(a, x);
     }
 }
 
@@ -1064,6 +1257,12 @@ pub fn register() {
     hook(OPTIONS_ENTRY, options_entry);
     hook(DRAW_OBJECT, draw_object);
     hook(DRAW_OT, draw_ot);
+    hook(CAMERA, camera);
+    hook(PLAY_VIDEO, play_video);
+    rc_hle::ddraw::set_picture_fn(video_picture);
+    for (f, w) in WORLD.iter().zip(WORLD_FNS) {
+        hook(*f, w);
+    }
 }
 
 #[cfg(test)]
@@ -1086,6 +1285,21 @@ mod tests {
         assert!(keys <= STR_KEYS_SIZE as usize);
         assert_eq!(text_for(b"RC_GRAPHICS", 9), Some("Configure graphics"));
         assert_eq!(text_for(b"OPT_OPTIONS", 0), None);
+    }
+
+    #[test]
+    fn packet_vertices() {
+        // Gouraud line, textured quad, Gouraud textured quad and triangle, Gouraud quad.
+        assert_eq!(vertex_offsets(0x52), [0x10, 0x18]);
+        assert_eq!(vertex_offsets(0x2f), [0x10, 0x18, 0x20, 0x28]);
+        assert_eq!(vertex_offsets(0x3c), [0x10, 0x1c, 0x28, 0x34]);
+        assert_eq!(vertex_offsets(0x34), [0x10, 0x1c, 0x28]);
+        assert_eq!(vertex_offsets(0x38), [0x10, 0x18, 0x20, 0x28]);
+        assert_eq!(vertex_offsets(0x20), [0x10, 0x14, 0x18]);
+        // Rectangles: their corner; the game's own packets (0x80): none.
+        assert_eq!(vertex_offsets(0x65), [0x10]);
+        assert!(vertex_offsets(0x80).is_empty());
+        assert!(vertex_offsets(0x4a).is_empty());
     }
 
     #[test]

@@ -39,8 +39,8 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_RENDERER=soft` | Direct3D in the software rasterizer instead of wgpu |
 | `RC_FRAMES=n` | end after `n` presented frames |
 | `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
-| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x up down left right click@x,y move@x,y` |
-| `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution renders for (scripted runs) |
+| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x m i tab f11 f12 up down left right click@x,y move@x,y` |
+| `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution and widescreen follow (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString` |
 
@@ -59,8 +59,9 @@ RC_HEADLESS=1 RC_INPUT="20:esc 60:esc 100:esc 140:esc 180:esc 220:esc 300:enter 
 `dispatch::call_original`. Changing the list needs a new lift. What the hooks touch is in RESEARCH.md ("The pause
 menu, the options panel and the texts"). So far two entries in the pause menu (its box grows by their lines), each
 opening the options panel with lines of its own: "Configure graphics" (the render resolution and the switches
-"native resolution", "antialiasing" and "show frame rate", kept in `TechnoMageRecomp.cfg` in the user directory;
-`rc_platform::render`, the HLE's shadows of the screen's surfaces in `d3d.rs`, multisampling in the GPU renderer,
+"native resolution", "widescreen", "antialiasing" and "show frame rate", kept in `TechnoMageRecomp.cfg` in the
+user directory; `rc_platform::render`, the HLE's shadows of the screen's surfaces in `d3d.rs`, the margins of the
+screen's surfaces in `ddraw.rs` with the patches' world on the wider screen, multisampling in the GPU renderer,
 `rc_platform::fps`) and "Show information" (this program's version, build time and commit, the
 platform, the game's version and language). Their texts are in a table in the game's six languages. The build time
 and commit come from `games/technomage/build_info.rs`, which both build scripts include (`SOURCE_DATE_EPOCH` fixes

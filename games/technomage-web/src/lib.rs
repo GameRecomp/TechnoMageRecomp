@@ -196,6 +196,12 @@ mod web {
         rc_platform::input(Input::Wheel { dz });
     }
 
+    /// The size the page shows the picture in (CSS pixels): widescreen takes its proportions.
+    #[no_mangle]
+    pub extern "C" fn rc_output(width: u32, height: u32) {
+        rc_platform::render::set_output(width, height);
+    }
+
     #[no_mangle]
     pub extern "C" fn rc_cursor(x: i32, y: i32) {
         rc_platform::input(Input::Cursor { x, y });

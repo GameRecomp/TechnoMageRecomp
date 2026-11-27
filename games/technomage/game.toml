@@ -100,7 +100,7 @@ unpacked_sha256 = "a1201ab89542093b3ca312840fc44c216d62cdb6146e3ca3b29925ceac68b
 variants = ["cd-de", "cd-en"]
 
 # The game project's changes (games/technomage/src/patches.rs): "Configure graphics" and "Show
-# information" in the pause menu, the mouse pointer as a hardware cursor.
+# information" in the pause menu, the mouse pointer as a hardware cursor, widescreen.
 [binary.patch]
 # Functions behind the linker's jump thunks are entered (and hooked) at the thunk.
 hooks = [
@@ -112,7 +112,17 @@ hooks = [
   0x450a60, # the pause menu's value texts (by entry index)
   0x450b80, # a pause menu entry chosen (by entry index)
   0x460a30, # an options panel entry drawn
-  0x530e60, # the frame's ordering table drawn: the pointer's primitives on their own
+  0x530e60, # the frame's ordering table drawn: the pointer's primitives on their own;
+            #   widescreen: on the whole width
+  0x4010b9, # widescreen: the camera (the projection's centre) on the wider screen
+  0x40148d, # widescreen: the world's primitives put into the ordering table, culled to the
+  0x401ff0, #   wider screen
+  0x4025ef,
+  0x401721,
+  0x4021da, # widescreen: which objects are on the wider screen
+  0x401357,
+  0x40201d,
+  0x53c8d0, # widescreen: a video played (only its picture shown)
 ]
 
 [[binary]]

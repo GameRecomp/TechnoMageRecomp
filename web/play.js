@@ -412,6 +412,9 @@ async function start() {
       },
     });
     hookInput(canvas);
+    const output = () => player.output(window.innerWidth, window.innerHeight);
+    window.addEventListener('resize', output);
+    output();
     $('overlay').hidden = true;
     document.body.classList.remove('idle');
     canvas.focus();

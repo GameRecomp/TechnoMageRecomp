@@ -61,6 +61,11 @@ files:
 - **Native resolution** (in "Configure graphics", kept): the 3D scene is drawn at the size of the window, or of
   the screen in full screen, keeping the game's 4:3 picture with black bars; menus, texts and the HUD stay as they
   were, only enlarged.
+- **Widescreen** (in "Configure graphics", kept): the picture is as wide as the window (up to 32:9), the
+  world drawn over the whole width, so more of the level shows at the sides. Nothing is stretched: menus,
+  dialogues, the HUD, the map and the quest log stay as they were, in the middle (black at the sides where the game
+  covers the whole screen); the cut scenes, made nearly 16:9 with black bars above and below, fill the width.
+  Natively and in the browser; with native resolution too.
 - **Antialiasing** and **Show frame rate** (in "Configure graphics", kept): the 3D scene drawn with four samples
   per pixel on the GPU (natively); the frames per second in the top right corner.
 - **Hardware cursor:** the game's stone pointer is the system's mouse cursor, so it follows the mouse without

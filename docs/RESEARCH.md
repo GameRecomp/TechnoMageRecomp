@@ -162,6 +162,23 @@ format needs a host service **(open)**.
   depth, its depth pushed back, so it only fills such gaps. And with pixel centres on whole coordinates, what is
   drawn from 0 on starts half a screen pixel into the larger picture: its first column and row are copied from
   the next.
+- **Widescreen.** Every frame of a level the main loop (in `WinMain`, `0x44fc50`) calls, among others, the
+  functions that put the world's primitives into the ordering table: the level's geometry (`0x40148d`, most of
+  them), objects and effects (`0x401ff0`, `0x4025ef`, `0x401721`); then the camera (`0x4010b9`: the projection's
+  centre `0x14fc7a0`/`0x14fc7a4` is half the screen size less the camera's shake); `0x4021da`, `0x401357`,
+  `0x40201d` read the screen size to tell which objects are on it and add no primitives. They cull against the
+  screen size `0xf5b320`; the camera's distance is 416 at a width of 640 and 512 at any other (`0x40fac0`, into
+  `0x5913b4`), which is why a larger display mode zooms out. The ordering table's draw (`0x530e60`) drops a
+  primitive wholly beyond the screen size as well. The primitives are PlayStation GPU packets after an 8-byte
+  link: the command byte at `+0xf` (`0x20`–`0x3f` polygons: bit 3 a quad, bit 2 textured, bit 4 Gouraud, the next
+  vertex's colour before it; `0x40` lines; `0x60` rectangles), the first vertex at `+0x10` as two `i16`. Menus,
+  texts and panels go to buckets 0 to `0x1b`, the world from `0xf8` on (seen in Dreamertown's first rooms,
+  menus, inventory, map). The game never clears the depth buffer while playing: the frame's first primitives,
+  four Gouraud quads of a dark gradient over 0 to 640 in bucket `0x3ff`, set it, so a wider picture needs them
+  wider, or what lies beyond 640 keeps old depth and stays hidden. The options panel's table has room for a
+  fifth entry: the 36 bytes after its end (`0x564d34`) are zeros up to the next data. Videos: the handle of the
+  one playing is at `0x808ce8` (width and height first), centred in 640×480 by `0x53c8d0`; the cut scenes are
+  640×368, the logos and visions 640×480. Whether every world keeps its primitives in those buckets is **(open)**.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click

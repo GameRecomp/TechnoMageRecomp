@@ -214,6 +214,9 @@ Binary treatment:
 - [x] Full screen toggle in the Bevy window (Alt+Enter, F11); the page's full screen button in the browser
 - [ ] The `TECHMAGE.CFG` options (`WINDOWED`, `LO-RES`) checked by hand
 - [x] Near-plane clipping of transformed triangles (z = 0 in clip space), for both renderers
+- [x] Widescreen on the graphics page: the screen's surfaces as wide as the output, the world drawn over the
+      margins, everything else in the middle unstretched; cut scenes shown alone, filling a wide window
+- [ ] Widescreen checked by hand in the later worlds (outdoor levels, fights, effects) and in a real window
 
 ### M6 – Sound and video
 
@@ -343,6 +346,7 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 
 | Date | Decision |
 |------|----------|
+| 2026-11-27 | **Widescreen as an option, without stretching** (the maintainer's call; the proportions follow the window): the game keeps its 640×480 (its menus, texts, panels and the HUD are laid out in it, the map and the quest log cover it whole), and the HLE makes the screen's surfaces wider by a margin on each side, moving everything the game draws into the middle; only the world is drawn over the margins: the game's functions that put it into the ordering table see the wider screen and its centre, and the table's world buckets are drawn on the whole width (RESEARCH.md, "Widescreen"). So nothing is ever stretched, and a screen the game covers whole gets black bars beside it. Not a larger display mode: that only zooms the camera out, and the game's layout and videos are fixed to 640 pixels. Cut scenes (Bink, 640×368) are shown alone, enlarged to the window with their proportions. The margin changes between frames, so resizing the window works while playing. |
 | 2026-11-26 | **Android after all**, against the first decision (no Android): the shared converter already wrote signed APKs (`rc-convert::apk`) and arm64 Cranelift code, so only the shell was missing. It is the same Rust program as a `cdylib` in Android's own `NativeActivity` (Bevy's `android-native-activity`, `android-activity`): no Java, no SDL, nothing compiled but Rust (the NDK's clang only links). The package's `assets/data/` is unpacked into the app's storage on the first start and again when its `files.txt` changes; the program then finds `data/` as on the desktop. A finger is the mouse (the pointer drawn by the game, no hardware cursor), a second finger the right button, Back is Escape. The libraries are extracted at install (`extractNativeLibs`) and linked for 16 KiB pages. |
 | 2026-11-22 | The project follows TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp: MIT license, the Rust recompiler crates, the manifest, the converter with CLI and browser page. Platforms: Windows, Linux, browser; macOS built in CI, not offered; no Android. |
 | 2026-11-22 | **Rust only**, also for the lifted code: `rc-emit-rust` replaces `rc-emit-c`; the runtime, HLE and platform layers are written in Rust after the sister projects' C design. No C compiler in any build; the audit refuses C sources. |
