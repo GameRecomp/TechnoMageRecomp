@@ -123,6 +123,11 @@ newer one: built on `ubuntu-latest` it refuses older systems ("GLIBC_2.xx not fo
 workflows build the Linux shells and the converter on the oldest Ubuntu GitHub still offers (`ubuntu-22.04`,
 `ubuntu-22.04-arm`, glibc 2.35); when GitHub retires it, move to the next oldest, never to `ubuntu-latest`.
 
+**Caches.** Every Rust job restores `~/.cargo` and `target/` with `Swatinem/rust-cache` (keyed by the toolchain,
+the host and `Cargo.lock`). Only runs on `main` save them, so branches and pull requests do not crowd out the
+10 GB the repository gets. The Pages and release builds of the shells share a key (`dist`), as do their
+Android jobs (`android`): a version tag restores what the last Pages run on `main` built and saves nothing.
+
 ### Android
 
 ```sh

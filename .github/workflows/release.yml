@@ -20,6 +20,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
+          save-if: false
       - run: tools/build-android build/TechnoMage-shell.apk
       - run: cargo build --profile dist -p rc-cli
       - run: |
@@ -58,6 +62,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: dist
+          save-if: false
       - name: System libraries for the Bevy window (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev

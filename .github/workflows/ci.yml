@@ -27,6 +27,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: System libraries for the Bevy window (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
@@ -42,6 +45,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The converter for the page and the browser player's runtime module.
       - run: cargo clippy --target wasm32-unknown-unknown -p rc-web -p technomage-web -- -D warnings
       - run: cargo build --release --target wasm32-unknown-unknown -p rc-web -p technomage-web
