@@ -233,6 +233,21 @@ format needs a host service **(open)**.
   `SCREEN_W == 640` (else the 320-pixel mode's halved steps, e.g. texture scrolling at `0x405f69`); inside the
   widened world functions they take the 320 path: harmless so far **(open)**. The hero off the middle could not
   be reproduced (in the middle at 16:9 and 16:10, standing, after walks) **(open)**.
+- **Where a frame's time goes** (`RC_TRACE=profile`, Full HD output, widescreen, in a virtual machine whose GPU is
+  Mesa's llvmpipe, so the GPU's share is far too high there). The game's own code takes about 2 ms a frame;
+  the rest is the picture. Every frame the batch of draws is rendered on the GPU and waited for, read back
+  whole and written into guest memory (and, with native resolution, scaled down for it); the picture shown
+  is composed again on the CPU. Without native resolution a frame took 13 ms (GPU 8, conversions about 3);
+  with it 50 ms, of which 15 ms went to composing the large picture pixel by pixel (comparing each pixel of
+  the surface with what was written from the shadow) and 6 ms to the background and the scaling down. Composing
+  row by row (whole rows as written copied from the shadow, a surface row converted and enlarged once for all
+  the large rows that show it) and scaling down by rows brought it to 33 ms, the picture to 1.3 ms; every
+  frame of seven scripted runs (4:3, widescreen, native resolution; playing, menus, saving) stays identical
+  (`RC_FRAME_HASHES`). Of the GPU's wait, drawing is about two thirds and the copy back a third. Showing the
+  GPU's picture without the copy back needs the window's device: the renderer has a wgpu instance of its own
+  on purpose (OpenGL in that machine, three times as fast as the window's Vulkan), so it is **(open)**.
+  Spikes: loading a level (100 to 130 ms in the game's code) and the first frames (shaders, textures), none
+  while playing.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click

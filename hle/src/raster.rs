@@ -1222,6 +1222,44 @@ pub fn to_rgba8(m: Mem, s: &SurfaceInfo) -> Vec<u8> {
     out
 }
 
+/// Converts a surface's rows to RGBA8 as `to_rgba8` does, one row of its bytes at a time.
+pub struct RowsToRgba8 {
+    masks: [u32; 4],
+    bytes: usize,
+    table: Option<Table16>,
+}
+
+impl RowsToRgba8 {
+    pub fn new(s: &SurfaceInfo) -> Self {
+        let bytes = (s.bpp / 8) as usize;
+        RowsToRgba8 {
+            masks: s.masks,
+            bytes,
+            table: (bytes == 2).then(|| table16(s.masks)),
+        }
+    }
+
+    /// `row` (the surface's bytes, no padding) into `out` (4 bytes a pixel).
+    pub fn convert(&self, row: &[u8], out: &mut [u8]) {
+        let px = out.as_chunks_mut::<4>().0;
+        match &self.table {
+            Some(t) => {
+                for (p, v) in px.iter_mut().zip(row.as_chunks::<2>().0) {
+                    *p = t[usize::from(u16::from_le_bytes(*v))];
+                }
+            }
+            None => {
+                let k = self.masks;
+                for (p, v) in px.iter_mut().zip(row.as_chunks::<4>().0) {
+                    let v = u32::from_le_bytes(*v);
+                    *p = k.map(|mask| to8(v, mask));
+                }
+            }
+        }
+        let _ = self.bytes;
+    }
+}
+
 pub fn from_rgba8(m: Mem, s: &SurfaceInfo, rgba: &[u8]) {
     let k = s.masks;
     // Per channel: each 8-bit value packed into its mask.

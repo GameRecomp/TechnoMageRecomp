@@ -213,7 +213,7 @@ mod batch {
         let Some(info) = crate::ddraw::info(m, target) else {
             return;
         };
-        let rgba = crate::raster::to_rgba8(m, &info);
+        use crate::profile::{time, Section as S};
         #[cfg(not(target_family = "wasm"))]
         let (w, h) = super::shadow::render_size(&info);
         let mut r = RENDERER.lock().expect("renderer");
@@ -222,17 +222,35 @@ mod batch {
         };
         #[cfg(not(target_family = "wasm"))]
         if (w, h) != (info.width, info.height) {
-            let background = super::shadow::compose(m, &info, &rgba, (w, h));
-            let out = r.render_view(w, h, (info.width, info.height), &background, &commands);
-            super::shadow::store(m, &info, (w, h), out);
+            let background = time(S::FlushRead, || super::shadow::compose(m, &info, (w, h)));
+            let out = time(S::FlushRender, || {
+                r.render_view(w, h, (info.width, info.height), &background, &commands)
+            });
+            split_render();
+            time(S::FlushWrite, || {
+                super::shadow::store(m, &info, (w, h), out)
+            });
             return;
         }
         super::shadow::drop(info.buf);
-        let out = r.render(info.width, info.height, &rgba, &commands);
-        crate::raster::from_rgba8(m, &info, &out);
+        let rgba = time(S::FlushRead, || crate::raster::to_rgba8(m, &info));
+        let out = time(S::FlushRender, || {
+            r.render(info.width, info.height, &rgba, &commands)
+        });
+        split_render();
+        time(S::FlushWrite, || crate::raster::from_rgba8(m, &info, &out));
     }
 
     /// Flush if `obj` is the surface the collected draws go to.
+    /// The render's stages out of its section (`rc_platform::gpu::LAST_RENDER`).
+    fn split_render() {
+        use crate::profile::{shift, Section as S};
+        let t = *rc_platform::gpu::LAST_RENDER.lock().expect("render times");
+        shift(S::FlushRender, S::GpuPrepare, t[0]);
+        shift(S::FlushRender, S::GpuWait, t[1]);
+        shift(S::FlushRender, S::GpuUnpack, t[2] + t[3]);
+    }
+
     pub fn flush_if(m: Mem, obj: u32) {
         let pending = {
             let b = BATCH.lock().expect("batch");
@@ -301,21 +319,16 @@ mod shadow {
 
     /// The `size` picture of the surface: its shadow where the surface is as written from it,
     /// else its own pixels (`low`, RGBA8) enlarged.
-    pub fn compose(m: Mem, info: &SurfaceInfo, low: &[u8], size: (u32, u32)) -> Vec<u8> {
-        compose_with(m, info, low, size, true)
+    pub fn compose(m: Mem, info: &SurfaceInfo, size: (u32, u32)) -> Vec<u8> {
+        compose_with(m, info, size, true)
     }
 
-    fn compose_with(
-        m: Mem,
-        info: &SurfaceInfo,
-        low: &[u8],
-        size: (u32, u32),
-        to_draw_on: bool,
-    ) -> Vec<u8> {
+    fn compose_with(m: Mem, info: &SurfaceInfo, size: (u32, u32), to_draw_on: bool) -> Vec<u8> {
         let (lw, lh) = (info.width as usize, info.height as usize);
         let (w, h) = (size.0 as usize, size.1 as usize);
         let bytes = (info.bpp / 8) as usize;
         let now = raw(m, info);
+        let rows = crate::raster::RowsToRgba8::new(info);
         let shadows = SHADOWS.lock().expect("shadows");
         let shadow = shadows
             .as_ref()
@@ -325,17 +338,62 @@ mod shadow {
         let mut out = vec![0u8; w * h * 4];
         // Which of the surface's pixels a row and column of the large picture show.
         let xs: Vec<usize> = (0..w).map(|x| (x * lw / w).min(lw - 1)).collect();
+        let row_bytes = lw * bytes;
+        // The surface's row `ly` as RGBA8 and which of its pixels are as written from the
+        // shadow, made once for all the large rows that show it.
+        let mut low_row = vec![0u8; lw * 4];
+        let mut same = vec![false; lw];
+        let mut made: Option<usize> = None;
+        // The last large row made from the surface's row alone (none of it as written): the
+        // next large rows that show the same row copy it.
+        let mut plain: Option<usize> = None;
         for y in 0..h {
             let ly = (y * lh / h).min(lh - 1);
+            let now_row = &now[ly * row_bytes..(ly + 1) * row_bytes];
+            if let Some(s) = shadow {
+                if s.written[ly * row_bytes..(ly + 1) * row_bytes] == *now_row {
+                    // The whole row as written: the shadow's row.
+                    out[4 * y * w..4 * (y + 1) * w]
+                        .copy_from_slice(&s.rgba[4 * y * w..4 * (y + 1) * w]);
+                    plain = None;
+                    continue;
+                }
+            }
+            if plain == Some(ly) {
+                // The row above showed the same row of the surface, none of it as written.
+                let (above, here) = out.split_at_mut(4 * y * w);
+                here[..4 * w].copy_from_slice(&above[4 * (y - 1) * w..]);
+                continue;
+            }
+            if made != Some(ly) {
+                rows.convert(now_row, &mut low_row);
+                for (lx, v) in same.iter_mut().enumerate() {
+                    *v = shadow.is_some_and(|s| {
+                        let i = ly * row_bytes + lx * bytes;
+                        s.written[i..i + bytes] == now[i..i + bytes]
+                    });
+                }
+                made = Some(ly);
+            }
+            let line = &mut out[4 * y * w..4 * (y + 1) * w];
+            if !same.iter().any(|&v| v) {
+                let px = line.as_chunks_mut::<4>().0;
+                let low = low_row.as_chunks::<4>().0;
+                for (p, &lx) in px.iter_mut().zip(&xs) {
+                    *p = low[lx];
+                }
+                plain = Some(ly);
+                continue;
+            }
+            plain = None;
             for (x, &lx) in xs.iter().enumerate() {
-                let i = ly * lw + lx;
-                let o = 4 * (y * w + x);
-                let same = shadow.is_some_and(|s| {
-                    s.written[i * bytes..(i + 1) * bytes] == now[i * bytes..(i + 1) * bytes]
-                });
-                match (same, shadow) {
-                    (true, Some(s)) => out[o..o + 4].copy_from_slice(&s.rgba[o..o + 4]),
-                    _ => out[o..o + 4].copy_from_slice(&low[4 * i..4 * i + 4]),
+                let o = 4 * x;
+                match shadow {
+                    Some(s) if same[lx] => {
+                        let i = 4 * (y * w + x);
+                        line[o..o + 4].copy_from_slice(&s.rgba[i..i + 4]);
+                    }
+                    _ => line[o..o + 4].copy_from_slice(&low_row[4 * lx..4 * lx + 4]),
                 }
             }
         }
@@ -347,13 +405,16 @@ mod shadow {
         let (lw, lh) = (info.width as usize, info.height as usize);
         let (w, h) = (size.0 as usize, size.1 as usize);
         let mut low = vec![0u8; lw * lh * 4];
-        for ly in 0..lh {
-            // The large picture's pixel at the centre of each of the surface's.
+        // The large picture's pixel at the centre of each of the surface's.
+        let xs: Vec<usize> = (0..lw)
+            .map(|lx| ((2 * lx + 1) * w / (2 * lw)).min(w - 1))
+            .collect();
+        let big = rgba.as_chunks::<4>().0;
+        for (ly, line) in low.as_chunks_mut::<4>().0.chunks_exact_mut(lw).enumerate() {
             let y = ((2 * ly + 1) * h / (2 * lh)).min(h - 1);
-            for lx in 0..lw {
-                let x = ((2 * lx + 1) * w / (2 * lw)).min(w - 1);
-                let (o, i) = (4 * (ly * lw + lx), 4 * (y * w + x));
-                low[o..o + 4].copy_from_slice(&rgba[i..i + 4]);
+            let row = &big[y * w..(y + 1) * w];
+            for (p, &x) in line.iter_mut().zip(&xs) {
+                *p = row[x];
             }
         }
         crate::raster::from_rgba8(m, info, &low);
@@ -379,8 +440,7 @@ mod shadow {
             let shadows = SHADOWS.lock().expect("shadows");
             shadows.as_ref()?.get(&info.buf)?.size
         };
-        let low = crate::raster::to_rgba8(m, info);
-        let picture = compose_with(m, info, &low, size, false);
+        let picture = compose_with(m, info, size, false);
         if let Some(s) = SHADOWS
             .lock()
             .expect("shadows")
@@ -712,7 +772,13 @@ fn widen(m: Mem, state: Arc<State>, fvf: u32, vertices: &mut [u8]) -> Arc<State>
     Arc::new(s)
 }
 
-fn record(c: &Cpu, primitive: u32, fvf: u32, mut vertices: Vec<u8>, indices: Vec<u16>) {
+fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16>) {
+    crate::profile::time(crate::profile::Section::Record, || {
+        record_draw(c, primitive, fvf, vertices, indices);
+    });
+}
+
+fn record_draw(c: &Cpu, primitive: u32, fvf: u32, mut vertices: Vec<u8>, indices: Vec<u16>) {
     let m = c.mem();
     let id = com::id_of(m, c.arg(0));
     let mut s = g();
