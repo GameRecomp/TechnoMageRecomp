@@ -232,7 +232,15 @@ Binary treatment:
 - [x] Force feedback as the gamepads' vibration: the joystick reports it, the game's constant-force effect
       sets a strength (`rc_platform::rumble`) that Bevy's gamepads, Android's vibrators (JNI,
       `InputDevice.getVibrator`) and the browser's (`vibrationActuator`) follow
-- [ ] A gamepad tried by hand (natively, in the browser, on Android), with its vibration
+- [x] The texts' key pictures as the gamepad's buttons while it is used: pictures of our own (PlayStation
+      symbols, Xbox's and Nintendo's letters, in their colours; the maker by the gamepad's USB vendor id:
+      Bevy's, Android's through JNI, the browser's id) drawn over the game's in the frame, sharp at native
+      resolution; the gamepad tab names the buttons as the gamepad in use does
+- [x] On-screen buttons for the touch screen while it is used and the game is played: camera, tool, spell and
+      jump at the bottom right, quest log, map and rucksack at the top right (the game's own map and quest log
+      pictures, drawn by its sprite routine; ours for the rest), joystick buttons from 16 with their actions
+- [ ] A gamepad tried by hand (natively, in the browser, on Android), with its vibration; the on-screen
+      buttons on a device; the on-screen buttons in the browser (its touch still only points)
 - [ ] Widescreen checked by hand in the later worlds (outdoor levels, fights, effects) and in a real window
 
 ### M6 – Sound and video

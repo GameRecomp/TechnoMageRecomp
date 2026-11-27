@@ -112,7 +112,7 @@ const PLAY_VIDEO: u32 = 0x0053_c8d0;
 const VIDEO: u32 = 0x0080_8ce8;
 /// The ordering table's buckets the world's primitives go to start here (their depth); the
 /// menus', texts' and panels' are below (0 to 0x1b seen, the world from 0xf8 on).
-const WORLD_BUCKET: u32 = 0x80;
+pub(crate) const WORLD_BUCKET: u32 = 0x80;
 const SCREEN_H: u32 = 0x00f5_b324;
 const SINE: u32 = 0x0058_6a30;
 
@@ -943,6 +943,9 @@ fn draw_ot(c: &mut Cpu) {
         call_original(c, DRAW_OT);
         return;
     }
+    crate::controls::touch_bar(c);
+    let m = c.mem();
+    crate::controls::note_key_pictures(m, arg(c, 0), rc_hle::ddraw::margin() as i32);
     draw_split(c);
     let Some((prims, x, y)) = POINTER.lock().expect("pointer").take() else {
         return;
@@ -1282,6 +1285,7 @@ pub fn register() {
         crate::controls::set_pad_table,
     );
     rc_hle::ddraw::set_picture_fn(video_picture);
+    rc_hle::ddraw::set_overlay_fn(crate::controls::overlay);
     for (f, w) in WORLD.iter().zip(WORLD_FNS) {
         hook(*f, w);
     }

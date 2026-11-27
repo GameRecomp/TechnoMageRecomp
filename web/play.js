@@ -311,6 +311,15 @@ function startAudio() {
  * select, start, L3, R3), the direction from the directional buttons or the left stick. */
 const PAD_BUTTONS = [2, 3, 0, 1, 6, 4, 7, 5, 8, 9, 10, 11];
 let lastPad = '';
+
+/* Whose buttons the gamepad has, from its id (the browser's: the name, often with the USB vendor
+ * id): Sony's PlayStation, Nintendo's, else Xbox-like (0, 2, 1 for the player). */
+let lastStyle = -1;
+function padStyle(id) {
+  const s = /054c|playstation|dualsense|dualshock|wireless controller/i.test(id) ? 0
+    : /057e|nintendo|pro controller|joy-con/i.test(id) ? 2 : 1;
+  if (s !== lastStyle) { lastStyle = s; player.padStyle(s); }
+}
 function pollPads() {
   if (!player || !navigator.getGamepads) return;
   let buttons = 0;
@@ -318,7 +327,9 @@ function pollPads() {
   let y = 0;
   for (const g of navigator.getGamepads()) {
     if (!g || g.mapping !== 'standard') continue;
+    const before = buttons;
     PAD_BUTTONS.forEach((b, i) => { if (g.buttons[b] && g.buttons[b].pressed) buttons |= 1 << i; });
+    if (buttons !== before) padStyle(g.id);
     const on = (b) => (g.buttons[b] && g.buttons[b].pressed ? 1 : 0);
     let dx = on(15) - on(14);
     let dy = on(13) - on(12);

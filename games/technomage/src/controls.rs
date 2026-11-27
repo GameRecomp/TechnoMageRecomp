@@ -125,6 +125,13 @@ fn table(m: Mem) -> u32 {
         m.st16(p + 2, *bits);
         p += 4;
     }
+    // The touch screen's on-screen buttons: their actions, whatever the set-up.
+    for (k, (_, bits)) in TOUCH_BUTTONS.iter().enumerate() {
+        m.st8(p, (rc_hle::dinput::TOUCH_FIRST + k as u32) as u8);
+        m.st8(p + 1, 0);
+        m.st16(p + 2, *bits);
+        p += 4;
+    }
     let mut g = GAME_TABLE.load(Ordering::Relaxed);
     while g != 0 && m.ld8(g) != 0xff && p < *at + 4 * (CAP - 1) {
         m.st32(p, m.ld32(g));
@@ -149,6 +156,222 @@ fn apply(m: Mem) {
     if GAME_TABLE.load(Ordering::Relaxed) != 0 {
         m.st32(PAD_TABLE, table(m));
     }
+}
+
+// --- The dialogues' key pictures ---------------------------------------------------------------
+
+/// The game's pictures of the actions' keys (its texts' `§`, `=`, `~` and the like): ten sprites
+/// made from the input page's bindings (`0x40105f`), each 12 bytes with its texture's u, v,
+/// width and height at +7 … +10.
+const KEY_SPRITES: u32 = 0x014d_fa60;
+/// Their actions (pad bits): action, spell, tool, jump, camera left and right, quest log, map,
+/// none (a fixed picture), rucksack.
+const SPRITE_ACTIONS: [u16; 10] = [SQUARE, TRIANGLE, CIRCLE, CROSS, L2, R2, L1, R1, 0, SELECT];
+
+/// The key pictures of this frame: where (screen surface pixels), how large, whose action.
+static KEY_PICTURES: Mutex<Vec<KeyPicture>> = Mutex::new(Vec::new());
+
+/// A key picture's place (x, y, width, height) and its action.
+type KeyPicture = (i32, i32, u32, u32, u16);
+
+/// Before the frame's ordering table is drawn (its last node): its interface's sprites that
+/// are an action's key picture, noted (moved by the widescreen margin `ox`, as they will be).
+pub fn note_key_pictures(m: Mem, last: u32, ox: i32) {
+    if !rc_hle::dinput::pad_in_use() {
+        return;
+    }
+    let sprites: Vec<(u32, u16)> = SPRITE_ACTIONS
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| **a != 0)
+        .filter_map(|(i, &a)| {
+            let sp = m.ld32(KEY_SPRITES + 4 * i as u32);
+            (sp != 0).then(|| (m.ld32(sp + 7), a))
+        })
+        .collect();
+    let first = last - 0x3ff * 16;
+    let mut node = m.ld32(last);
+    let mut bucket = 0x3ff;
+    let mut guard = 0;
+    let mut found = KEY_PICTURES.lock().expect("key pictures");
+    while node != 0 && guard < 1 << 20 {
+        if (first..=last).contains(&node) {
+            bucket = (node - first) / 16;
+        } else if bucket < crate::patches::WORLD_BUCKET && m.ld8(node + 0xf) & 0xfc == 0x64 {
+            // A sprite: u, v at +0x14, width and height at +0x18 (as u16), x and y at +0x10.
+            let key = u32::from(m.ld8(node + 0x14))
+                | u32::from(m.ld8(node + 0x15)) << 8
+                | u32::from(m.ld8(node + 0x18)) << 16
+                | u32::from(m.ld8(node + 0x1a)) << 24;
+            if let Some(&(_, action)) = sprites.iter().find(|(k, _)| *k == key) {
+                if found.len() < 64 {
+                    found.push((
+                        i32::from(m.ld16(node + 0x10) as i16) + ox,
+                        i32::from(m.ld16(node + 0x12) as i16),
+                        u32::from(m.ld16(node + 0x18)),
+                        u32::from(m.ld16(node + 0x1a)),
+                        action,
+                    ));
+                }
+            }
+        }
+        node = m.ld32(node);
+        guard += 1;
+    }
+}
+
+/// Over the frame, while the gamepad is in use: in each key picture's place the gamepad's
+/// button that does its action now (the set-up's), drawn as its maker does.
+pub fn overlay(_m: Mem, frame: &mut [u8], w: u32, h: u32, scale: f32) {
+    let shown = std::mem::take(&mut *TOUCH_SHOWN.lock().expect("touch buttons"));
+    let held = rc_platform::touch::held();
+    for (k, [x, y, bw, bh]) in shown.into_iter().enumerate() {
+        let place = (x * scale, y * scale, bw * scale, bh * scale);
+        let pressed = held & (1 << k) != 0;
+        match TOUCH_BUTTONS[k].0 {
+            Touch::Ours(g) => crate::icons::draw_touch(frame, w, h, place, g, pressed),
+            Touch::Game(_) => crate::icons::draw_rim(frame, w, h, place, pressed),
+        }
+    }
+    let found = std::mem::take(&mut *KEY_PICTURES.lock().expect("key pictures"));
+    if !rc_hle::dinput::pad_in_use() {
+        return;
+    }
+    let setup = SETUPS[usize::from(SETUP.load(Ordering::Relaxed))];
+    let style = rc_platform::pad::style();
+    for (x, y, pw, ph, action) in found {
+        let Some(button) = setup.iter().position(|&b| b == action) else {
+            continue;
+        };
+        let place = (
+            x as f32 * scale,
+            y as f32 * scale,
+            pw as f32 * scale,
+            ph as f32 * scale,
+        );
+        crate::icons::draw(frame, w, h, place, button, style);
+    }
+}
+
+// --- The touch screen's on-screen buttons -----------------------------------------------------
+
+/// What an on-screen button shows: a picture of the loaded ones (by name) or one of ours.
+#[derive(Clone, Copy)]
+enum Touch {
+    Game(&'static str),
+    Ours(crate::icons::Glyph),
+}
+
+/// The on-screen buttons and their actions (pad bits): along the bottom on the right the camera
+/// (left, right), the tool, the spell and the jump; at the top on the right the quest log, the
+/// map and the rucksack. Pointing, the action and walking stay the fingers' (as the mouse).
+const TOUCH_BUTTONS: [(Touch, u16); 8] = {
+    use crate::icons::Glyph;
+    [
+        (Touch::Ours(Glyph::CameraLeft), L2),
+        (Touch::Ours(Glyph::CameraRight), R2),
+        (Touch::Ours(Glyph::Tool), CIRCLE),
+        (Touch::Ours(Glyph::Spell), TRIANGLE),
+        (Touch::Ours(Glyph::Jump), CROSS),
+        (Touch::Game("ICON_QUESTLOG"), L1),
+        (Touch::Game("ICON_MAP"), R1),
+        (Touch::Ours(Glyph::Rucksack), SELECT),
+    ]
+};
+
+/// The buttons as drawn this frame (the game's screen, margins included), for the overlay.
+static TOUCH_SHOWN: Mutex<Vec<[f32; 4]>> = Mutex::new(Vec::new());
+
+/// The game's state while it is played (no menu, map, rucksack or dialogue open).
+const PLAYING_STATE: u32 = 0x800;
+const PAUSE_STATE: u32 = 0x0056_3c84;
+const MENU_FLAGS: u32 = 0x0059_de34;
+
+/// Once per frame, before its ordering table is drawn: while touch is used and the game is
+/// played, the on-screen buttons (their places to the platform, the game's pictures into the
+/// table, ours to the overlay); none otherwise.
+pub fn touch_bar(c: &mut Cpu) {
+    let m = c.mem();
+    let playing = m.ld32(PAUSE_STATE) == PLAYING_STATE && m.ld32(MENU_FLAGS) == 0;
+    if !(rc_platform::touch::in_use() && playing) {
+        rc_platform::touch::set_buttons(Vec::new());
+        TOUCH_SHOWN.lock().expect("touch buttons").clear();
+        return;
+    }
+    const SIZE: i32 = 34;
+    const GAP: i32 = 6;
+    const EDGE: i32 = 8;
+    let w = m.ld32(SCREEN_W) as i32;
+    let ox = rc_hle::ddraw::margin() as f32;
+    let mut places = Vec::new();
+    for (k, (what, _)) in TOUCH_BUTTONS.iter().enumerate() {
+        // Five along the bottom, three at the top, from the right.
+        let (row, col, n) = if k < 5 {
+            (1, k as i32, 5)
+        } else {
+            (0, k as i32 - 5, 3)
+        };
+        let x = w - EDGE - (n - col) * SIZE - (n - 1 - col) * GAP;
+        let y = if row == 1 { 480 - EDGE - SIZE } else { EDGE };
+        if let Touch::Game(name) = what {
+            if let Some(rec) = sprite_record(c, name) {
+                let (sw, sh) = (i32::from(m.ld8(rec + 9)), i32::from(m.ld8(rec + 10)));
+                draw_record(m, rec, x + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 2);
+            }
+        }
+        places.push([x as f32 + ox, y as f32, SIZE as f32, SIZE as f32]);
+    }
+    rc_platform::touch::set_buttons(places.clone());
+    *TOUCH_SHOWN.lock().expect("touch buttons") = places;
+}
+
+// --- The game's sprites, drawn by us ---------------------------------------------------------------
+
+/// A sprite of the loaded pictures by its name (12 bytes: four 0xff, its texture page and mode,
+/// its palette, u, v, width, height), or none.
+const SPRITE_BY_NAME: u32 = 0x0040_1465;
+/// The next free primitive and the ordering tables (two, 0x400 buckets of 16 bytes each).
+const PRIM_NEXT: u32 = 0x0059_de10;
+const OT_BUFFER: u32 = 0x0059_cb1c;
+const OT_TABLES: u32 = 0x0079_5840;
+
+/// The loaded sprite `name`'s record, if there is one.
+fn sprite_record(c: &mut Cpu, name: &str) -> Option<u32> {
+    let m = c.mem();
+    let mut s = Strings::new(m);
+    let n = s.put(m, name);
+    let rec = call_guest(c, SPRITE_BY_NAME, &[n]);
+    (rec != 0 && m.ld32(rec) == u32::MAX).then_some(rec)
+}
+
+/// Draw the sprite record `rec` at `(x, y)` (the game's pixels) into the ordering table's
+/// `bucket`, as the game draws its sprites (`0x445830`): a mode primitive with its texture page,
+/// then the sprite.
+fn draw_record(m: Mem, rec: u32, x: i32, y: i32, bucket: u32) {
+    let (w, h) = (m.ld8(rec + 9), m.ld8(rec + 10));
+    let head = OT_TABLES + ((m.ld32(OT_BUFFER) << 10) + bucket) * 16;
+    let p = m.ld32(PRIM_NEXT);
+    // The sprite (variable size, textured, semi-transparent off).
+    m.st8(p + 7, 0);
+    m.st8(p + 0xf, 0x65);
+    m.st16(p + 0x10, x as u16);
+    m.st16(p + 0x12, y as u16);
+    m.st8(p + 0x14, m.ld8(rec + 7));
+    m.st8(p + 0x15, m.ld8(rec + 8));
+    m.st16(p + 0x16, u16::from(m.ld8(rec + 6)) << 6);
+    m.st16(p + 0x18, u16::from(w));
+    m.st16(p + 0x1a, u16::from(h));
+    m.st32(p, m.ld32(head));
+    m.st32(head, p);
+    // Before it in the bucket: the texture page and mode.
+    let q = p + 0x1c;
+    m.st8(q + 7, 0);
+    m.st8(q + 0xf, 0x80);
+    let mode = ((u16::from(m.ld8(rec + 5)) & 0xfff8) | u16::from(m.ld8(rec + 4))) << 9 | 0xa0;
+    m.st16(q + 0x10, mode);
+    m.st32(q, m.ld32(head));
+    m.st32(head, q);
+    m.st32(PRIM_NEXT, q + 0x14);
 }
 
 // --- The page's tabs ----------------------------------------------------------------------------
@@ -256,6 +479,38 @@ const T_BACK: Text = [
     "Botón Atrás",
     "Terugknop",
 ];
+const T_BOTTOM: Text = [
+    "Knöpfe unten rechts",
+    "Buttons bottom right",
+    "Boutons en bas",
+    "Tasti in basso",
+    "Botones abajo",
+    "Knoppen onder",
+];
+const T_BOTTOM_DOES: Text = [
+    "Kamera, Tool, Zauber, Sprung",
+    "Camera, tool, spell, jump",
+    "Caméra, outil, sort, saut",
+    "Visuale, attrezzo, magia, salto",
+    "Cámara, herramienta, hechizo, salto",
+    "Camera, gereedschap, spreuk, sprong",
+];
+const T_TOP: Text = [
+    "Knöpfe oben rechts",
+    "Buttons top right",
+    "Boutons en haut",
+    "Tasti in alto",
+    "Botones arriba",
+    "Knoppen boven",
+];
+const T_TOP_DOES: Text = [
+    "Questlog, Karte, Rucksack",
+    "Quest log, map, rucksack",
+    "Journal, carte, sac",
+    "Diario, mappa, zaino",
+    "Diario, mapa, mochila",
+    "Logboek, kaart, rugzak",
+];
 const T_SQUARE: Text = [
     "Quadrat", "Square", "Carré", "Quadrato", "Cuadrado", "Vierkant",
 ];
@@ -270,21 +525,41 @@ const T_TRIANGLE: Text = [
 const T_CROSS: Text = ["Kreuz", "Cross", "Croix", "Croce", "Equis", "Kruis"];
 const T_CIRCLE: Text = ["Kreis", "Circle", "Rond", "Cerchio", "Círculo", "Cirkel"];
 
-/// A button as the PlayStation and the Xbox controller name it, in `rc_platform::pad`'s order.
-const BUTTON_NAMES: [(Text, &str); 12] = [
-    (T_SQUARE, "X"),
-    (T_TRIANGLE, "Y"),
-    (T_CROSS, "A"),
-    (T_CIRCLE, "B"),
-    (["L2"; 6], "LT"),
-    (["L1"; 6], "LB"),
-    (["R2"; 6], "RT"),
-    (["R1"; 6], "RB"),
-    (["Select"; 6], "View"),
-    (["Start"; 6], "Menu"),
-    (["L3"; 6], "LS"),
-    (["R3"; 6], "RS"),
+/// The buttons as the PlayStation names them, in `rc_platform::pad`'s order.
+const PS_NAMES: [Text; 12] = [
+    T_SQUARE,
+    T_TRIANGLE,
+    T_CROSS,
+    T_CIRCLE,
+    ["L2"; 6],
+    ["L1"; 6],
+    ["R2"; 6],
+    ["R1"; 6],
+    ["Select"; 6],
+    ["Start"; 6],
+    ["L3"; 6],
+    ["R3"; 6],
 ];
+/// As Xbox and Nintendo controllers name them (by place: the button below is Xbox's A and
+/// Nintendo's B).
+const XBOX_NAMES: [&str; 12] = [
+    "X", "Y", "A", "B", "LT", "LB", "RT", "RB", "View", "Menu", "LS", "RS",
+];
+const NINTENDO_NAMES: [&str; 12] = [
+    "Y", "X", "B", "A", "ZL", "L", "ZR", "R", "-", "+", "LS", "RS",
+];
+
+/// Button `i`'s names: as the gamepad in use has it, then as another maker (the PlayStation's,
+/// or Xbox's for a PlayStation pad).
+fn button_names(i: usize, l: usize) -> (String, String) {
+    use rc_platform::pad::Style;
+    let ps = PS_NAMES[i][l].to_string();
+    match rc_platform::pad::style() {
+        Style::PlayStation => (ps, XBOX_NAMES[i].to_string()),
+        Style::Xbox => (XBOX_NAMES[i].to_string(), ps),
+        Style::Nintendo => (NINTENDO_NAMES[i].to_string(), ps),
+    }
+}
 
 fn lang(m: Mem) -> usize {
     (m.ld32(LANGUAGE) as usize).min(5)
@@ -433,17 +708,14 @@ fn draw_gamepad(c: &mut Cpu, s: &mut Strings, labels: &[u32]) {
             let i = setup.iter().position(|&b| b == START).unwrap_or(9);
             let menu = s.put(m, T_MENU[l]);
             draw(c, menu, lx, y, WHITE);
-            let (a, b) = (BUTTON_NAMES[i].0[l], BUTTON_NAMES[i].1);
-            let (a, b) = (s.put(m, a), s.put(m, b));
+            let (a, b) = button_names(i, l);
+            let (a, b) = (s.put(m, &a), s.put(m, &b));
             draw(c, a, x1, y, YELLOW);
             draw(c, b, x2, y, CYAN);
             continue;
         } else if bits != 0 {
             match setup.iter().position(|&b| b == bits) {
-                Some(i) => (
-                    BUTTON_NAMES[i].0[l].to_string(),
-                    BUTTON_NAMES[i].1.to_string(),
-                ),
+                Some(i) => button_names(i, l),
                 None => continue,
             }
         } else {
@@ -472,7 +744,8 @@ fn draw_gamepad(c: &mut Cpu, s: &mut Strings, labels: &[u32]) {
     }
 }
 
-/// The touch screen's controls: one finger, a second one, the back button.
+/// The touch screen's controls: one finger, a second one, the back button, the on-screen buttons
+/// at the bottom and the top on the right.
 fn draw_touch(c: &mut Cpu, s: &mut Strings) {
     let m = c.mem();
     let l = lang(m);
@@ -481,10 +754,14 @@ fn draw_touch(c: &mut Cpu, s: &mut Strings) {
         (T_FINGER, T_FINGER_DOES),
         (T_SECOND, T_SECOND_DOES),
         (T_BACK, T_MENU),
+        (T_BOTTOM, T_BOTTOM_DOES),
+        (T_TOP, T_TOP_DOES),
     ]
     .iter()
     .enumerate()
     {
+        // The buttons a line further down.
+        let row = if row >= 3 { row + 1 } else { row };
         let y = line_y(m, row as u32);
         let (a, b) = (s.put(m, what[l]), s.put(m, does[l]));
         draw(c, a, lx, y, WHITE);

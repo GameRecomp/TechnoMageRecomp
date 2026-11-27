@@ -179,6 +179,7 @@ export async function run({ runtime, code, fs, present, pointer, frame, env = {}
     cursor: (x, y) => ex.rc_cursor(x, y),
     pad: (buttons, x, y) => ex.rc_pad(buttons, x, y),
     rumble: () => ex.rc_rumble() / 1000,
+    padStyle: (s) => ex.rc_pad_style(s),
     /* The size the picture is shown at (its proportions: widescreen follows them). */
     output: (w, h) => ex.rc_output(w, h),
     /* `n` interleaved stereo samples (44.1 kHz) as a Float32Array (valid until the next call). */

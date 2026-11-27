@@ -31,6 +31,10 @@ mod patches;
 mod controls;
 
 #[cfg(target_family = "wasm")]
+#[path = "../../technomage/src/icons.rs"]
+mod icons;
+
+#[cfg(target_family = "wasm")]
 mod web {
     use rc_platform::Input;
     use rc_runtime::host;
@@ -210,6 +214,17 @@ mod web {
     #[no_mangle]
     pub extern "C" fn rc_cursor(x: i32, y: i32) {
         rc_platform::input(Input::Cursor { x, y });
+    }
+
+    /// Whose buttons the gamepad used has: 0 PlayStation, 1 Xbox, 2 Nintendo.
+    #[no_mangle]
+    pub extern "C" fn rc_pad_style(style: u32) {
+        use rc_platform::pad::{set_style, Style};
+        set_style(match style {
+            0 => Style::PlayStation,
+            2 => Style::Nintendo,
+            _ => Style::Xbox,
+        });
     }
 
     /// The gamepads' vibration the game asks for now, in thousandths (its force feedback).

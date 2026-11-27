@@ -259,6 +259,25 @@ format needs a host service **(open)**.
   R2 the camera, L1 the quest log, R1 the map, select the character menu, start the game menu, the analog stick as
   the directional buttons. Its executable's table at `0x80097a70` has the four, by the button's bit: B swaps
   triangle with circle and cross with square, C swaps L2 with R2, D does both.
+- **Key pictures in texts.** Dialogue and menu texts name keys with characters the text renderer (`0x4010d7`)
+  draws as pictures: `§` the action, `=` the jump, `~` the rucksack, `_` the map, `>` the quest log, and more.
+  `0x40105f` makes their ten sprites (`0x14dfa60`: action, spell, tool, jump, camera left and right, quest log,
+  map, `CHECKBOARD`, rucksack, in the order of `0x55eefc`) from each action's first binding: a key as `BT_<name>`
+  of `GFX\HI\KEY_<language>.TPL` (a key cap per key), a mouse button `MOUSE_L`/`_M`/`_R`, a joystick button
+  `PADDLE_<n>`. The key sheets of the later CDs (English, French, Italian, Spanish) have `PADDLE_01` … `_16`, a
+  generic pad with a number; the German cover CD's has none. The PlayStation's `GFX/KEY_PSX.TPL` holds its own.
+- **Sprites.** `0x401465(name)` finds a loaded sprite: 12 bytes, four `0xff`, its texture page and mode (two
+  bytes), its palette slot (after loading; in the file a page), u, v, width, height. The game draws one
+  (`0x445830`, the input page's switches) as two primitives in a bucket: a mode primitive (`0x80`, the word
+  `((mode & 0xfff8) | page) << 9 | 0xa0` at `+0x10`), then a sprite (`0x65`: x, y, u, v, palette `slot << 6`,
+  width, height), from the arena at `[0x59de10]`; the tables are at `0x795840 + ([0x59cb1c] << 14)`. The level
+  pictures (`GFX\HI\<level>.TPL`) hold the character menu's icons (`ICON_MAP`, `ICON_QUESTLOG`, `ICON_LSM`, the
+  spells, tools and weapons); their `BT_ACTION` … `BT_INV` are key caps again. A `.TPL`: a page count, one
+  palette (768 bytes), the 8-bit pages (256×256), the same pages again in 16 bits, then name tables (count,
+  size, names each with a length byte before it) each followed by its records; the records' page numbers are not
+  simply the file's pages (not needed: the game's own lookup and drawing are used).
+- **The game's state** at `0x563c84` is `0x800` with `[0x59de34]` 0 while it is played; a dialogue adds `0x10`,
+  the map is `0x880`, the rucksack `0x40` (both with flags 2), the pause menu flags 1.
 - **The input page** (`0x401140`, called each frame while bit 2 of `0x563c84` is set) draws its entries in three
   columns (50, 300 and 630 thousandths of the width; lines `[0x59d6dc]` apart from 30 thousandths), two switches
   below, and has click regions named `OK`, `CANCEL`, `DEFAULT`, `WHEEL`, `FORCE`. `0x59d72c` is non-zero while it

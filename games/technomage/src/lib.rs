@@ -9,6 +9,7 @@
 //! [`android_main`]); `src/main.rs` is the desktop program around [`main`].
 
 mod controls;
+mod icons;
 mod patches;
 
 use std::path::{Path, PathBuf};
