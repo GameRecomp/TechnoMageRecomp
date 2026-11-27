@@ -33,9 +33,61 @@ pub enum Input {
     MouseButton { button: u8, down: bool },
     /// The pointer's position in the game's frame.
     Cursor { x: i32, y: i32 },
+    /// The touch screen's on-screen buttons held (bit `k`: button `k`, [`touch`]).
+    TouchButtons { held: u32 },
     /// The gamepads, as one PlayStation pad: the buttons held ([`pad`]'s bits) and the
     /// direction (the left stick or the directional buttons, each -32768 to 32767, y down).
     Pad { buttons: u16, x: i16, y: i16 },
+}
+
+/// The touch screen's on-screen buttons (a game patch's, drawn by it): where they are (the
+/// game's screen, margins included) and whether touch is what the player uses.
+pub mod touch {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::Mutex;
+
+    static BUTTONS: Mutex<Vec<[f32; 4]>> = Mutex::new(Vec::new());
+    static IN_USE: AtomicBool = AtomicBool::new(false);
+    static HELD: AtomicU32 = AtomicU32::new(0);
+
+    /// The buttons shown now (x, y, width, height); none when none are.
+    pub fn set_buttons(b: Vec<[f32; 4]>) {
+        *BUTTONS.lock().expect("touch buttons") = b;
+    }
+
+    /// The button at a point, if any.
+    pub fn hit(x: f32, y: f32) -> Option<u8> {
+        BUTTONS
+            .lock()
+            .expect("touch buttons")
+            .iter()
+            .position(|[bx, by, w, h]| (*bx..bx + w).contains(&x) && (*by..by + h).contains(&y))
+            .map(|i| i as u8)
+    }
+
+    /// Touch used last (a finger) rather than the keyboard, the mouse or a gamepad.
+    pub fn set_in_use(on: bool) {
+        IN_USE.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether touch is used (`RC_TOUCH=1` says so from the start, for scripted runs).
+    pub fn in_use() -> bool {
+        static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *FORCED.get_or_init(|| std::env::var_os("RC_TOUCH").is_some()) {
+            IN_USE.store(true, Ordering::Relaxed);
+        }
+        IN_USE.load(Ordering::Relaxed)
+    }
+
+    /// The buttons held (bit `k`: button `k`), as the backend last said.
+    pub fn set_held(bits: u32) {
+        HELD.store(bits, Ordering::Relaxed);
+        crate::input(crate::Input::TouchButtons { held: bits });
+    }
+
+    pub fn held() -> u32 {
+        HELD.load(Ordering::Relaxed)
+    }
 }
 
 /// The gamepads' vibration, as the game asks for it (its force feedback): a strength from 0 to 1
@@ -88,6 +140,50 @@ pub mod pad {
     pub const R3: u16 = 1 << 11;
     /// How many buttons the joystick has.
     pub const BUTTONS: u32 = 12;
+
+    /// Whose buttons the gamepad has (what its face buttons are labelled).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Style {
+        PlayStation,
+        Xbox,
+        Nintendo,
+    }
+
+    static STYLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+    /// The gamepad's style, by its maker's USB vendor id (Sony, Microsoft, Nintendo); others
+    /// are taken for Xbox-like (most are).
+    pub fn style_of_vendor(vendor: u16) -> Style {
+        match vendor {
+            0x054c => Style::PlayStation,
+            0x057e => Style::Nintendo,
+            _ => Style::Xbox,
+        }
+    }
+
+    pub fn set_style(s: Style) {
+        STYLE.store(s as u8, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The style of the gamepad used last (Xbox until one says otherwise; `RC_PAD_STYLE`
+    /// `playstation`, `xbox` or `nintendo` for scripted runs).
+    pub fn style() -> Style {
+        static FORCED: std::sync::OnceLock<Option<Style>> = std::sync::OnceLock::new();
+        let forced = FORCED.get_or_init(|| match std::env::var("RC_PAD_STYLE").ok().as_deref() {
+            Some("playstation") => Some(Style::PlayStation),
+            Some("xbox") => Some(Style::Xbox),
+            Some("nintendo") => Some(Style::Nintendo),
+            _ => None,
+        });
+        if let Some(s) = forced {
+            return *s;
+        }
+        match STYLE.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => Style::PlayStation,
+            2 => Style::Nintendo,
+            _ => Style::Xbox,
+        }
+    }
 }
 
 static INPUT_SINK: OnceLock<fn(Input)> = OnceLock::new();

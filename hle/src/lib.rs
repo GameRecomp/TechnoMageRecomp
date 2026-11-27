@@ -81,6 +81,7 @@ fn on_input(i: rc_platform::Input) {
             });
         }
         Input::Pad { buttons, x, y } => dinput::pad(buttons, x, y),
+        Input::TouchButtons { held } => dinput::touch_buttons(held),
         Input::Cursor { x, y } => {
             // Widescreen: the game's screen is the middle of the frame; on a margin the pointer
             // is left or right of it (the message's coordinates are signed).
@@ -186,7 +187,7 @@ pub(crate) fn frame_done(c: &mut Cpu) {
 /// `RC_INPUT="150:esc 400:enter 450:click@320,240 500:pad-cross"`: at the given frames, a key
 /// is pressed for one frame (DirectInput and window messages), the left button clicked at a
 /// position, or a button of the gamepad (`pad-square` … `pad-start`, `pad-l1` …, a direction
-/// `pad-left` …) held for four frames.
+/// `pad-left` …) held for four frames, or the touch screen's on-screen button at `tap@x,y`.
 fn scripted_input(frame: u64) {
     use std::sync::Mutex;
     static RELEASE: Mutex<Vec<(u64, u8, u32)>> = Mutex::new(Vec::new());
@@ -199,6 +200,7 @@ fn scripted_input(frame: u64) {
         if p.is_some_and(|f| f <= frame) {
             *p = None;
             dinput::pad(0, 0, 0);
+            rc_platform::touch::set_held(0);
         }
     }
     let mut rel = RELEASE.lock().expect("input");
@@ -254,6 +256,16 @@ fn scripted_input(frame: u64) {
             };
             dinput::pad(bits, x, y);
             *PAD_RELEASE.lock().expect("input") = Some(frame + 4);
+            continue;
+        }
+        if let Some(pos) = what.strip_prefix("tap@") {
+            // A finger on the on-screen button there (the game's screen, margins included).
+            let (x, y) = pos.split_once(',').unwrap_or(("0", "0"));
+            let (x, y): (f32, f32) = (x.parse().unwrap_or(0.0), y.parse().unwrap_or(0.0));
+            if let Some(b) = rc_platform::touch::hit(x, y) {
+                rc_platform::touch::set_held(1 << b);
+                *PAD_RELEASE.lock().expect("input") = Some(frame + 4);
+            }
             continue;
         }
         if let Some(pos) = what.strip_prefix("move@") {

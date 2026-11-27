@@ -469,12 +469,13 @@ fn keyboard(
             }
             continue;
         }
-        // Android's back button is Escape (the pause menu).
-        let code = if k.logical_key == bevy::input::keyboard::Key::BrowserBack {
-            KeyCode::Escape
-        } else {
-            k.key_code
-        };
+        // Android's back button is Escape (the pause menu); any other key means the keyboard is
+        // used (the on-screen buttons go).
+        let back = k.logical_key == bevy::input::keyboard::Key::BrowserBack;
+        if !back && k.state == ButtonState::Pressed {
+            crate::touch::set_in_use(false);
+        }
+        let code = if back { KeyCode::Escape } else { k.key_code };
         if let Some((scan, vk)) = key_codes(code) {
             input(Input::Key {
                 scan,
@@ -505,6 +506,9 @@ fn mouse(
         });
     }
     for b in buttons.read() {
+        if b.state == ButtonState::Pressed {
+            crate::touch::set_in_use(false);
+        }
         let n = match b.button {
             MouseButton::Left => 0,
             MouseButton::Right => 1,
@@ -579,9 +583,16 @@ fn gamepad(pads: Query<&Gamepad>, mut last: Local<Option<(u16, i16, i16)>>) {
     let mut buttons = 0u16;
     let mut dir = Vec2::ZERO;
     for g in &pads {
+        let before = buttons;
         for (b, bit) in BUTTONS {
             if g.pressed(b) {
                 buttons |= bit;
+            }
+        }
+        // Whose buttons: the maker of the gamepad pressed.
+        if buttons != before {
+            if let Some(v) = g.vendor_id() {
+                pad::set_style(pad::style_of_vendor(v));
             }
         }
         // The directional buttons push all the way; the stick as far as it is pushed.
@@ -596,6 +607,9 @@ fn gamepad(pads: Query<&Gamepad>, mut last: Local<Option<(u16, i16, i16)>>) {
     let now = (buttons, axis(dir.x), axis(-dir.y));
     if *last != Some(now) {
         *last = Some(now);
+        if now != (0, 0, 0) {
+            crate::touch::set_in_use(false);
+        }
         input(Input::Pad {
             buttons: now.0,
             x: now.1,
@@ -622,6 +636,8 @@ struct Fingers {
     /// The first finger, where it is in the game, and whether its button is down yet.
     first: Option<(u64, (i32, i32), bool)>,
     second: Option<u64>,
+    /// Fingers on the game's on-screen buttons: which finger, which button.
+    on_buttons: Vec<(u64, u8)>,
 }
 
 fn touch(
@@ -643,8 +659,24 @@ fn touch(
         });
     }
     for t in touches.read() {
+        crate::touch::set_in_use(true);
         let pos = to_game(win, &screen, t.position);
         let first = f.first.map(|(id, ..)| id);
+        // A finger that starts on an on-screen button holds it until it is lifted.
+        if t.phase == TouchPhase::Started {
+            if let Some(b) = crate::touch::hit(pos.0 as f32, pos.1 as f32) {
+                f.on_buttons.push((t.id, b));
+                crate::touch::set_held(f.on_buttons.iter().fold(0, |m, (_, b)| m | 1 << b));
+                continue;
+            }
+        }
+        if let Some(i) = f.on_buttons.iter().position(|(id, _)| *id == t.id) {
+            if matches!(t.phase, TouchPhase::Ended | TouchPhase::Canceled) {
+                f.on_buttons.remove(i);
+                crate::touch::set_held(f.on_buttons.iter().fold(0, |m, (_, b)| m | 1 << b));
+            }
+            continue;
+        }
         match t.phase {
             TouchPhase::Started if first.is_none() => {
                 input(Input::Cursor { x: pos.0, y: pos.1 });

@@ -149,6 +149,7 @@ type GetEvent = unsafe extern "C" fn(*mut c_void, *mut *mut c_void) -> i32;
 unsafe extern "C" {
     fn AInputEvent_getType(event: *const c_void) -> i32;
     fn AInputEvent_getSource(event: *const c_void) -> i32;
+    fn AInputEvent_getDeviceId(event: *const c_void) -> i32;
     fn AKeyEvent_getAction(event: *const c_void) -> i32;
     fn AKeyEvent_getKeyCode(event: *const c_void) -> i32;
     fn AMotionEvent_getAxisValue(event: *const c_void, axis: i32, pointer: usize) -> f32;
@@ -238,6 +239,8 @@ static PADS: Mutex<Pads> = Mutex::new(Pads {
 /// directional keys, else the hat, else the stick.
 fn send(p: &Pads) {
     use crate::pad;
+    // A gamepad in use: the on-screen buttons go.
+    crate::touch::set_in_use(false);
     let mut buttons = p.buttons;
     if p.triggers.0 > 0.5 {
         buttons |= pad::L2;
@@ -276,6 +279,12 @@ unsafe fn take(event: *mut c_void) -> bool {
     let source = unsafe { AInputEvent_getSource(event) };
     if source & (SOURCE_GAMEPAD | SOURCE_JOYSTICK) == 0 {
         return false;
+    }
+    // Whose buttons: the maker of the device (its vendor id, asked once per device).
+    // SAFETY: the caller's event.
+    let device = unsafe { AInputEvent_getDeviceId(event) };
+    if let Some(v) = vendor_of(device) {
+        crate::pad::set_style(crate::pad::style_of_vendor(v));
     }
     let mut p = PADS.lock().expect("pads");
     // SAFETY: the caller's event, of the type asked.
@@ -339,6 +348,51 @@ pub unsafe extern "C" fn AInputQueue_getEvent(queue: *mut c_void, out: *mut *mut
         }
         unsafe { AInputQueue_finishEvent(queue, event, 1) };
     }
+}
+
+/// An input device's USB vendor id (`InputDevice.getVendorId()`, through JNI), kept per device.
+fn vendor_of(device: i32) -> Option<u16> {
+    static KNOWN: Mutex<Vec<(i32, Option<u16>)>> = Mutex::new(Vec::new());
+    if let Some(&(_, v)) = KNOWN
+        .lock()
+        .expect("vendors")
+        .iter()
+        .find(|(d, _)| *d == device)
+    {
+        return v;
+    }
+    let v = ask_vendor(device).ok().flatten();
+    KNOWN.lock().expect("vendors").push((device, v));
+    v
+}
+
+fn ask_vendor(device: i32) -> jni::errors::Result<Option<u16>> {
+    use jni::objects::JValue;
+    let Some(app) = app() else {
+        return Ok(None);
+    };
+    // SAFETY: the activity's Java VM, which lives as long as the process.
+    let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast())? };
+    let mut env = vm.attach_current_thread_permanently()?;
+    let r = env.with_local_frame(8, |env| -> jni::errors::Result<Option<u16>> {
+        let dev = env
+            .call_static_method(
+                "android/view/InputDevice",
+                "getDevice",
+                "(I)Landroid/view/InputDevice;",
+                &[JValue::Int(device)],
+            )?
+            .l()?;
+        if dev.is_null() {
+            return Ok(None);
+        }
+        let v = env.call_method(&dev, "getVendorId", "()I", &[])?.i()?;
+        Ok(u16::try_from(v).ok())
+    });
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+    r
 }
 
 // --- The gamepads' vibration -------------------------------------------------------------------

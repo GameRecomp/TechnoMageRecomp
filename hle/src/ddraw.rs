@@ -902,6 +902,24 @@ pub fn set_picture_fn(f: PictureFn) {
     let _ = PICTURE.set(f);
 }
 
+/// Draws over a frame before it is shown (a game patch's): the frame's RGBA, its size, and how
+/// many of its pixels one of the screen surface's is (more with native resolution).
+pub type OverlayFn = fn(Mem, &mut [u8], u32, u32, f32);
+
+static OVERLAY: std::sync::OnceLock<OverlayFn> = std::sync::OnceLock::new();
+
+/// Pictures of a game patch's over each frame of the screen (in the screen surface's pixels,
+/// margins included, scaled with the frame).
+pub fn set_overlay_fn(f: OverlayFn) {
+    let _ = OVERLAY.set(f);
+}
+
+fn overlay(m: Mem, rgba: &mut [u8], w: u32, h: u32, surface_w: u32) {
+    if let Some(f) = OVERLAY.get() {
+        f(m, rgba, w, h, w as f32 / surface_w.max(1) as f32);
+    }
+}
+
 /// The primary surface is what the screen shows: a change to it (a video written by `Lock`,
 /// a `Blt` onto it) is a frame.
 fn present_if_primary(c: &mut Cpu, id: u32) {
@@ -1215,9 +1233,14 @@ fn s_Flip(c: &mut Cpu) {
                     }
                 }
             }
+            overlay(m, &mut big, w, h, shown.width);
             rc_platform::submit_frame_scaled((shown.width, shown.height), w, h, big);
         }
-        None => rc_platform::submit_frame(shown.width, shown.height, to_rgba(m, &shown)),
+        None => {
+            let mut rgba = to_rgba(m, &shown);
+            overlay(m, &mut rgba, shown.width, shown.height, shown.width);
+            rc_platform::submit_frame(shown.width, shown.height, rgba);
+        }
     }
     clear_margins(m, &shown);
     apply_margin(m);

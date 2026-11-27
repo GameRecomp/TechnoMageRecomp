@@ -56,7 +56,12 @@ struct State {
     buttons: [u8; 4],
     /// The pad: its buttons (`rc_platform::pad`) and direction.
     pad: (u16, i16, i16),
+    /// The touch screen's on-screen buttons held: the joystick's buttons from [`TOUCH_FIRST`].
+    touch: u32,
 }
+
+/// The joystick's first button of the touch screen's on-screen ones (after the gamepad's).
+pub const TOUCH_FIRST: u32 = 16;
 
 static STATE: Mutex<State> = Mutex::new(State {
     key_events: std::collections::VecDeque::new(),
@@ -68,11 +73,28 @@ static STATE: Mutex<State> = Mutex::new(State {
     dz: 0,
     buttons: [0; 4],
     pad: (0, 0, 0),
+    touch: 0,
 });
+
+/// The touch screen's on-screen buttons held (bit `k`: button `k`).
+pub fn touch_buttons(held: u32) {
+    STATE.lock().expect("dinput").touch = held;
+}
 
 /// The gamepads changed: the buttons held and the direction (-32768 to 32767, y down).
 pub fn pad(buttons: u16, x: i16, y: i16) {
     STATE.lock().expect("dinput").pad = (buttons, x, y);
+    if buttons != 0 || x.unsigned_abs() > 12_000 || y.unsigned_abs() > 12_000 {
+        PAD_IN_USE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Whether the gamepad is what the player used last (a button or the stick pushed), rather than
+/// the keyboard or the mouse's buttons: the game's key pictures show its buttons then.
+static PAD_IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn pad_in_use() -> bool {
+    PAD_IN_USE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The pad's buttons held now (`rc_platform::pad`).
@@ -87,6 +109,9 @@ pub fn key_down(scan: u8) -> bool {
 
 /// A key (DirectInput scan code `DIK_*`) went down or up.
 pub fn key(scan: u8, down: bool) {
+    if down {
+        PAD_IN_USE.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
     let mut s = STATE.lock().expect("dinput");
     let v = if down { 0x80 } else { 0 };
     s.keys[usize::from(scan)] = v;
@@ -120,6 +145,9 @@ pub fn mouse_button_down(b: usize) -> bool {
 
 /// A mouse button (0 left, 1 right, 2 middle) went down or up.
 pub fn mouse_button(b: usize, down: bool) {
+    if down {
+        PAD_IN_USE.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
     if b < 4 {
         let mut s = STATE.lock().expect("dinput");
         let v = if down { 0x80 } else { 0 };
@@ -243,6 +271,11 @@ fn dev_GetDeviceState(c: &mut Cpu) {
             for b in 0..rc_platform::pad::BUTTONS {
                 if buttons & (1 << b) != 0 && 48 + b < size {
                     m.st8(out + 48 + b, 0x80);
+                }
+            }
+            for k in 0..16 {
+                if s.touch & (1 << k) != 0 && 48 + TOUCH_FIRST + k < size {
+                    m.st8(out + 48 + TOUCH_FIRST + k, 0x80);
                 }
             }
         }
