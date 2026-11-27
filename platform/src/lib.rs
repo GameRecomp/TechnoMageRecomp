@@ -169,6 +169,31 @@ pub mod render {
         NATIVE.load(Ordering::Relaxed)
     }
 
+    static WIDESCREEN: AtomicBool = AtomicBool::new(false);
+
+    /// Widescreen: the screen is as wide as the output's proportions ask, the game's picture in
+    /// its middle (the HLE's `ddraw::margin`); a game patched for it draws its world into the
+    /// sides. Never wider than 32:9, never narrower than the game's screen.
+    pub fn set_widescreen(on: bool) {
+        WIDESCREEN.store(on, Ordering::Relaxed);
+    }
+
+    pub fn widescreen() -> bool {
+        WIDESCREEN.load(Ordering::Relaxed)
+    }
+
+    /// The margin on each side of a `width` × `height` screen with widescreen on (0 off, or
+    /// without an output): even, so the picture stays on whole pixels when it is halved.
+    pub fn margin_for(width: u32, height: u32) -> u32 {
+        let (ow, oh) = output();
+        if !widescreen() || width == 0 || height == 0 || ow == 0 || oh == 0 {
+            return 0;
+        }
+        let wide = (u64::from(height) * u64::from(ow) / u64::from(oh))
+            .min(u64::from(height) * 32 / 9) as u32;
+        (wide.saturating_sub(width) / 2) & !1
+    }
+
     static ANTIALIAS: AtomicBool = AtomicBool::new(false);
     static SHOW_FPS: AtomicBool = AtomicBool::new(false);
 
@@ -426,6 +451,20 @@ fn screenshot_if_asked(n: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widescreen_margins() {
+        render::set_output(1920, 1080);
+        assert_eq!(render::margin_for(640, 480), 0, "off");
+        render::set_widescreen(true);
+        assert_eq!(render::margin_for(640, 480), 106); // 853 wide
+        render::set_output(1280, 1024);
+        assert_eq!(render::margin_for(640, 480), 0, "narrower than 4:3");
+        render::set_output(5120, 1080);
+        assert_eq!(render::margin_for(640, 480), 532, "at most 32:9");
+        render::set_widescreen(false);
+        render::set_output(0, 0);
+    }
 
     #[test]
     fn frames_are_counted() {

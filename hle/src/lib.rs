@@ -81,6 +81,9 @@ fn on_input(i: rc_platform::Input) {
             });
         }
         Input::Cursor { x, y } => {
+            // Widescreen: the game's screen is the middle of the frame; on a margin the pointer
+            // is left or right of it (the message's coordinates are signed).
+            let x = x - ddraw::margin() as i32;
             let lp = ((y as u32) << 16) | (x as u32 & 0xffff);
             user32::post_input(user32::Msg {
                 hwnd: HWND,
@@ -261,6 +264,11 @@ fn scripted_input(frame: u64) {
             "down" => (0xd0, 0x28),
             "left" => (0xcb, 0x25),
             "right" => (0xcd, 0x27),
+            "m" => (0x32, 0x4d),
+            "i" => (0x17, 0x49),
+            "tab" => (0x0f, 0x09),
+            "f11" => (0x57, 0x7a),
+            "f12" => (0x58, 0x7b),
             _ => continue,
         };
         dinput::key(scan, true);

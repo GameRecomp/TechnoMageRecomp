@@ -274,7 +274,7 @@ mod shadow {
     /// The size to render `info` at: the screen's surfaces (the display mode's size) as the
     /// platform says, others as they are.
     pub fn render_size(info: &SurfaceInfo) -> (u32, u32) {
-        let (w, h, _) = crate::ddraw::display_mode();
+        let (w, h) = crate::ddraw::screen_size();
         if cfg!(target_family = "wasm") || (info.width, info.height) != (w, h) {
             return (info.width, info.height);
         }
@@ -396,7 +396,7 @@ mod shadow {
 /// The size the screen is rendered at: the display mode, or larger with native resolution when
 /// a GPU renders (natively; the software renderer and the browser draw at the game's size).
 pub fn screen_render_size() -> (u32, u32) {
-    let (w, h, _) = ddraw::display_mode();
+    let (w, h) = ddraw::screen_size();
     #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
     if batch::available() {
         return rc_platform::render::size_for(w, h);
@@ -416,6 +416,14 @@ pub fn native_picture(m: Mem, info: &crate::ddraw::SurfaceInfo) -> Option<(u32, 
 }
 
 /// Before the CPU touches surface `obj`: the GPU's pending draws into it are done.
+/// A surface's pixels moved (`ddraw`'s margin changed): what was kept of the old ones goes.
+pub fn forget_surface(buf: u32) {
+    #[cfg(feature = "gpu")]
+    shadow::drop(buf);
+    #[cfg(not(feature = "gpu"))]
+    let _ = buf;
+}
+
 pub fn flush_if_target(m: Mem, obj: u32) {
     #[cfg(feature = "gpu")]
     batch::flush_if(m, obj);
@@ -671,14 +679,50 @@ fn snapshot(d: &mut Device) -> Arc<State> {
     s
 }
 
-fn record(c: &Cpu, primitive: u32, fvf: u32, vertices: Vec<u8>, indices: Vec<u16>) {
+static WHOLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Run `f` with its draws placed on a widescreen target's whole width (not moved into its
+/// middle): for a game patched to draw its world over the margins (`ddraw::margin`).
+pub fn on_whole_width<R>(f: impl FnOnce() -> R) -> R {
+    use std::sync::atomic::Ordering;
+    let before = WHOLE.swap(true, Ordering::Relaxed);
+    let r = f();
+    WHOLE.store(before, Ordering::Relaxed);
+    r
+}
+
+/// Move a draw into a widescreen target's middle (`ddraw::margin`): pre-transformed vertices by
+/// their screen position, others by the viewport.
+fn widen(m: Mem, state: Arc<State>, fvf: u32, vertices: &mut [u8]) -> Arc<State> {
+    let ox = ddraw::margin_of(m, state.target);
+    if ox == 0 || WHOLE.load(std::sync::atomic::Ordering::Relaxed) {
+        return state;
+    }
+    if fvf & 0xe == 0x4 {
+        // D3DFVF_XYZRHW: x is the first float.
+        let stride = fvf_stride(fvf) as usize;
+        for v in vertices.chunks_exact_mut(stride) {
+            let x = f32::from_le_bytes([v[0], v[1], v[2], v[3]]) + ox as f32;
+            v[..4].copy_from_slice(&x.to_le_bytes());
+        }
+        return state;
+    }
+    let mut s = (*state).clone();
+    s.viewport[0] += ox as f32;
+    Arc::new(s)
+}
+
+fn record(c: &Cpu, primitive: u32, fvf: u32, mut vertices: Vec<u8>, indices: Vec<u16>) {
     let m = c.mem();
     let id = com::id_of(m, c.arg(0));
     let mut s = g();
     let Some(d) = s.devices.get_mut(&id) else {
         return;
     };
-    let state = snapshot(d);
+    let mut state = snapshot(d);
+    if s.captured.is_none() {
+        state = widen(m, state, fvf, &mut vertices);
+    }
     if let Some(list) = s.captured.as_mut() {
         list.push(Draw {
             primitive,
@@ -809,6 +853,7 @@ fn dev_Clear(c: &mut Cpu) {
             ]
         })
         .collect();
+    let ox = ddraw::margin_of(m, target) as i32;
     if rects.is_empty() {
         rects.push([
             vp[0] as i32,
@@ -816,6 +861,18 @@ fn dev_Clear(c: &mut Cpu) {
             (vp[0] + vp[2]) as i32,
             (vp[1] + vp[3]) as i32,
         ]);
+    }
+    if ox > 0 {
+        // Widescreen: moved into the middle; a clear of the whole screen clears the margins too.
+        let (gw, gh, _) = ddraw::display_mode();
+        for r in &mut rects {
+            if r[0] <= 0 && r[1] <= 0 && r[2] >= gw as i32 && r[3] >= gh as i32 {
+                r[0] = -ox;
+                r[2] += ox;
+            }
+            r[0] += ox;
+            r[2] += ox;
+        }
     }
     #[cfg(feature = "gpu")]
     let gpu = batch::available();

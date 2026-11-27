@@ -128,6 +128,9 @@ struct Surface {
     version: u32,
     /// Red, green, blue and alpha bit masks of the pixels (0 alpha: none).
     masks: [u32; 4],
+    /// Widescreen: a surface of the screen is this many pixels wider on each side than the
+    /// game knows it (see [`margin`]); 0 for every other surface.
+    ox: u32,
 }
 
 /// What the renderer needs of a surface.
@@ -183,19 +186,111 @@ impl Surface {
     fn bytes(&self) -> u32 {
         self.bpp / 8
     }
+
+    /// The width the game knows.
+    fn game_width(&self) -> u32 {
+        self.width - 2 * self.ox
+    }
 }
 
 struct State {
     surfaces: BTreeMap<u32, Surface>,
     next: u32,
     mode: (u32, u32, u32),
+    /// The screen surfaces' margin now (see [`margin`]).
+    margin: u32,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
     surfaces: BTreeMap::new(),
     next: 1,
     mode: (640, 480, 16),
+    margin: 0,
 });
+
+/// Widescreen (`rc_platform::render::widescreen`): the surfaces of the screen (the primary
+/// surface, its back buffer, z-buffers and render targets of the display mode's size) are wider
+/// than the display mode by this many pixels on each side. The game keeps its display mode: it
+/// sees them at that size, as the middle of what they are. A pointer from `Lock`, the
+/// rectangles of blits and clears, and the screen positions of Direct3D's pre-transformed
+/// vertices are moved by the margin, so what it draws lands in the middle and the frame shows
+/// the margins beside it; a draw beyond the display mode's edges (a game patched to draw its
+/// world wider) fills them. The margin follows the output's proportions; it changes between
+/// frames (at `Flip`), the surfaces made again at the new width.
+pub fn margin() -> u32 {
+    st().margin
+}
+
+/// The size of the screen's surfaces: the display mode's with the margins.
+pub fn screen_size() -> (u32, u32) {
+    let s = st();
+    (s.mode.0 + 2 * s.margin, s.mode.1)
+}
+
+/// The margin of the surface object `obj` (0 for one not of the screen).
+pub fn margin_of(m: Mem, obj: u32) -> u32 {
+    surface(com::id_of(m, obj)).map_or(0, |s| s.ox)
+}
+
+/// Whether a surface made with `caps` at `width` × `height` is one of the screen's.
+fn of_screen(caps: u32, width: u32, height: u32, mode: (u32, u32, u32)) -> bool {
+    caps & DDSCAPS_TEXTURE == 0
+        && (width, height) == (mode.0, mode.1)
+        && caps & (DDSCAPS_PRIMARYSURFACE | DDSCAPS_BACKBUFFER | DDSCAPS_ZBUFFER | DDSCAPS_3DDEVICE)
+            != 0
+}
+
+/// Black margins on a surface just shown: what the game draws over them in the next frame (its
+/// world, patched to) shows there, nothing else does (a picture of a screen the game covers
+/// whole, a map, is not left beside it).
+fn clear_margins(m: Mem, s: &Surface) {
+    if s.ox == 0 {
+        return;
+    }
+    let zero = vec![0u8; (s.ox * s.bytes()) as usize];
+    let right = (s.width - s.ox) * s.bytes();
+    for y in 0..s.height {
+        m.write(s.buf + y * s.pitch, &zero);
+        m.write(s.buf + y * s.pitch + right, &zero);
+    }
+    crate::d3d::forget_surface(s.buf);
+}
+
+/// Make the screen's surfaces again at the margin the output asks for now, their pictures kept
+/// in the middle.
+fn apply_margin(m: Mem) {
+    let (gw, gh, _) = display_mode();
+    let want = rc_platform::render::margin_for(gw, gh);
+    let mut s = st();
+    if want == s.margin {
+        return;
+    }
+    s.margin = want;
+    rc_runtime::log!("[ddraw] widescreen: a margin of {want} pixels on each side");
+    let mut moved = Vec::new();
+    for x in s.surfaces.values_mut().filter(|x| x.ox != want) {
+        if !of_screen(x.caps, x.game_width(), x.height, (gw, gh, 0)) {
+            continue;
+        }
+        let width = x.game_width() + 2 * want;
+        let pitch = (width * x.bpp / 8 + 3) & !3;
+        let buf = vm::heap_alloc(m, (pitch * x.height).max(4), true);
+        let row = (x.game_width() * x.bytes()) as usize;
+        let mut line = vec![0u8; row];
+        for y in 0..x.height {
+            m.read(x.buf + y * x.pitch + x.ox * x.bytes(), &mut line);
+            m.write(buf + y * pitch + want * x.bytes(), &line);
+        }
+        moved.push(x.buf);
+        vm::heap_free(x.buf);
+        (x.width, x.pitch, x.buf, x.ox) = (width, pitch, buf, want);
+        x.version = x.version.wrapping_add(1);
+    }
+    drop(s);
+    for buf in moved {
+        crate::d3d::forget_surface(buf);
+    }
+}
 
 fn st() -> std::sync::MutexGuard<'static, State> {
     STATE.lock().expect("ddraw")
@@ -230,6 +325,7 @@ pub fn load(m: Mem, dst: u32, point: u32, src: u32, rect: u32) -> bool {
     } else {
         (0, 0)
     };
+    let x = x + d.ox as i32;
     let dr = Rect {
         l: x,
         t: y,
@@ -255,6 +351,12 @@ pub fn display_mode() -> (u32, u32, u32) {
 }
 
 fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32, masks: [u32; 4]) -> u32 {
+    let ox = if of_screen(caps, width, height, display_mode()) {
+        margin()
+    } else {
+        0
+    };
+    let width = width + 2 * ox;
     let pitch = (width * bpp / 8 + 3) & !3;
     let buf = vm::heap_alloc(m, (pitch * height).max(4), true);
     let id = {
@@ -275,6 +377,7 @@ fn new_surface(m: Mem, width: u32, height: u32, bpp: u32, caps: u32, masks: [u32
             caps,
             object: obj,
             masks,
+            ox,
             ..Surface::default()
         },
     );
@@ -316,7 +419,7 @@ fn put_desc(m: Mem, d: u32, s: &Surface, surface_ptr: u32) {
         DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT | DDSD_LPSURFACE,
     );
     m.st32(d + 8, s.height);
-    m.st32(d + 12, s.width);
+    m.st32(d + 12, s.game_width());
     m.st32(d + 16, s.pitch);
     m.st32(d + 36, surface_ptr);
     let masks = if s.masks == [0; 4] {
@@ -701,7 +804,7 @@ fn s_GetSurfaceDesc(c: &mut Cpu) {
     let d = c.arg(1);
     match surface(sid(c)) {
         Some(s) => {
-            put_desc(m, d, &s, s.buf);
+            put_desc(m, d, &s, s.buf + s.ox * s.bytes());
             ret_stdcall(c, S_OK, 2);
         }
         None => ret_stdcall(c, DDERR_GENERIC, 2),
@@ -739,20 +842,33 @@ struct Rect {
     b: i32,
 }
 
+/// A rectangle the game gives (`p`; 0: the whole surface as the game knows it), on the
+/// surface's pixels (moved by its margin).
 fn read_rect(m: Mem, p: u32, s: &Surface) -> Rect {
+    let ox = s.ox as i32;
     if p == 0 {
         return Rect {
-            l: 0,
+            l: ox,
             t: 0,
-            r: s.width as i32,
+            r: ox + s.game_width() as i32,
             b: s.height as i32,
         };
     }
     Rect {
-        l: m.ld32(p) as i32,
+        l: m.ld32(p) as i32 + ox,
         t: m.ld32(p + 4) as i32,
-        r: m.ld32(p + 8) as i32,
+        r: m.ld32(p + 8) as i32 + ox,
         b: m.ld32(p + 12) as i32,
+    }
+}
+
+/// The whole of a surface, margins included.
+fn whole(s: &Surface) -> Rect {
+    Rect {
+        l: 0,
+        t: 0,
+        r: s.width as i32,
+        b: s.height as i32,
     }
 }
 
@@ -773,6 +889,19 @@ fn s_Lock(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 5);
 }
 
+/// Where a picture on the primary surface is (x, y, width, height as the game knows the
+/// surface), while one is shown: a video. A game patch tells it.
+pub type PictureFn = fn(Mem) -> Option<(u32, u32, u32, u32)>;
+
+static PICTURE: std::sync::OnceLock<PictureFn> = std::sync::OnceLock::new();
+
+/// With widescreen, a frame of the primary surface shows only the picture `f` says is on it
+/// (the platform enlarges it to the window, proportions kept): a video made wider than 4:3
+/// fills a wide window instead of being boxed in black on all sides.
+pub fn set_picture_fn(f: PictureFn) {
+    let _ = PICTURE.set(f);
+}
+
 /// The primary surface is what the screen shows: a change to it (a video written by `Lock`,
 /// a `Blt` onto it) is a frame.
 fn present_if_primary(c: &mut Cpu, id: u32) {
@@ -782,8 +911,26 @@ fn present_if_primary(c: &mut Cpu, id: u32) {
     if s.caps & DDSCAPS_PRIMARYSURFACE == 0 {
         return;
     }
-    let rgba = to_rgba(c.mem(), &s);
+    let m = c.mem();
+    let rgba = to_rgba(m, &s);
+    let picture = PICTURE
+        .get()
+        .filter(|_| rc_platform::render::widescreen())
+        .and_then(|f| f(m))
+        .filter(|&(x, y, w, h)| w > 0 && h > 0 && x + w <= s.game_width() && y + h <= s.height);
+    if let Some((x, y, w, h)) = picture {
+        let mut out = Vec::with_capacity((w * h * 4) as usize);
+        for r in y..y + h {
+            let at = ((r * s.width + s.ox + x) * 4) as usize;
+            out.extend_from_slice(&rgba[at..at + (w * 4) as usize]);
+        }
+        rc_platform::submit_frame(w, h, out);
+        apply_margin(m);
+        crate::frame_done(c);
+        return;
+    }
     rc_platform::submit_frame(s.width, s.height, rgba);
+    apply_margin(c.mem());
     crate::frame_done(c);
 }
 
@@ -880,8 +1027,11 @@ fn s_Blt(c: &mut Cpu) {
     let Some(dst) = surface(sid(c)) else {
         return ret_stdcall(c, DDERR_GENERIC, 6);
     };
-    let dr = read_rect(m, drect, &dst);
+    let mut dr = read_rect(m, drect, &dst);
     if flags & (DDBLT_COLORFILL | DDBLT_DEPTHFILL) != 0 {
+        if drect == 0 {
+            dr = whole(&dst); // the margins too
+        }
         let v = if fx != 0 { m.ld32(fx + 0x50) } else { 0 };
         fill(m, &dst, dr, v);
         return ret_stdcall(c, S_OK, 6);
@@ -892,7 +1042,10 @@ fn s_Blt(c: &mut Cpu) {
     else {
         return ret_stdcall(c, DDERR_INVALIDPARAMS, 6);
     };
-    let sr = read_rect(m, srect, &src);
+    let mut sr = read_rect(m, srect, &src);
+    if drect == 0 && srect == 0 && dst.ox == src.ox && dst.width == src.width {
+        (dr, sr) = (whole(&dst), whole(&src)); // one screen surface onto another, margins too
+    }
     let key = if flags & DDBLT_KEYSRCOVERRIDE != 0 && fx != 0 {
         Some((m.ld32(fx + 0x68), m.ld32(fx + 0x6c)))
     } else if flags & DDBLT_KEYSRC != 0 {
@@ -921,6 +1074,7 @@ fn s_BltFast(c: &mut Cpu) {
         return ret_stdcall(c, DDERR_GENERIC, 6);
     };
     let sr = read_rect(m, srect, &src);
+    let x = x + dst.ox as i32;
     let dr = Rect {
         l: x,
         t: y,
@@ -1065,6 +1219,8 @@ fn s_Flip(c: &mut Cpu) {
         }
         None => rc_platform::submit_frame(shown.width, shown.height, to_rgba(m, &shown)),
     }
+    clear_margins(m, &shown);
+    apply_margin(m);
     crate::frame_done(c);
     ret_stdcall(c, S_OK, 3);
 }
