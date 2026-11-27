@@ -889,9 +889,22 @@ fn s_Lock(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 5);
 }
 
-/// Where a picture on the primary surface is (x, y, width, height as the game knows the
-/// surface), while one is shown: a video. A game patch tells it.
-pub type PictureFn = fn(Mem) -> Option<(u32, u32, u32, u32)>;
+/// A picture on the primary surface (x, y, width, height as the game knows the surface).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Picture {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+    /// Letterboxed: the game shows it lower than the screen, with black above and below. Only
+    /// such a picture is cut to fill the window (`fill_screen`); a full-frame one is shown
+    /// whole, boxed if it must be.
+    pub letterboxed: bool,
+}
+
+/// Where a picture on the primary surface is, while one is shown: a video. A game patch
+/// tells it.
+pub type PictureFn = fn(Mem) -> Option<Picture>;
 
 static PICTURE: std::sync::OnceLock<PictureFn> = std::sync::OnceLock::new();
 
@@ -920,8 +933,8 @@ fn overlay(m: Mem, rgba: &mut [u8], w: u32, h: u32, surface_w: u32) {
     }
 }
 
-/// A picture (`x`, `y`, `w`, `h`) cut to the screen's proportions (`sw` × `sh`, margins
-/// included) by at most an eighth of its width or height, so a video a little wider or
+/// A letterboxed picture (`x`, `y`, `w`, `h`) cut to the screen's proportions (`sw` × `sh`,
+/// margins included) by at most an eighth of its width or height, so a video a little wider or
 /// narrower than the window fills it instead of leaving black bars (a 16:10 window and a
 /// 640 × 368 video: 8 % off its sides).
 fn fill_screen(x: u32, y: u32, w: u32, h: u32, sw: u32, sh: u32) -> (u32, u32, u32, u32) {
@@ -952,9 +965,13 @@ fn present_if_primary(c: &mut Cpu, id: u32) {
         .get()
         .filter(|_| rc_platform::render::widescreen())
         .and_then(|f| f(m))
-        .filter(|&(x, y, w, h)| w > 0 && h > 0 && x + w <= s.game_width() && y + h <= s.height);
-    if let Some((x, y, w, h)) = picture {
-        let (x, y, w, h) = fill_screen(x, y, w, h, s.width, s.height);
+        .filter(|p| p.w > 0 && p.h > 0 && p.x + p.w <= s.game_width() && p.y + p.h <= s.height);
+    if let Some(p) = picture {
+        let (x, y, w, h) = if p.letterboxed {
+            fill_screen(p.x, p.y, p.w, p.h, s.width, s.height)
+        } else {
+            (p.x, p.y, p.w, p.h)
+        };
         let mut out = Vec::with_capacity((w * h * 4) as usize);
         for r in y..y + h {
             let at = ((r * s.width + s.ox + x) * 4) as usize;

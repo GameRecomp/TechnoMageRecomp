@@ -1035,8 +1035,11 @@ fn play_video(c: &mut Cpu) {
 }
 
 /// Where the video playing is on the screen (the game centres it): widescreen shows only it,
-/// enlarged (the cut scenes are 640 × 368, nearly 16:9).
-fn video_picture(m: Mem) -> Option<(u32, u32, u32, u32)> {
+/// enlarged. The videos are of two kinds (RESEARCH.md, the videos in "The pause menu, …"): the
+/// intro, the outro and the cut scenes are 640 × 368, nearly 16:9, and letterboxed by the game
+/// on its 640 × 480 screen, so they may lose a little of their picture to fill the window; the
+/// logos and the visions are 640 × 480, full frame, and are shown whole.
+fn video_picture(m: Mem) -> Option<rc_hle::ddraw::Picture> {
     if !PLAYING.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
@@ -1046,7 +1049,13 @@ fn video_picture(m: Mem) -> Option<(u32, u32, u32, u32)> {
     }
     let (w, ht) = (m.ld32(h), m.ld32(h + 4));
     let (gw, gh, _) = rc_hle::ddraw::display_mode();
-    (w <= gw && ht <= gh).then(|| ((gw - w) / 2, (gh - ht) / 2, w, ht))
+    (w <= gw && ht <= gh).then(|| rc_hle::ddraw::Picture {
+        x: (gw - w) / 2,
+        y: (gh - ht) / 2,
+        w,
+        h: ht,
+        letterboxed: ht < gh,
+    })
 }
 
 fn camera(c: &mut Cpu) {

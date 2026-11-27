@@ -190,7 +190,12 @@ format needs a host service **(open)**.
   rooms whose black surroundings end before the wider picture's edge, so widescreen draws them black. The options panel's table has room for a
   fifth entry: the 36 bytes after its end (`0x564d34`) are zeros up to the next data. Videos: the handle of the
   one playing is at `0x808ce8` (width and height first), centred in 640×480 by `0x53c8d0`; the cut scenes are
-  640×368, the logos and visions 640×480. Whether every world keeps its primitives in those buckets is **(open)**.
+  640×368, the logos and visions 640×480. The videos (German CD, all 16 measured over every frame) are of two
+  kinds: `Intro`, `Outro` and `Cut1` to `Cut7` are 640×368 and the game letterboxes them on its 640×480 screen,
+  with no black bars in their own frames (at most 2 to 8 dark rows); `SFLOGO`, `LOGO` and `Vision1` to `Vision5`
+  are 640×480, full frame (`LOGO` black only in a strip 22 pixels wide on its left). So widescreen cuts only a
+  letterboxed one (lower than the screen) to fill the window, by at most an eighth; a full-frame one is shown
+  whole. Whether the other languages' videos are the same sizes is **(open)**. Whether every world keeps its primitives in those buckets is **(open)**.
   The interface's buckets: the life and mana tubes 12 to 15 (bottom left; in a dialogue they slide out below),
   a dialogue 24 to 27 (its text 25, its box 26 and 27, key pictures 24). In the character menu (state `0x40`)
   the attributes, the coins and the weapon slots are left of the middle (buckets 7, 23, 24, …), the rucksack's
