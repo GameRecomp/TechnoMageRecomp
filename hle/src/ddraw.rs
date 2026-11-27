@@ -920,6 +920,23 @@ fn overlay(m: Mem, rgba: &mut [u8], w: u32, h: u32, surface_w: u32) {
     }
 }
 
+/// A picture (`x`, `y`, `w`, `h`) cut to the screen's proportions (`sw` × `sh`, margins
+/// included) by at most an eighth of its width or height, so a video a little wider or
+/// narrower than the window fills it instead of leaving black bars (a 16:10 window and a
+/// 640 × 368 video: 8 % off its sides).
+fn fill_screen(x: u32, y: u32, w: u32, h: u32, sw: u32, sh: u32) -> (u32, u32, u32, u32) {
+    let (wide, tall) = (u64::from(w) * u64::from(sh), u64::from(h) * u64::from(sw));
+    if wide > tall {
+        let cw = ((u64::from(h) * u64::from(sw) / u64::from(sh.max(1))) as u32).max(w - w / 8);
+        (x + (w - cw) / 2, y, cw, h)
+    } else if tall > wide {
+        let ch = ((u64::from(w) * u64::from(sh) / u64::from(sw.max(1))) as u32).max(h - h / 8);
+        (x, y + (h - ch) / 2, w, ch)
+    } else {
+        (x, y, w, h)
+    }
+}
+
 /// The primary surface is what the screen shows: a change to it (a video written by `Lock`,
 /// a `Blt` onto it) is a frame.
 fn present_if_primary(c: &mut Cpu, id: u32) {
@@ -937,6 +954,7 @@ fn present_if_primary(c: &mut Cpu, id: u32) {
         .and_then(|f| f(m))
         .filter(|&(x, y, w, h)| w > 0 && h > 0 && x + w <= s.game_width() && y + h <= s.height);
     if let Some((x, y, w, h)) = picture {
+        let (x, y, w, h) = fill_screen(x, y, w, h, s.width, s.height);
         let mut out = Vec::with_capacity((w * h * 4) as usize);
         for r in y..y + h {
             let at = ((r * s.width + s.ox + x) * 4) as usize;
