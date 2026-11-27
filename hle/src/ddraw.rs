@@ -1235,6 +1235,7 @@ fn s_Flip(c: &mut Cpu) {
     if let Some(back) = front.back.and_then(surface) {
         crate::d3d::flush_if_target(m, back.object);
     }
+    let front_buf = (front.buf, front.pitch, front.height);
     let shown = front.back.and_then(surface).unwrap_or(front);
     // The frame's Direct3D commands go to the renderer once it exists (M5); for now they are
     // counted and dropped.
@@ -1259,6 +1260,13 @@ fn s_Flip(c: &mut Cpu) {
             overlay(m, &mut rgba, shown.width, shown.height, shown.width);
             rc_platform::submit_frame(shown.width, shown.height, rgba);
         }
+    }
+    // The front surface now holds what is shown, as after a real flip: a game that reads it
+    // (TechnoMage's saved games take their picture from it) finds the frame there.
+    if shown.buf != front_buf.0 && (shown.pitch, shown.height) == (front_buf.1, front_buf.2) {
+        let mut frame = vec![0u8; (shown.pitch * shown.height) as usize];
+        m.read(shown.buf, &mut frame);
+        m.write(front_buf.0, &frame);
     }
     clear_margins(m, &shown);
     apply_margin(m);

@@ -308,7 +308,11 @@ format needs a host service **(open)**.
 - `Esc` in the game opens a pause menu (resume, options, input devices, the logo animation, back to the main
   menu) without saving. The main menu offers a new game, loading and the way back to Windows.
 - Loading and saving share one book: nine slots and a quick-save slot (`SCHNELLSPEICHERN`), with load, save,
-  delete and back. In the game it is reached through the HUD's load/save entry (the control card,
+  delete and back. A saved game is `Saves\TMN_NN.TSG` (30,232 bytes): a 20-byte header, then its picture (160 ×
+  120, one byte a pixel, RGB 3-3-2, 19,200 bytes), taken a few frames after the book opens (`0x44fbe0`, counter
+  `0x59de14`) by locking the *front* surface and taking every fourth pixel (`0x537390`). The HLE's `Flip` therefore
+  copies the frame shown into the front surface, as a real flip leaves it there; before, the picture was black.
+  With widescreen it is taken from the surface's left 640 pixels, so it sits a margin to the left **(open)**. In the game it is reached through the HUD's load/save entry (the control card,
   `Steuerung.pdf`, shows it beside the quest log). Which key opens it, and whether saving is free or tied to
   places, is **(open)**: the card's key legend is a picture.
 - "Zurück zu Windows" ends the process through `ExitProcess(0)` and writes `TechnoMage.ini` (378 bytes) into the
