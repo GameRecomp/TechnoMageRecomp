@@ -175,7 +175,8 @@ format needs a host service **(open)**.
   texts and panels go to buckets 0 to `0x1b`, the world from `0xf8` on (seen in Dreamertown's first rooms,
   menus, inventory, map). The game never clears the depth buffer while playing: the frame's first primitives,
   four Gouraud quads of a dark gradient over 0 to 640 in bucket `0x3ff`, set it, so a wider picture needs them
-  wider, or what lies beyond 640 keeps old depth and stays hidden. The options panel's table has room for a
+  wider, or what lies beyond 640 keeps old depth and stays hidden. Widened, their gradient would show beside
+  rooms whose black surroundings end before the wider picture's edge, so widescreen draws them black. The options panel's table has room for a
   fifth entry: the 36 bytes after its end (`0x564d34`) are zeros up to the next data. Videos: the handle of the
   one playing is at `0x808ce8` (width and height first), centred in 640×480 by `0x53c8d0`; the cut scenes are
   640×368, the logos and visions 640×480. Whether every world keeps its primitives in those buckets is **(open)**.

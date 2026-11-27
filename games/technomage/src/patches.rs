@@ -1061,7 +1061,12 @@ fn draw_split(c: &mut Cpu) {
     }
     let first = last - 0x3ff * 16;
     let gw = m.ld32(SCREEN_W);
-    let mut moved: Vec<(u32, u16)> = Vec::new();
+    // What changes for the draw (an address and its value before), put back after it.
+    let mut changed: Vec<(u32, u8)> = Vec::new();
+    let mut set = |a: u32, v: u8| {
+        changed.push((a, m.ld8(a)));
+        m.st8(a, v);
+    };
     let mut node = m.ld32(last);
     let mut bucket = 0x3ff;
     let mut guard = 0;
@@ -1069,37 +1074,42 @@ fn draw_split(c: &mut Cpu) {
         if (first..=last).contains(&node) {
             bucket = (node - first) / 16;
         } else if bucket == 0x3ff {
-            // The background: quads of a gradient over the 640 pixels, drawn first and setting
-            // the depth (the game clears it no other way). Over the whole width.
-            let offsets = vertex_offsets(m.ld8(node + 0xf));
+            // The background: quads of a dark gradient over the 640 pixels, drawn first and
+            // setting the depth (the game clears it no other way). Over the whole width, and
+            // black: beyond the 640 pixels it would show where the game never shows anything
+            // (beside a room's black surroundings).
+            let code = m.ld8(node + 0xf);
+            let offsets = vertex_offsets(code);
             let xs: Vec<i16> = offsets.iter().map(|&o| m.ld16(node + o) as i16).collect();
             if xs.iter().all(|x| (0..=gw as i16).contains(x)) {
                 for (o, x) in offsets.into_iter().zip(xs) {
-                    moved.push((node + o, x as u16));
-                    let wide = i32::from(x) * (gw + 2 * ox) as i32 / gw as i32;
-                    m.st16(node + o, wide as u16);
+                    let wide = (i32::from(x) * (gw + 2 * ox) as i32 / gw as i32) as u16;
+                    set(node + o, wide as u8);
+                    set(node + o + 1, (wide >> 8) as u8);
+                    // The vertex's colour before it (the first one's is the command's word).
+                    if code & 0x10 != 0 || o == 0x10 {
+                        for b in 0..3 {
+                            set(node + o - 4 + b, 0);
+                        }
+                    }
                 }
             }
         } else if bucket < WORLD_BUCKET {
             for o in vertex_offsets(m.ld8(node + 0xf)) {
-                let x = m.ld16(node + o);
-                moved.push((node + o, x));
-                m.st16(node + o, (x as i16).wrapping_add(ox as i16) as u16);
+                let x = (m.ld16(node + o) as i16).wrapping_add(ox as i16) as u16;
+                set(node + o, x as u8);
+                set(node + o + 1, (x >> 8) as u8);
             }
         }
         node = m.ld32(node);
         guard += 1;
     }
     // The renderer drops a primitive wholly beyond the screen's size: the wider screen's.
-    if std::env::var("RC_NOWIDEOT").is_ok() {
-        rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT));
-    } else {
-        wide_screen(c, |c| {
-            rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT))
-        });
-    }
-    for (a, x) in moved.into_iter().rev() {
-        m.st16(a, x);
+    wide_screen(c, |c| {
+        rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT))
+    });
+    for (a, v) in changed.into_iter().rev() {
+        m.st8(a, v);
     }
 }
 
