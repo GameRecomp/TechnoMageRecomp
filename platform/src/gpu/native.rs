@@ -279,10 +279,15 @@ impl Renderer {
                 .flags
                 .sample_count_supported(MSAA)
         });
+        // The least limits every GPU offers, but textures as large as this one takes: a render
+        // target at native resolution is as wide as the window (wider than 2048 on a large or
+        // widescreen display).
+        let limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+        crate::render::set_max_texture(limits.max_texture_dimension_2d);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("technomage renderer"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
+            required_limits: limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::Performance,
             trace: wgpu::Trace::Off,

@@ -307,7 +307,7 @@ pub mod cursor {
 /// draws at the largest size of the game's proportions that fits the window (the screen in full
 /// screen); the backend tells its size. Antialiasing, and the frame rate shown.
 pub mod render {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
     static NATIVE: AtomicBool = AtomicBool::new(false);
     static OUTPUT: AtomicU64 = AtomicU64::new(0);
@@ -389,20 +389,35 @@ pub mod render {
         ((v >> 32) as u32, v as u32)
     }
 
+    /// The GPU's largest texture side; until a renderer tells it, the least every GPU offers.
+    static MAX_TEXTURE: AtomicU32 = AtomicU32::new(2048);
+
+    pub fn set_max_texture(side: u32) {
+        MAX_TEXTURE.store(side.max(1), Ordering::Relaxed);
+    }
+
+    pub fn max_texture() -> u32 {
+        MAX_TEXTURE.load(Ordering::Relaxed)
+    }
+
     /// The size to render a `width` × `height` screen at: itself, or with native resolution the
-    /// largest multiple of it that fits the output, proportions kept.
+    /// largest multiple of it that fits the output (and the GPU's textures), proportions kept.
     pub fn size_for(width: u32, height: u32) -> (u32, u32) {
         let (ow, oh) = output();
         if !native() || width == 0 || height == 0 || ow == 0 || oh == 0 {
             return (width, height);
         }
-        let s = (ow as f32 / width as f32).min(oh as f32 / height as f32);
+        let max = max_texture() as f32;
+        let s = (ow as f32 / width as f32)
+            .min(oh as f32 / height as f32)
+            .min(max / width as f32)
+            .min(max / height as f32);
         if s <= 1.0 {
             return (width, height);
         }
         (
-            (width as f32 * s).round() as u32,
-            (height as f32 * s).round() as u32,
+            ((width as f32 * s).round() as u32).min(max as u32),
+            ((height as f32 * s).round() as u32).min(max as u32),
         )
     }
 }
