@@ -17,13 +17,18 @@
 //! | `rc_load_code(ptr, len, table_base) -> i32` | the code module's `rc.code` section; 0 or an error |
 //! | `rc_main() -> i32` | run the game (suspends); its exit code, or 2 on an error |
 //! | `rc_thread_main(id)` | guest thread `id`'s body (suspends) |
-//! | `rc_key(scan, vk, down)`, `rc_mouse(dx, dy)`, `rc_button(b, down)`, `rc_wheel(dz)`, `rc_cursor(x, y)` | input |
+//! | `rc_key(scan, vk, down)`, `rc_mouse(dx, dy)`, `rc_button(b, down)`, `rc_wheel(dz)`, `rc_cursor(x, y)`, `rc_pad(buttons, x, y)` | input |
+//! | `rc_rumble()` | the gamepads' vibration (thousandths) |
 //! | `rc_mix(ptr, n)` | `n` interleaved stereo f32 samples at 44.1 kHz into `ptr` |
 
 /// The game project's changes, as in the native shell.
 #[cfg(target_family = "wasm")]
 #[path = "../../technomage/src/patches.rs"]
 mod patches;
+
+#[cfg(target_family = "wasm")]
+#[path = "../../technomage/src/controls.rs"]
+mod controls;
 
 #[cfg(target_family = "wasm")]
 mod web {
@@ -205,6 +210,23 @@ mod web {
     #[no_mangle]
     pub extern "C" fn rc_cursor(x: i32, y: i32) {
         rc_platform::input(Input::Cursor { x, y });
+    }
+
+    /// The gamepads' vibration the game asks for now, in thousandths (its force feedback).
+    #[no_mangle]
+    pub extern "C" fn rc_rumble() -> u32 {
+        (rc_platform::rumble::strength() * 1000.0) as u32
+    }
+
+    /// The gamepads as the PlayStation pad: `rc_platform::pad`'s buttons, the direction
+    /// (-32768 to 32767, y down).
+    #[no_mangle]
+    pub extern "C" fn rc_pad(buttons: u32, x: i32, y: i32) {
+        rc_platform::input(Input::Pad {
+            buttons: buttons as u16,
+            x: x.clamp(-32768, 32767) as i16,
+            y: y.clamp(-32768, 32767) as i16,
+        });
     }
 
     /// # Safety

@@ -222,6 +222,17 @@ Binary treatment:
 - [x] Near-plane clipping of transformed triangles (z = 0 in clip space), for both renderers
 - [x] Widescreen on the graphics page: the screen's surfaces as wide as the output, the world drawn over the
       margins, everything else in the middle unstretched; cut scenes shown alone, filling a wide window
+- [x] Gamepads as the PlayStation pad: the HLE's DirectInput joystick (Bevy's gamepads natively, the Gamepad API
+      in the browser) in the pad's button order; the PlayStation version's four controller set-ups in front of the
+      game's joystick table; the input page with three tabs (keyboard and mouse as the game has it, gamepad with
+      the set-up, touch), switched with L1 and R1 or a click; the set-up kept
+- [x] Gamepads on Android: their input events taken from the activity's queue before Bevy's window gets them
+      (`rc_platform::android`, the library's own `AInputQueue_getEvent`, linked `-Bsymbolic-functions`): the
+      buttons, the left stick, the hat and the triggers
+- [x] Force feedback as the gamepads' vibration: the joystick reports it, the game's constant-force effect
+      sets a strength (`rc_platform::rumble`) that Bevy's gamepads, Android's vibrators (JNI,
+      `InputDevice.getVibrator`) and the browser's (`vibrationActuator`) follow
+- [ ] A gamepad tried by hand (natively, in the browser, on Android), with its vibration
 - [ ] Widescreen checked by hand in the later worlds (outdoor levels, fights, effects) and in a real window
 
 ### M6 – Sound and video
@@ -364,6 +375,8 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 
 | Date | Decision |
 |------|----------|
+| 2026-11-27 | **Gamepads on Android without a fork, a patch or SDL** (the maintainer's call: SDL3 would bring C and Java, a winit fork a dependency to keep up): the shell's library defines the NDK's `AInputQueue_getEvent`, through which android-activity reads the input queue, and keeps the gamepads' events for itself (RESEARCH.md, "The controls"). Should android-activity read the queue otherwise one day, the gamepads go quiet on Android and nothing else changes. |
+| 2026-11-27 | **The gamepad works as on the PlayStation** (the maintainer's call): the PC version already reads a DirectInput joystick into the PlayStation pad's buttons, which are its actions (RESEARCH.md, "The controls"), but binds none of its buttons by default. So the HLE offers one joystick, all gamepads together, with the buttons in the pad's order, and the patches put the PlayStation version's controller set-up (A to D, its own table) in front of the bindings the game makes; a button means what it meant on the PlayStation, and the page's own "Joy" bindings still add to it. The input page gets tabs: keyboard and mouse is the game's page as it was, gamepad and touch are drawn on its frame (its entries' texts left out while it runs), the page is left from every tab as before. |
 | 2026-11-27 | **Windows and Linux on ARM64** (the maintainer's call): templates of their own (`windows-arm64`, `linux-arm64`), each shell built on a GitHub ARM64 runner rather than cross-compiled, chosen on the page with a processor selector in the system's row (guessed from the browser where it says). Windows on ARM64 gets its own blob target (`arm64-windows`, id 6) but the same code as Linux: Cranelift's ARM64 back end with the AAPCS64 convention, which Windows ARM64 shares for the plain integer and pointer calls the code makes; Cranelift never allocates x18, which Windows keeps for the thread's block. The runtime flushes the instruction cache after loading the code there (`FlushInstructionCache`). |
 | 2026-11-27 | **French, Italian and Spanish** (the maintainer's call): the other full CDs archived on archive.org. Like the English CD each has its executable inside SecuROM, so each takes the cover CD's plain 1.04 executable as a supplement; its own `techmage.cfg` sets the language. They are told apart by their tools (`TM_Setup.exe`, `TM_Diagnostic.exe`). The Spanish CD exists only as a tar in two parts holding a 7z (LZMA2) holding an ISO the uploader rebuilt (a NOCD folder added); `rc-media` takes the image out into memory instead of asking for a repack (the "portable" 7z beside it is an installed copy with a cracked executable). Not taken: the warez and magazine collections, the PlayStation version. |
 | 2026-11-27 | **Widescreen as an option, without stretching** (the maintainer's call; the proportions follow the window): the game keeps its 640×480 (its menus, texts, panels and the HUD are laid out in it, the map and the quest log cover it whole), and the HLE makes the screen's surfaces wider by a margin on each side, moving everything the game draws into the middle; only the world is drawn over the margins: the game's functions that put it into the ordering table see the wider screen and its centre, and the table's world buckets are drawn on the whole width (RESEARCH.md, "Widescreen"). So nothing is ever stretched, and a screen the game covers whole gets black bars beside it. Not a larger display mode: that only zooms the camera out, and the game's layout and videos are fixed to 640 pixels. Cut scenes (Bink, 640×368) are shown alone, enlarged to the window with their proportions. The margin changes between frames, so resizing the window works while playing. |

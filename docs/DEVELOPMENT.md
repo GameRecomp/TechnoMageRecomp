@@ -44,10 +44,10 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_RENDERER=soft` | Direct3D in the software rasterizer instead of wgpu |
 | `RC_FRAMES=n` | end after `n` presented frames |
 | `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
-| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x m i tab f11 f12 up down left right click@x,y move@x,y` |
+| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl z x m i tab f11 f12 up down left right click@x,y move@x,y`, the gamepad held four frames: `pad-square pad-triangle pad-cross pad-circle pad-l1 pad-l2 pad-r1 pad-r2 pad-select pad-start pad-left pad-right pad-up pad-down` |
 | `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution and widescreen follow (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
-| `RC_TRACE=imports,files,fps,debug` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString` |
+| `RC_TRACE=imports,files,fps,debug,rumble` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString`, the force feedback's strength |
 
 A scripted run to the first room of a new game:
 

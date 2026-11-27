@@ -849,22 +849,29 @@ fn load_settings() {
         if let Some((k, v)) = line.split_once('=') {
             if let Some(sw) = SWITCHES.iter().find(|sw| sw.name == k.trim()) {
                 (sw.set)(v.trim() == "1");
+            } else if k.trim() == crate::controls::SETTING {
+                crate::controls::set_setting(v.trim());
             }
         }
     }
 }
 
-fn save_settings() {
+pub(crate) fn save_settings() {
     let Some(p) = settings_path() else {
         return;
     };
     if let Some(dir) = p.parent() {
         rc_runtime::host::create_dir_all(dir);
     }
-    let text: String = SWITCHES
+    let mut text: String = SWITCHES
         .iter()
         .map(|sw| format!("{}={}\n", sw.name, u8::from((sw.get)())))
         .collect();
+    text += &format!(
+        "{}={}\n",
+        crate::controls::SETTING,
+        crate::controls::setting()
+    );
     let how = rc_runtime::host::Open {
         write: true,
         create: true,
@@ -1269,6 +1276,11 @@ pub fn register() {
     hook(DRAW_OT, draw_ot);
     hook(CAMERA, camera);
     hook(PLAY_VIDEO, play_video);
+    hook(crate::controls::CONFIG_PAGE, crate::controls::config_page);
+    hook(
+        crate::controls::SET_PAD_TABLE,
+        crate::controls::set_pad_table,
+    );
     rc_hle::ddraw::set_picture_fn(video_picture);
     for (f, w) in WORLD.iter().zip(WORLD_FNS) {
         hook(*f, w);

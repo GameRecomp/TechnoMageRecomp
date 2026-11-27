@@ -8,6 +8,7 @@
 //! A library, so that Android can load it (`libtechnomage.so`, tools/build-android, entered at
 //! [`android_main`]); `src/main.rs` is the desktop program around [`main`].
 
+mod controls;
 mod patches;
 
 use std::path::{Path, PathBuf};

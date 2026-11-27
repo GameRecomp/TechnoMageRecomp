@@ -70,6 +70,11 @@ files:
   Natively and in the browser; with native resolution too.
 - **Antialiasing** and **Show frame rate** (in "Configure graphics", kept): the 3D scene drawn with four samples
   per pixel on the GPU (natively); the frames per second in the top right corner.
+- **Gamepad** as the PlayStation version's pad: the same buttons do the same things (square the action, cross a
+  jump, triangle a spell, circle a tool, L2 and R2 the camera, L1 the quest log, R1 the map, select the rucksack,
+  start the menu), with its four controller set-ups. "Configure input devices" has three tabs: keyboard and mouse
+  (the game's own page), gamepad (the set-up, kept) and touch; L1 and R1 (or Q and M) switch them. The game's
+  force feedback makes the gamepad vibrate, as the DualShock did (natively, on Android and in the browser).
 - **Hardware cursor:** the game's stone pointer is the system's mouse cursor, so it follows the mouse without
   delay, at the size it had in the picture. It keeps turning towards the hero as in the game, without the glow
   around it (a system cursor can cover, not add light). In the browser it is the page's cursor.

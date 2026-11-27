@@ -215,6 +215,57 @@ format needs a host service **(open)**.
   (an `unwrap` on `None`), i.e. in the Direct3D renderer's OpenGL path; not seen again in four runs of the same
   script. The renderer picks its adapter as the window did before (all backends, SVGA3D's OpenGL here).
 
+## The controls
+
+- **The PC version reads everything into a PlayStation pad.** `0x537df0` (once per frame, from the main loop at
+  `0x44ff7d`; its result goes to `0xee93a4`, the buttons pressed with the game's repeat) turns the keyboard (by a
+  table of DirectInput scan code and pad bits, `[0x8088dc]`), the mouse and a DirectInput joystick (`[0x8088cc]`,
+  read as `DIJOYSTATE2`) into the PlayStation pad's bits: L2 `0x01`, R2 `0x02`, L1 `0x04`, R1 `0x08`, triangle
+  `0x10`, circle `0x20`, cross `0x40`, square `0x80`, select `0x100`, L3 `0x200`, R3 `0x400`, start `0x800`, up
+  `0x1000`, right `0x2000`, down `0x4000`, left `0x8000` (as PsyQ's `PADL2` … `PADLleft`). The actions are these
+  bits: the input page's entries (`0x55e8f8`, 0x50 bytes: key, text, bits at `+8`, two bindings of device and code
+  at `+0x2a` and `+0x4c`, their names at `+0xa` and `+0x2c`) are action `0x80`, jump `0x40`, spell `0x10`, tool
+  `0x20`, camera left `0x01` and right `0x02`, rucksack `0x100`, map `0x08`, quest log `0x04`, the directions, and
+  "walk to the pointer" `0x5000` (up and down at once, a value no pad gives). The keyboard's default table
+  (`0x581908`) also has Escape for start, `^` and A for L3 and R3. Choosing an entry or a menu line takes square
+  (`0x80`); Enter is bound to square and cross together (`0xc0`).
+- **The joystick**: the game opens the first DirectInput joystick at its start (`0x538480` from `0x426a5e`): data
+  format `c_dfDIJoystick2`, capabilities (with force feedback it makes an effect), `DIPROP_RANGE` of the X and Y
+  axes, then `Acquire`, `Poll` and `GetDeviceState` each frame. The axes are the directions (beyond a third of the
+  range from the centre); the POV is not read. Its buttons go through a table (`[0x8088e0]`, set by `0x538790`;
+  entries of button, a byte, the pad bits) that `0x401195` builds when the input page's bindings are applied from
+  those on device 3 ("Joy N", `KFG_JOY_BUTTON`): none by default, so a joystick gave only directions. The table
+  the game had before that (`0x58194c`) numbers the buttons as square, triangle, cross, circle, L2, L1, R2, R1;
+  the HLE's joystick reports the gamepads in that order, with select, start, L3 and R3 after them.
+- **Force feedback**: with a joystick that has it (`DIDC_FORCEFEEDBACK`), the game sets `DIPROP_AUTOCENTER` and
+  makes one effect, a constant force (`GUID_ConstantForce`), kept at `0x8088d0`. Each frame `0x518c8b` sums the
+  forces of the moment (each axis clamped to -127 … 127, scaled by `[0x58046c]`) and `0x5387b0` sets the effect's
+  direction and magnitude (their length, up to 10 000) with `DIEP_START` (`SetParameters`, flags `0x20000140`):
+  zero in a quiet room (seen in a scripted run), more when the hero is hit or the ground shakes. The page's
+  "Force Feedback" switch (`0x55b828`) turns it off. A gamepad vibrates with that magnitude.
+- **Gamepads on Android** reach a NativeActivity only as input events on its one queue (there is no API to ask
+  a pad's state, `/dev/input` is closed to apps, Google's GameController library is C++). Bevy's window (winit
+  0.30 through android-activity 0.6) reads that queue: it passes the buttons on as keys without a code of its
+  own (`AKEYCODE_BUTTON_*`) and turns every motion event into touches, the axes lost, and reports all of them
+  handled, so Android does not make directional keys of the sticks either. android-activity takes each event
+  with the NDK's `AInputQueue_getEvent` (through the `ndk` crate); the shell's library defines that function
+  itself, which the call binds to when the library is linked `-Bsymbolic-functions` (otherwise a `JUMP_SLOT`
+  the dynamic linker might resolve to libandroid's), takes the events whose source is a gamepad or joystick
+  (`AINPUT_SOURCE_GAMEPAD`, `_JOYSTICK`: the buttons, `AXIS_X`/`_Y`, `AXIS_HAT_X`/`_Y`, the triggers
+  `AXIS_LTRIGGER`/`_RTRIGGER` or `_BRAKE`/`_GAS`), finishes them as handled and gives winit the next one. Not
+  tried on a device yet.
+- **The PlayStation version** (SLES-03243, Italian, archive.org) offers four controller set-ups in its options; the
+  manual (Spanish, `all-ps1-rpg-manuals`) shows A: triangle spell, circle tool, cross jump, square action, L2 and
+  R2 the camera, L1 the quest log, R1 the map, select the character menu, start the game menu, the analog stick as
+  the directional buttons. Its executable's table at `0x80097a70` has the four, by the button's bit: B swaps
+  triangle with circle and cross with square, C swaps L2 with R2, D does both.
+- **The input page** (`0x401140`, called each frame while bit 2 of `0x563c84` is set) draws its entries in three
+  columns (50, 300 and 630 thousandths of the width; lines `[0x59d6dc]` apart from 30 thousandths), two switches
+  below, and has click regions named `OK`, `CANCEL`, `DEFAULT`, `WHEEL`, `FORCE`. `0x59d72c` is non-zero while it
+  waits for a key to bind; it is left by the pressed button `0x100` (Escape and start reach it so) and applies the
+  bindings (`0x401195`). Its font has no `/`, `&`, `<`, `>`, `[`, `]`, `=` or `*` (it has `+`, `(`, `)`, `:`,
+  `#`, `-`). `0x59cb10` holds the buttons held.
+
 ## Behaviour seen in scripted runs
 
 - After a new game the first room opens with tutorial dialogues that `Strg` (Ctrl) scrolls and closes; the

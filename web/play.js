@@ -306,6 +306,55 @@ function startAudio() {
   ctx.resume().catch(() => {});
 }
 
+/* The browser's gamepads (the standard mapping) as one PlayStation pad, sent when it changes:
+ * the buttons in rc_platform::pad's order (square, triangle, cross, circle, L2, L1, R2, R1,
+ * select, start, L3, R3), the direction from the directional buttons or the left stick. */
+const PAD_BUTTONS = [2, 3, 0, 1, 6, 4, 7, 5, 8, 9, 10, 11];
+let lastPad = '';
+function pollPads() {
+  if (!player || !navigator.getGamepads) return;
+  let buttons = 0;
+  let x = 0;
+  let y = 0;
+  for (const g of navigator.getGamepads()) {
+    if (!g || g.mapping !== 'standard') continue;
+    PAD_BUTTONS.forEach((b, i) => { if (g.buttons[b] && g.buttons[b].pressed) buttons |= 1 << i; });
+    const on = (b) => (g.buttons[b] && g.buttons[b].pressed ? 1 : 0);
+    let dx = on(15) - on(14);
+    let dy = on(13) - on(12);
+    if (!dx && !dy) { dx = g.axes[0] || 0; dy = g.axes[1] || 0; }
+    if (!x && !y) { x = dx; y = dy; }
+  }
+  const axis = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 32767);
+  const now = `${buttons} ${axis(x)} ${axis(y)}`;
+  if (now !== lastPad) {
+    lastPad = now;
+    player.pad(buttons, axis(x), axis(y));
+  }
+  vibrate();
+}
+
+/* The game's force feedback as the gamepads' vibration: when it changes, and renewed while it
+ * lasts (an effect has a duration). */
+let lastRumble = 0;
+let rumbleAt = 0;
+function vibrate() {
+  const s = player.rumble();
+  const t = performance.now();
+  if (Math.abs(s - lastRumble) < 0.02 && !(s > 0 && t - rumbleAt >= 100)) return;
+  lastRumble = s;
+  rumbleAt = t;
+  for (const g of navigator.getGamepads()) {
+    const v = g && g.vibrationActuator;
+    if (!v) continue;
+    if (s > 0) {
+      v.playEffect('dual-rumble', { duration: 150, strongMagnitude: s, weakMagnitude: s }).catch(() => {});
+    } else if (v.reset) {
+      v.reset().catch(() => {});
+    }
+  }
+}
+
 function hookInput(canvas) {
   const key = (down) => (e) => {
     const k = KEYS[e.code];
@@ -402,7 +451,7 @@ async function start() {
         ctx.putImageData(image, 0, 0);
       },
       pointer: (rgba, w, h, hx, hy) => setPointer(canvas, rgba, w, h, hx, hy),
-      frame: () => new Promise((res) => requestAnimationFrame(() => res())),
+      frame: () => new Promise((res) => requestAnimationFrame(() => { pollPads(); res(); })),
       log: (t) => console.log(t),
       exit: (code) => {
         fs.save();
