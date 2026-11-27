@@ -1248,6 +1248,21 @@ fn draw_split(c: &mut Cpu) {
                     set(node + at, v as u8);
                     set(node + at + 1, (v >> 8) as u8);
                 }
+            } else if let Some((at, w)) = width.filter(|_| {
+                // The fade from black when a level opens (an iris): black rectangles in bucket
+                // 0 around the opening; those at the 640 pixels' left or right edge reach the
+                // screen's edge, or the margins show the world beside a black 4:3 box.
+                bucket == 0
+                    && code & 0xfc == 0x60
+                    && m.ld32(node + 0xc) & 0xff_ffff == 0
+                    && (lo <= 0 || hi >= gw)
+            }) {
+                let x = if lo <= 0 { xs[0] } else { xs[0] + ox };
+                let v = (w + ox) as u16;
+                set(node + at, v as u8);
+                set(node + at + 1, (v >> 8) as u8);
+                set(node + offsets[0], x as u8);
+                set(node + offsets[0] + 1, (x >> 8) as u8);
             } else {
                 let top = offsets
                     .iter()

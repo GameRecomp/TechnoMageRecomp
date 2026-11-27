@@ -215,7 +215,10 @@ format needs a host service **(open)**.
   while the world is drawn. The coins (their icon and digits, shown in the menus and when gold changes) lie in
   the same buckets in the top left corner (top above y 60) and keep to that edge too. A rectangle in the
   background bucket (the input page's dark tile over the 640 pixels) is widened by its width as well: beyond
-  it nothing clears the screen, and the keyboard tab's long names stayed beside the gamepad tab's. Three functions the widened world functions call ask the width: texture
+  it nothing clears the screen, and the keyboard tab's long names stayed beside the gamepad tab's. A level opens with
+  a fade from black, an iris in bucket 0: a textured opening in the middle and four black rectangles around it
+  (above and below over the 640 pixels, left and right of the opening up to their edge); those at the left or
+  right edge reach the screen's edge, or the margins showed the world beside a black 4:3 box. Three functions the widened world functions call ask the width: texture
   scrolling (`0x401654`) and an object's sprite animation (`0x402135`) whether it is 640 (else the 320-pixel
   mode's half steps), and the sprite of the hero's body (`0x401910`) is sized by `320 / SCREEN_W`, so on the
   wider screen he shrank by its share, smaller than his cape; they run with the game's width. The input
