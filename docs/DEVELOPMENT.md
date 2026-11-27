@@ -90,9 +90,14 @@ writes a zip that runs on its own: the program, `data/game/` (the installed file
 the code.
 
 The systems are `windows`, `linux` (x86-64), `windows-arm64`, `linux-arm64`, `macos` and `android`. A template is
-the shell built on that machine (CI builds the ARM64 ones on GitHub's `ubuntu-24.04-arm` and `windows-11-arm`
+the shell built on that machine (CI builds the ARM64 ones on GitHub's `ubuntu-22.04-arm` and `windows-11-arm`
 runners); the converter itself compiles the code for any of them on any machine (Cranelift's targets
 `x86_64-sysv`, `x86_64-windows`, `arm64-linux`, `arm64-windows`, `arm64-apple`).
+
+**Linux builds on the oldest Ubuntu runner.** A Linux program needs the glibc it was linked against or a
+newer one: built on `ubuntu-latest` it refuses older systems ("GLIBC_2.xx not found"). The Pages and release
+workflows build the Linux shells and the converter on the oldest Ubuntu GitHub still offers (`ubuntu-22.04`,
+`ubuntu-22.04-arm`, glibc 2.35); when GitHub retires it, move to the next oldest, never to `ubuntu-latest`.
 
 ### Android
 

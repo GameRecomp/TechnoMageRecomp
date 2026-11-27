@@ -27,13 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux on the oldest Ubuntu runner: the binaries need the glibc they were built
+          # against or newer (docs/DEVELOPMENT.md, "Releases").
+          - os: ubuntu-22.04
             system: linux
             exe: ""
           - os: windows-latest
             system: windows
             exe: ".exe"
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             system: linux-arm64
             exe: ""
           - os: windows-11-arm
