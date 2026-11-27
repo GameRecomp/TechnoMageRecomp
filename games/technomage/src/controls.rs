@@ -302,7 +302,9 @@ pub fn touch_bar(c: &mut Cpu) {
     const GAP: i32 = 6;
     const EDGE: i32 = 8;
     let w = m.ld32(SCREEN_W) as i32;
-    let ox = rc_hle::ddraw::margin() as f32;
+    // At the right edge of a wider screen (the interface's primitives are moved by one margin
+    // into the middle; ours by one more).
+    let ox = rc_hle::ddraw::margin() as i32;
     let mut places = Vec::new();
     for (k, (what, _)) in TOUCH_BUTTONS.iter().enumerate() {
         // Five along the bottom, three at the top, from the right.
@@ -316,10 +318,10 @@ pub fn touch_bar(c: &mut Cpu) {
         if let Touch::Game(name) = what {
             if let Some(rec) = sprite_record(c, name) {
                 let (sw, sh) = (i32::from(m.ld8(rec + 9)), i32::from(m.ld8(rec + 10)));
-                draw_record(m, rec, x + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 2);
+                draw_record(m, rec, x + ox + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 2);
             }
         }
-        places.push([x as f32 + ox, y as f32, SIZE as f32, SIZE as f32]);
+        places.push([(x + 2 * ox) as f32, y as f32, SIZE as f32, SIZE as f32]);
     }
     rc_platform::touch::set_buttons(places.clone());
     *TOUCH_SHOWN.lock().expect("touch buttons") = places;

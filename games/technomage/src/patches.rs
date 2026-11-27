@@ -909,9 +909,9 @@ fn draw_object(c: &mut Cpu) {
     }
     if !rc_platform::cursor::enabled() {
         // Drawn in the frame, among the world's buckets: placed on the wider screen like it.
-        let ox = rc_hle::ddraw::margin();
         let at = c.r[ESP] + 4 + 4 * 2;
-        m.st32(at, m.ld32(at).wrapping_add(ox));
+        let x = m.ld32(at) as i32;
+        m.st32(at, (x + game_to_screen_shift(x)) as u32);
         wide_screen(c, |c| call_original(c, DRAW_OBJECT));
         return;
     }
@@ -943,6 +943,10 @@ fn draw_ot(c: &mut Cpu) {
         call_original(c, DRAW_OT);
         return;
     }
+    SPLIT.store(
+        c.mem().ld32(PAUSE_STATE) == 0x40,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     crate::controls::touch_bar(c);
     let m = c.mem();
     crate::controls::note_key_pictures(m, arg(c, 0), rc_hle::ddraw::margin() as i32);
@@ -1105,10 +1109,45 @@ fn draw_split(c: &mut Cpu) {
                 }
             }
         } else if bucket < WORLD_BUCKET {
-            for o in vertex_offsets(m.ld8(node + 0xf)) {
-                let x = (m.ld16(node + o) as i16).wrapping_add(ox as i16) as u16;
-                set(node + o, x as u8);
-                set(node + o + 1, (x >> 8) as u8);
+            let code = m.ld8(node + 0xf);
+            let offsets = vertex_offsets(code);
+            if offsets.is_empty() {
+                node = m.ld32(node);
+                guard += 1;
+                continue;
+            }
+            let xs: Vec<i32> = offsets
+                .iter()
+                .map(|&o| i32::from(m.ld16(node + o) as i16))
+                .collect();
+            let width = rect_width(m, node, code);
+            let (lo, hi) = (
+                *xs.iter().min().expect("a vertex"),
+                *xs.iter().max().expect("a vertex") + width.map_or(0, |(_, w)| w),
+            );
+            let gw = gw as i32;
+            let ox = ox as i32;
+            if lo <= 0 && hi >= gw {
+                // Over the whole 640 pixels (a cut scene's black bars, a fade): over the whole
+                // width.
+                let wide = |v: i32| v * (gw + 2 * ox) / gw;
+                for (&o, &x) in offsets.iter().zip(&xs) {
+                    let v = wide(x) as u16;
+                    set(node + o, v as u8);
+                    set(node + o + 1, (v >> 8) as u8);
+                }
+                if let Some((at, w)) = width {
+                    let v = (wide(xs[0] + w) - wide(xs[0])) as u16;
+                    set(node + at, v as u8);
+                    set(node + at + 1, (v >> 8) as u8);
+                }
+            } else {
+                let shift = ui_shift(m, bucket, (lo + hi) / 2, gw, ox);
+                for (&o, &x) in offsets.iter().zip(&xs) {
+                    let v = (x + shift) as u16;
+                    set(node + o, v as u8);
+                    set(node + o + 1, (v >> 8) as u8);
+                }
             }
         }
         node = m.ld32(node);
@@ -1122,6 +1161,71 @@ fn draw_split(c: &mut Cpu) {
         m.st8(a, v);
     }
 }
+
+/// A rectangle primitive's width: where it is (offset) and how much (none for other kinds).
+fn rect_width(m: Mem, node: u32, code: u8) -> Option<(u32, i32)> {
+    match code & 0xfc {
+        0x60 => Some((0x14, i32::from(m.ld16(node + 0x14)))),
+        0x64 => Some((0x18, i32::from(m.ld16(node + 0x18)))),
+        _ => None,
+    }
+}
+
+/// How far an interface primitive of `bucket` (its middle at `centre`) moves on the wider
+/// screen: into the middle (`ox`), or to an edge. While the game is played (a dialogue too),
+/// the life and mana tubes (buckets 12 to 15) keep to the left edge; in the character menu
+/// what is left of the middle keeps to the left edge and what is right of it to the right
+/// one, its description below (buckets 25 to 27) in the middle (RESEARCH.md, "Widescreen").
+fn ui_shift(m: Mem, bucket: u32, centre: i32, gw: i32, ox: i32) -> i32 {
+    let state = m.ld32(PAUSE_STATE);
+    let flags = m.ld32(MENU_FLAGS);
+    if state & !0x10 == 0x800 && flags == 0 {
+        return if (12..=15).contains(&bucket) { 0 } else { ox };
+    }
+    if state == 0x40 {
+        if (25..=27).contains(&bucket) {
+            return ox;
+        }
+        return if centre < gw / 2 { 0 } else { 2 * ox };
+    }
+    ox
+}
+
+/// Whether the interface is split to the edges now (the character menu, `ui_shift`): kept per
+/// frame for the pointer, which input moves between frames.
+static SPLIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// How far a point of the interface at the game's `x` is moved on the wider screen.
+fn game_to_screen_shift(x: i32) -> i32 {
+    let ox = rc_hle::ddraw::margin() as i32;
+    if !SPLIT.load(std::sync::atomic::Ordering::Relaxed) {
+        return ox;
+    }
+    if x < GAME_W / 2 {
+        0
+    } else {
+        2 * ox
+    }
+}
+
+/// The game's x of a point of the screen (margins included): the inverse of
+/// `game_to_screen_shift` (in the split interface's gap: as if in the middle).
+fn screen_to_game(x: i32) -> i32 {
+    let ox = rc_hle::ddraw::margin() as i32;
+    if !SPLIT.load(std::sync::atomic::Ordering::Relaxed) {
+        return x - ox;
+    }
+    if x < GAME_W / 2 {
+        x
+    } else if x >= GAME_W / 2 + 2 * ox {
+        x - 2 * ox
+    } else {
+        x - ox
+    }
+}
+
+/// The interface's width in the game's pixels.
+const GAME_W: i32 = 640;
 
 /// Two empty nodes of ours for the pointer's chain.
 fn pointer_chain(m: Mem) -> u32 {
@@ -1286,6 +1390,7 @@ pub fn register() {
     );
     rc_hle::ddraw::set_picture_fn(video_picture);
     rc_hle::ddraw::set_overlay_fn(crate::controls::overlay);
+    rc_hle::set_cursor_map(screen_to_game);
     for (f, w) in WORLD.iter().zip(WORLD_FNS) {
         hook(*f, w);
     }

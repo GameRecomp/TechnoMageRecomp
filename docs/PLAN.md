@@ -241,6 +241,11 @@ Binary treatment:
       pictures, drawn by its sprite routine; ours for the rest), joystick buttons from 16 with their actions
 - [ ] A gamepad tried by hand (natively, in the browser, on Android), with its vibration; the on-screen
       buttons on a device; the on-screen buttons in the browser (its touch still only points)
+- [x] Widescreen: the life and mana tubes at the left edge, the character menu split to both edges (its
+      description in the middle, the pointer mapped), a cut scene's black bars and fades over the whole width,
+      the touch buttons at the right edge
+- [ ] Widescreen outdoors: objects on the right said to vanish in Dreamertown, the hero off the middle (after
+      resizing the window or switching widescreen on while playing?); needs a saved game there
 - [ ] Widescreen checked by hand in the later worlds (outdoor levels, fights, effects) and in a real window
 
 ### M6 – Sound and video

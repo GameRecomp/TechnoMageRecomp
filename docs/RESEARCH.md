@@ -191,6 +191,14 @@ format needs a host service **(open)**.
   fifth entry: the 36 bytes after its end (`0x564d34`) are zeros up to the next data. Videos: the handle of the
   one playing is at `0x808ce8` (width and height first), centred in 640×480 by `0x53c8d0`; the cut scenes are
   640×368, the logos and visions 640×480. Whether every world keeps its primitives in those buckets is **(open)**.
+  The interface's buckets: the life and mana tubes 12 to 15 (bottom left; in a dialogue they slide out below),
+  a dialogue 24 to 27 (its text 25, its box 26 and 27, key pictures 24). In the character menu (state `0x40`)
+  the attributes, the coins and the weapon slots are left of the middle (buckets 7, 23, 24, …), the rucksack's
+  frame right of it (10, 11), the description below in 25 to 27; nothing crosses the middle. A camera move with
+  a cut scene's black bars draws them over 0 to 640 like the depth background. Widescreen keeps the tubes at
+  the left edge, splits the character menu to both edges (the pointer mapped back, `screen_to_game`), and
+  widens what covers the whole 640 pixels (bars, fades). Objects going missing on the right outdoors, and the
+  hero off the middle, were reported in Dreamertown's streets (not reached by scripted runs): **(open)**.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click
