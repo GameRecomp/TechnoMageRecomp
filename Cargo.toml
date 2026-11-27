@@ -11,6 +11,7 @@ members = [
   "platform",
   "games/technomage",
   "games/technomage-web",
+  "games/technomage-save",
   "games/technomage/lifted/shard*",
 ]
 

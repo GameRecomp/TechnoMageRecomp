@@ -78,6 +78,28 @@ the time; `-dirty` marks uncommitted changes). With a window the mouse pointer i
 nearest one made before differed), and
 `RC_SCREENSHOT` also writes the cursor shown then as `<file>.cursor.pam` (RGBA).
 
+## Saved games: `tmsave`
+
+`tmsave` (`games/technomage-save`) reads, checks and changes saved games, every byte of them (the format:
+RESEARCH.md, "Saved games"), for tests that need a game in a given state:
+
+```sh
+cargo build --release -p technomage-save
+target/release/tmsave show 1                     # slot 1 of the user directory (RC_USER_DIR), or a file
+target/release/tmsave set 1 items.GOLDCOIN=5000 bag[0]=HEAL_POTION items.HEAL_POTION=5 character.level=5 character.xp=51000
+target/release/tmsave check 1                    # the game's rules: errors (exit 1) and warnings
+target/release/tmsave export 1 -o s.json         # every field, lossless; import -o FILE [--base SAVE] back
+target/release/tmsave diff 1 2                   # the fields that differ (also the level bitfields' bits)
+target/release/tmsave schema character.          # offset, type, path, meaning
+```
+
+Item, world and level names come from the game's own `TechnoMage.exe` (`--exe`, `RC_GAME_DIR` or
+`orig/technomage/cd-de`); nothing of the game is in the editor. Paths name the schema's fields (`items[51]` or
+`items.GOLDCOIN`, `slots[4].door[1]`, `world.x66`); `set` takes numbers, the names a field knows and hex for byte
+fields, writes in place (or `-o`) and warns of the rules the result breaks. A scripted run can load a slot
+through the book: `… 300:down 330:enter 420:left 440:left 460:left 480:enter 520:enter 560:left 580:enter` after
+the intro keys loads slot 1.
+
 ## Convert (what players run)
 
 ```sh

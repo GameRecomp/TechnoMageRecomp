@@ -268,6 +268,7 @@ Binary treatment:
       browser player
 - [x] French, Italian and Spanish start natively (the cover CD's executable, their `techmage.cfg`) and run to the
       first room with dialogue in their language
+- [x] The saved games' format worked out byte for byte (RESEARCH.md); `tmsave` edits them, a changed game loads
 - [ ] All eight worlds played through by hand; saving and loading a game; a one-hour soak
 
 ### M8 – Converter and platforms
@@ -423,3 +424,4 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 | 2026-11-22 | **Bevy is the platform** (section "Platform: Bevy"): window, input, gamepads, audio, the frame loop and the browser build come from it; Direct3D and DirectDraw are drawn with our own wgpu code on Bevy's render device. The `rc-platform` API keeps Bevy out of the HLE layer, and a null backend stays for tests. |
 | 2026-11-22 | Cooperative guest threads: OS threads with a baton natively, JSPI in the browser (no ucontext/fibers in Rust). |
 | 2026-11-27 | **A stale lift is noticed by the build**: the lift writes what the manifest gave it (discovery hints and `[binary.patch]`, `lift-inputs.txt` beside the lifted code); `cargo build -p technomage` stops when that is not what `game.toml` has now (hooks added since would otherwise be left out without a word), and the CMake build lifts again by itself when the executables, `game.toml` or the recompiler changed. The lifter writes only changed files and the shards watch only their own file (and `set.rs`), so only the shards whose code changed are compiled again. |
+| 2026-11-27 | **A saved game editor for testing** (the maintainer's call): `tmsave` in its own crate (`games/technomage-save`), a schema that names every byte exactly once (a test holds it to that, for each world's script state layout), lossless JSON, and the game's rules as checks. Names (items, worlds, levels) are read from the player's executable at run time instead of being kept in the source. |

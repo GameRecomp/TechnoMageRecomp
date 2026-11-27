@@ -318,6 +318,40 @@ format needs a host service **(open)**.
   bindings (`0x401195`). Its font has no `/`, `&`, `<`, `>`, `[`, `]`, `=` or `*` (it has `+`, `(`, `)`, `:`,
   `#`, `-`). `0x59cb10` holds the buttons held.
 
+## Saved games
+
+A saved game (`Saves\TMN_NN.TSG`, slots 1 to 10) **is** the game's persistent state block, 30,232 bytes
+(`0x7618`) at the pointer in `0x558da0`: before saving, `0x451930` packs the live state into it; loading reads
+the file whole (it only checks the length) and the game applies the block on entering the level (`0x451bb0`,
+`0x4511xx`–`0x451709`). No checksum, no magic. The `tmsave` editor (`games/technomage-save`, DEVELOPMENT.md)
+describes every byte; its schema (`src/schema.rs`, `src/worlds.rs`) holds the details, its checks (`src/check.rs`)
+the rules below. Layout:
+
+| Offset | Contents |
+|---|---|
+| `0x0000` | Header, only for the load/save book: picture width/height (160, 120: the book shows the picture only if they are the screen's quarter), world, stage, HP, max HP, mana, max mana, crystal bits (items 52..56 owned), play time; copies of the fields below |
+| `0x0014` | The picture, 160 × 120, RGB 3-3-2 |
+| `0x4b14` | 256 × u32: the count of each entry of the item table (`0x558f30`, 163 named entries: weapons, spells, defence, tools owned when not 0; ammunition, potions, keys, chalk 0..99; `GOLDCOIN` the gold; quest items). Loading adds each through the game's add function (so the rucksack hint shows), then sets the saved count unclamped |
+| `0x4f14` | 27 × i16: the rucksack grid (3 × 9), item indices, −1 empty |
+| `0x4f4a` | Heading, camera yaw (12-bit angles), position x/y/z (2048 units a tile), the `SPAWN` point, the torch (bit 31 lit, burn time in 1/480 s), the magic shield |
+| `0x4f70` | A bit per level slot of the current world that holds state; 22 slot records of `0x18c` bytes: moving platforms, automap sections and markers, nine group counts and a 256-bit field (triggers fired, doors open, creatures alive, pickups present, levers, magic torches, stars, traps, webs; the counts are the level's), 64 crates, the return position, 20 chalk marks. The slot is byte 5 of the level table entry; changing worlds clears them all |
+| `0x717c` | 16 creature records and 40 person records of the current level (applied only when loading) |
+| `0x738c` | The character: experience (level L needs the table's L-th value: 10,000 for 2 … 1,000,000 for 20), pending experience, HP, max HP (= 5 CON + 6 level + 4), poison, mana, max mana (= 10 INT + 5), timers, level 1..20, STR/INT/CON/MYS 0..40 |
+| `0x73b4` | The selected weapon, spell, tool and defence item (1-based in their ring, 0 none), the rucksack cursor, world 1..8, stage, entry point, map variant, the furthest story video seen, play time (1/3840 s) |
+| `0x73c4` | The current world's script state, up to 256 bytes, its layout the world's own (DREAMER `0x94`, STEAMER `0xbc`, THEHIVE `0x17`, FOREST `0x100`, CANYON `0xbc`, TOWER `0x88`, VULCANO `0xd8`, RUINS `0xf8`): timer slots, shop stock, object snapshots, quest stages |
+| `0x74c4` | The quest log: 16 × {key without `QUESTLOG_`, 15 bytes; done bit; a text pointer the game renews}, the count at `0x7604` |
+| `0x7608` | 4 × u32 cheat markers (a bit per cheat used; never read) |
+
+What breaks the game (the checks' errors): a world outside 1..8 or a stage without a level; level 0 (a division
+by zero in the stats screen) or above 20 (past the experience table); max HP below 2 (divisions by zero); a
+rucksack entry past the item table; a selected weapon, spell, tool or defence item that is not owned (the
+loader looks it up without a bound). Checked in the game (2026-11-27): a saved game changed with `tmsave` (gold,
+potions in the rucksack, a sword selected, level 5 with its attributes, HP and mana, a crystal) shows the new
+values in the book, loads, and plays with them. **(open)**: the platform state bytes, the polarity of the lever
+and magic torch bits, the pickups' second bit, the person records' last two bytes, the meaning of most world
+script bytes beyond the code's use (named by the identifiers the scripts use beside them), and whether CANYON's
+`+0x7c..0x9f` and VULCANO's `+0x4b..0x88` are read at all.
+
 ## Behaviour seen in scripted runs
 
 - After a new game the first room opens with tutorial dialogues that `Strg` (Ctrl) scrolls and closes; the

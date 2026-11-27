@@ -4843,6 +4843,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "technomage-save"
+version = "0.1.0"
+dependencies = [
+ "rc-pe",
+ "rc-unpack",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "technomage-shard-00"
 version = "0.1.0"
 dependencies = [
