@@ -13,11 +13,18 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .expect("a shard number at the end of the package name");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../generated/technomage");
-    println!("cargo:rerun-if-changed={}", root.display());
+    // set.rs lists the lifted binaries (the lift writes it when they change); the whole directory
+    // only while there is none. Watching the directory itself would run every shard's script, and
+    // recompile every shard, whenever any lifted file changes.
+    let set = root.join("set.rs");
+    if set.is_file() {
+        println!("cargo:rerun-if-changed={}", set.display());
+    } else {
+        println!("cargo:rerun-if-changed={}", root.display());
+    }
     println!("cargo:rerun-if-env-changed=RC_NO_GENERATED");
     if std::env::var_os("RC_NO_GENERATED").is_some() {
-        let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("shard.rs");
-        std::fs::write(out, "").expect("shard.rs");
+        write_if_changed("");
         return;
     }
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
@@ -36,6 +43,15 @@ fn main() {
             ));
         }
     }
+    write_if_changed(&text);
+}
+
+/// `OUT_DIR/shard.rs`, left as it is when unchanged: the script runs whenever anything in
+/// `generated/technomage/` changed, and a rewritten file would recompile every shard.
+fn write_if_changed(text: &str) {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("shard.rs");
+    if std::fs::read(&out).is_ok_and(|old| old == text.as_bytes()) {
+        return;
+    }
     std::fs::write(out, text).expect("shard.rs");
 }
