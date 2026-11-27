@@ -124,12 +124,17 @@ pub fn extract_game(
         .collect();
     files.sort();
     for v in &m.variants {
-        // The medium that is opened: the only one, or the installer beside its data slices
-        // (which `extract` finds next to it).
+        // The medium that is opened: the only one, the installer beside its data slices, or the
+        // first of a file's parts (`extract` finds the others next to it).
         let opened: Vec<_> = v
             .media
             .iter()
-            .filter(|m| m.kind != rc_manifest::MediaKind::Slice)
+            .filter(|m| {
+                !matches!(
+                    m.kind,
+                    rc_manifest::MediaKind::Slice | rc_manifest::MediaKind::Part
+                )
+            })
             .collect();
         let [medium] = opened.as_slice() else {
             continue;
@@ -233,9 +238,8 @@ fn find_path(dir: &Path, rel: &str) -> Option<PathBuf> {
 /// disc's label into `dest/volume-label.txt`.
 fn copy_cd_dirs(media: &Path, dest: &Path, dirs: &[String]) -> Result<(), String> {
     use rc_media::Archive as _;
-    let f = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
-    let mut iso = rc_media::open_cd_files(Box::new(std::io::BufReader::new(f)))
-        .map_err(|e| format!("{}: {e}", media.display()))?;
+    let r = rc_media::cd_reader(media).map_err(|e| format!("{}: {e}", media.display()))?;
+    let mut iso = rc_media::open_cd_files(r).map_err(|e| format!("{}: {e}", media.display()))?;
     let wanted = |path: &str| {
         let top = path.split('/').next().unwrap_or("");
         dirs.iter().any(|d| d.eq_ignore_ascii_case(top))

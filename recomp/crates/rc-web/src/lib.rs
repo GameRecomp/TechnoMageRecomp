@@ -5,7 +5,9 @@
 //!
 //! - `convert`: a package for a shell template (zip, or a signed APK), handed out in pieces.
 //! - Each takes the medium and the supplements' media (`extra`: `[{size, read}]` in the
-//!   manifest's order, or null); the medium is also read as a disc for the CD's own folders.
+//!   manifest's order, or null); the medium is also read as a disc for the CD's own folders. A
+//!   medium in parts comes joined (the page makes one file of them); a packed one (tar, 7z) has
+//!   its CD image taken out into memory.
 //! - `plan_web` and `convert_web`: for playing in the browser, the game's files and the
 //!   WebAssembly module of its code, handed to callbacks that store them.
 //! - `recompile_web`: the code again from a stored game, when the converter makes different code.
@@ -15,6 +17,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use js_sys::{Function, Reflect, Uint8Array};
 use rc_convert::install::Install;
 use rc_convert::lift::{Program, compile_native, compile_wasm, manifests};
+use rc_convert::rc_media::packed::Image;
 use wasm_bindgen::prelude::*;
 
 /// The installer, read through `read(offset, length) -> Uint8Array` in blocks of 4 MiB.
@@ -156,11 +159,47 @@ fn extras(extra: &JsValue) -> Result<Vec<JsReader>, JsValue> {
     Ok(out)
 }
 
+/// The CD image inside a packed medium (a tar or 7z archive, its parts joined by the page), taken
+/// out once: `plan_web` and `convert_web` read the same medium one after the other.
+fn packed_image(size: f64, read: &Function) -> Result<Option<Image>, JsValue> {
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(u64, Vec<u8>, Image)>> = const { std::cell::RefCell::new(None) };
+    }
+    let mut r = JsReader::new(size, read.clone());
+    if !rc_convert::rc_media::packed::is_packed(&mut r) {
+        return Ok(None);
+    }
+    let mut head = vec![0u8; 4096.min(size as usize)];
+    r.read_exact(&mut head).map_err(|e| err(e.to_string()))?;
+    r.seek(SeekFrom::Start(0)).map_err(|e| err(e.to_string()))?;
+    let key = (size as u64, head);
+    if let Some(i) = LAST.with_borrow(|l| {
+        l.as_ref()
+            .filter(|(s, h, _)| (*s, h) == (key.0, &key.1))
+            .map(|(_, _, i)| i.clone())
+    }) {
+        return Ok(Some(i));
+    }
+    LAST.set(None);
+    let image =
+        rc_convert::rc_media::packed::unpack(vec![Box::new(r)]).map_err(|e| err(e.to_string()))?;
+    if let Some(i) = &image {
+        LAST.set(Some((key.0, key.1, i.clone())));
+    }
+    Ok(image)
+}
+
 /// Open the medium, give it its supplements and its own CD folders.
 fn open_install(size: f64, read: &Function, extra: &JsValue) -> Result<Install, JsValue> {
     let ms = manifests().map_err(err)?;
-    let mut inst = Install::open_with(Box::new(JsReader::new(size, read.clone())), Vec::new(), &ms)
-        .map_err(err)?;
+    let image = packed_image(size, read)?;
+    let medium = || -> Box<dyn rc_convert::rc_media::ReadSeek> {
+        match &image {
+            Some(i) => Box::new(i.reader()),
+            None => Box::new(JsReader::new(size, read.clone())),
+        }
+    };
+    let mut inst = Install::open_with(medium(), Vec::new(), &ms).map_err(err)?;
     let mut extra = extras(extra)?.into_iter();
     for (k, media) in inst.supplements_needed().into_iter().enumerate() {
         let mut readers: Vec<Box<dyn rc_convert::rc_media::ReadSeek>> = Vec::new();
@@ -172,8 +211,7 @@ fn open_install(size: f64, read: &Function, extra: &JsValue) -> Result<Install, 
         }
         inst.supply(k, readers).map_err(err)?;
     }
-    inst.add_cd(Box::new(JsReader::new(size, read.clone())))
-        .map_err(err)?;
+    inst.add_cd(medium()).map_err(err)?;
     Ok(inst)
 }
 

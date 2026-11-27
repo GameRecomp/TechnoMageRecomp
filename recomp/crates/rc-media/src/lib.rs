@@ -9,6 +9,7 @@
 //! - [`iscab`]: InstallShield 5 cabinets (`DATA1.HDR` + `DATA1.CAB`), as on the Gold CD
 //! - [`zip`]: zip archives of installed copies (stored or deflated)
 //! - [`lzma`]: the streaming LZMA1/LZMA2 decoder the Inno reader uses
+//! - [`packed`]: a CD image packed for archiving (split parts, tar, 7z), taken out into memory
 //!
 //! Every reader lists its entries with paths relative to the install directory and
 //! extracts them below a destination directory. Paths are sanitised; nothing is ever
@@ -25,6 +26,7 @@ pub mod lzma;
 pub mod md5;
 pub mod msi;
 pub mod nsis;
+pub mod packed;
 pub mod rawcd;
 pub mod zip;
 
@@ -462,6 +464,9 @@ impl fmt::Display for MediaType {
 /// installer program in its root, that installer: either way the entries are the installed files.
 /// External Inno slices beside an installer exe are opened by name.
 pub fn open(path: &Path) -> Result<(MediaType, Box<dyn Archive>)> {
+    if let Some(image) = unpack_path(path)? {
+        return open_reader(Box::new(image.reader()));
+    }
     let mut magic = [0u8; 4];
     let got = fs::File::open(path)?.read(&mut magic)?;
     if got >= 2 && magic[..2] == *b"MZ" {
@@ -478,6 +483,47 @@ pub fn open(path: &Path) -> Result<(MediaType, Box<dyn Archive>)> {
         Box::new(io::BufReader::new(fs::File::open(path)?)),
         Vec::new(),
     )
+}
+
+/// The files a medium is split into: `path` and, for `….001`, the `….002`, `….003`, … beside it.
+pub fn parts_of(path: &Path) -> Vec<PathBuf> {
+    let mut parts = vec![path.to_path_buf()];
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    if let Some(stem) = name.strip_suffix(".001") {
+        for n in 2.. {
+            let p = path.with_file_name(format!("{stem}.{n:03}"));
+            if !p.is_file() {
+                break;
+            }
+            parts.push(p);
+        }
+    }
+    parts
+}
+
+/// The CD image inside a packed medium at `path` (with its parts beside it), taken out into
+/// memory ([`packed`]); `None` if it is not packed.
+pub fn unpack_path(path: &Path) -> Result<Option<packed::Image>> {
+    let mut readers: Vec<Box<dyn ReadSeek>> = Vec::new();
+    for p in parts_of(path) {
+        readers.push(Box::new(io::BufReader::with_capacity(
+            1 << 20,
+            fs::File::open(p)?,
+        )));
+    }
+    if !packed::is_packed(&mut *readers[0]) {
+        return Ok(None);
+    }
+    packed::unpack(readers)
+}
+
+/// The CD image at `path` as the CD readers take it: the file, or the image a packed medium
+/// holds.
+pub fn cd_reader(path: &Path) -> Result<Box<dyn ReadSeek>> {
+    Ok(match unpack_path(path)? {
+        Some(image) => Box::new(image.reader()),
+        None => Box::new(io::BufReader::new(fs::File::open(path)?)),
+    })
 }
 
 /// The files on a CD image themselves (cooked ISO 9660 or raw 2352-byte sectors), not the

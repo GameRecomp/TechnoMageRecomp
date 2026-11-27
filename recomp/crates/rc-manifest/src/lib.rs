@@ -123,6 +123,11 @@ pub enum MediaKind {
     Nsis,
     /// An InstallShield cabinet set on its own: the header (`.hdr`) first, then the volumes.
     Iscab,
+    /// A CD image packed for archiving (a tar or 7z archive, or a 7z inside a tar), or the first
+    /// part of one split into parts (`.001`): the image is taken out and read as `iso`.
+    Packed,
+    /// The next part of the medium before it (`.002`, …), joined to it.
+    Part,
 }
 
 #[derive(Debug, Clone, Deserialize)]

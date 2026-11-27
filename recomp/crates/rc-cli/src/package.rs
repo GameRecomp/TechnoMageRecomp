@@ -118,8 +118,19 @@ pub fn convert_package(
         return Err(format!("unknown system {s}: one of {}", SYSTEMS.join(", ")));
     }
     let ms = rc_convert::lift::manifests()?;
-    let file = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
-    let reader = std::io::BufReader::with_capacity(1 << 20, file);
+    // A CD image packed for archiving (tar, 7z, split into parts) is taken out once.
+    let image = rc_convert::rc_media::unpack_path(media)
+        .map_err(|e| format!("{}: {e}", media.display()))?;
+    let open_medium = || -> Result<Box<dyn rc_convert::rc_media::ReadSeek>, String> {
+        Ok(match &image {
+            Some(i) => Box::new(i.reader()),
+            None => {
+                let f = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
+                Box::new(std::io::BufReader::with_capacity(1 << 20, f))
+            }
+        })
+    };
+    let reader = open_medium()?;
     // An installer's external data slices beside it (setup_x.exe: setup_x-1.bin, -2.bin, …).
     let mut slices: Vec<Box<dyn rc_convert::rc_media::ReadSeek>> = Vec::new();
     for n in 1.. {
@@ -130,7 +141,7 @@ pub fn convert_package(
         let Ok(f) = fs::File::open(&p) else { break };
         slices.push(Box::new(std::io::BufReader::with_capacity(1 << 20, f)));
     }
-    let mut inst = rc_convert::install::Install::open_with(Box::new(reader), slices, &ms)
+    let mut inst = rc_convert::install::Install::open_with(reader, slices, &ms)
         .map_err(|e| format!("{}: {e}", media.display()))?;
     // Supplements from beside the medium (where `recomp download` puts them), then the CD's
     // own folders from the medium read as a disc.
@@ -150,8 +161,7 @@ pub fn convert_package(
         }
         inst.supply(k, readers)?;
     }
-    let cd = fs::File::open(media).map_err(|e| format!("{}: {e}", media.display()))?;
-    inst.add_cd(Box::new(std::io::BufReader::with_capacity(1 << 20, cd)))?;
+    inst.add_cd(open_medium()?)?;
     let (_, files) = inst.plan();
     let game_bytes: u64 = files.iter().map(|f| f.1).sum();
     eprintln!(

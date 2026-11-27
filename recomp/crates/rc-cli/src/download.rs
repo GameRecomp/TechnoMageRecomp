@@ -44,11 +44,14 @@ pub fn download(games: &Path, game: &str, language: &str, dest: &Path) -> Result
                 languages(m)
             )
         })?;
-    let [media] = v.media.as_slice() else {
-        return Err(format!("{game}/{}: more than one medium", v.id));
-    };
     let what = format!("{} ({})", m.game.title, v.language);
-    let path = fetch(&what, media, dest)?;
+    // The medium, and the parts or slices beside it.
+    let mut path = None;
+    for media in &v.media {
+        let p = fetch(&what, media, dest)?;
+        path.get_or_insert(p);
+    }
+    let path = path.ok_or_else(|| format!("{game}/{}: no media", v.id))?;
     // Media that supply files the main one lacks or holds damaged, beside it.
     for s in &v.supplements {
         for md in &s.media {

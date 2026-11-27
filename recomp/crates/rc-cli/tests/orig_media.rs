@@ -22,9 +22,19 @@ fn every_medium_in_orig_matches_its_manifest() {
     for m in &ms {
         for v in &m.variants {
             for md in &v.media {
-                if md.kind == rc_manifest::MediaKind::Slice {
-                    continue; // read through its installer
+                if matches!(
+                    md.kind,
+                    rc_manifest::MediaKind::Slice | rc_manifest::MediaKind::Part
+                ) {
+                    continue; // read through its installer, or joined to the part before
                 }
+                // Binaries a supplement brings (another CD's executable) are not the medium's.
+                let supplied = |name: &str| {
+                    v.supplements
+                        .iter()
+                        .flat_map(|s| &s.files)
+                        .any(|f| f.path.eq_ignore_ascii_case(name))
+                };
                 let path = repo().join("orig").join(&md.file);
                 if !path.is_file() {
                     eprintln!("skip {} (not present)", md.file);
@@ -32,7 +42,7 @@ fn every_medium_in_orig_matches_its_manifest() {
                 }
                 let (kind, mut ar) = rc_media::open(&path).expect("open medium");
                 for b in m.binaries.iter().filter(|b| b.variants.contains(&v.id)) {
-                    if b.treatment == Treatment::Ignore {
+                    if b.treatment == Treatment::Ignore || supplied(&b.name) {
                         continue;
                     }
                     let e = ar
@@ -46,7 +56,10 @@ fn every_medium_in_orig_matches_its_manifest() {
                         .unwrap_or_else(|| panic!("{}: {} not listed", md.file, b.name));
                     assert_eq!(e.size, b.size, "{}: size of {}", md.file, b.name);
                 }
-                if kind != MediaType::Inno {
+                let main_supplied = m.binaries.iter().any(|b| {
+                    b.role == Role::Main && b.variants.contains(&v.id) && supplied(&b.name)
+                });
+                if kind != MediaType::Inno && !main_supplied {
                     // Fast readers: extract the main executable and compare its hash.
                     let main = m
                         .binaries
