@@ -33,6 +33,61 @@ pub enum Input {
     MouseButton { button: u8, down: bool },
     /// The pointer's position in the game's frame.
     Cursor { x: i32, y: i32 },
+    /// The gamepads, as one PlayStation pad: the buttons held ([`pad`]'s bits) and the
+    /// direction (the left stick or the directional buttons, each -32768 to 32767, y down).
+    Pad { buttons: u16, x: i16, y: i16 },
+}
+
+/// The gamepads' vibration, as the game asks for it (its force feedback): a strength from 0 to 1
+/// that the backends follow (Bevy's gamepads, Android's through JNI, the browser's). It lapses
+/// a quarter of a second after the game last set it, so a game that stops asking stops it.
+pub mod rumble {
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static STRENGTH: AtomicU32 = AtomicU32::new(0);
+    static SET_AT: AtomicU64 = AtomicU64::new(0);
+    const LAPSE_MS: u64 = 250;
+
+    fn now_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    }
+
+    /// The game's force (0 to 1).
+    pub fn set(strength: f32) {
+        STRENGTH.store(strength.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        SET_AT.store(now_ms(), Ordering::Relaxed);
+    }
+
+    /// The strength to vibrate with now.
+    pub fn strength() -> f32 {
+        if now_ms().saturating_sub(SET_AT.load(Ordering::Relaxed)) > LAPSE_MS {
+            return 0.0;
+        }
+        f32::from_bits(STRENGTH.load(Ordering::Relaxed))
+    }
+}
+
+/// A gamepad's buttons as the PlayStation pad has them, in the order the game's DirectInput
+/// joystick reports them (bit `n` is the joystick's button `n`; the game's own default table
+/// numbers the first eight so).
+pub mod pad {
+    pub const SQUARE: u16 = 1 << 0;
+    pub const TRIANGLE: u16 = 1 << 1;
+    pub const CROSS: u16 = 1 << 2;
+    pub const CIRCLE: u16 = 1 << 3;
+    pub const L2: u16 = 1 << 4;
+    pub const L1: u16 = 1 << 5;
+    pub const R2: u16 = 1 << 6;
+    pub const R1: u16 = 1 << 7;
+    pub const SELECT: u16 = 1 << 8;
+    pub const START: u16 = 1 << 9;
+    pub const L3: u16 = 1 << 10;
+    pub const R3: u16 = 1 << 11;
+    /// How many buttons the joystick has.
+    pub const BUTTONS: u32 = 12;
 }
 
 static INPUT_SINK: OnceLock<fn(Input)> = OnceLock::new();

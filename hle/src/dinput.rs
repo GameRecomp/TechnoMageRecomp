@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 //! dinput: DirectInput (`DirectInputCreateA` through `LoadLibraryA`) with the system keyboard
-//! and mouse. Their state comes from the platform ([`key`], [`mouse_motion`], [`mouse_button`]);
-//! `GetDeviceState` reads it, mouse motion as the deltas since the last read.
+//! and mouse and one joystick, the gamepads as a PlayStation pad. Their state comes from the
+//! platform ([`key`], [`mouse_motion`], [`mouse_button`], [`pad`]); `GetDeviceState` reads it,
+//! mouse motion as the deltas since the last read. The joystick is there whether a gamepad is
+//! connected or not (the game opens it once, at its start), centred and with nothing pressed
+//! while none is.
 
 #![allow(non_snake_case)]
 
 use crate::com::{self, Interface, E_NOINTERFACE, S_OK};
 use rc_runtime::cpu::Cpu;
 use rc_runtime::imports::{self, ret_stdcall};
+use rc_runtime::mem::Mem;
 use std::sync::Mutex;
 
 const GUID_SYSMOUSE: [u8; 16] = com::guid(
@@ -22,10 +26,23 @@ const GUID_SYSKEYBOARD: [u8; 16] = com::guid(
     0x11cf,
     [0xbf, 0xc7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00],
 );
+/// The joystick's instance and product (made up, as a driver's would be).
+const GUID_PAD: [u8; 16] = com::guid(
+    0x5ec0_7e00,
+    0x7e1e,
+    0x4a6e,
+    [0x9a, 0x0e, 0x50, 0x53, 0x31, 0x50, 0x41, 0x44],
+);
 const DIERR_NOTINITIALIZED: u32 = 0x8007_0015;
+const DIERR_UNSUPPORTED: u32 = 0x8000_4001;
+/// `DIDEVTYPE_JOYSTICK` with `DIDEVTYPEJOYSTICK_GAMEPAD` and `DIDEVTYPE_HID`.
+const PAD_TYPE: u32 = 0x0001_0204;
+/// The joystick's axis range (DirectInput's default).
+const AXIS_MAX: u32 = 0xffff;
 
 const KEYBOARD: u32 = 1;
 const MOUSE: u32 = 2;
+const JOYSTICK: u32 = 3;
 
 struct State {
     /// Buffered events (`GetDeviceData`): offset, data, time; per device kind.
@@ -37,6 +54,8 @@ struct State {
     dy: i32,
     dz: i32,
     buttons: [u8; 4],
+    /// The pad: its buttons (`rc_platform::pad`) and direction.
+    pad: (u16, i16, i16),
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -48,7 +67,18 @@ static STATE: Mutex<State> = Mutex::new(State {
     dy: 0,
     dz: 0,
     buttons: [0; 4],
+    pad: (0, 0, 0),
 });
+
+/// The gamepads changed: the buttons held and the direction (-32768 to 32767, y down).
+pub fn pad(buttons: u16, x: i16, y: i16) {
+    STATE.lock().expect("dinput").pad = (buttons, x, y);
+}
+
+/// The pad's buttons held now (`rc_platform::pad`).
+pub fn pad_buttons() -> u16 {
+    STATE.lock().expect("dinput").pad.0
+}
 
 /// Whether a key (DirectInput scan code `DIK_*`) is held.
 pub fn key_down(scan: u8) -> bool {
@@ -113,6 +143,8 @@ fn di_CreateDevice(c: &mut Cpu) {
         KEYBOARD
     } else if g == GUID_SYSMOUSE {
         MOUSE
+    } else if g == GUID_PAD {
+        JOYSTICK
     } else {
         m.st32(out, 0);
         return ret_stdcall(c, E_NOINTERFACE, 4);
@@ -121,14 +153,15 @@ fn di_CreateDevice(c: &mut Cpu) {
     ret_stdcall(c, S_OK, 4);
 }
 
-/// The system keyboard and mouse, as DIDEVICEINSTANCEA for an `EnumDevices` callback; no
-/// joysticks.
+/// The system keyboard and mouse and the pad, as DIDEVICEINSTANCEA for an `EnumDevices`
+/// callback.
 fn di_EnumDevices(c: &mut Cpu) {
     let m = c.mem();
     let (kind, cb, ctx) = (c.arg(1), c.arg(2), c.arg(3));
     let devices: &[([u8; 16], u32, &[u8])] = &[
         (GUID_SYSKEYBOARD, 0x0403, b"Keyboard\0"),
         (GUID_SYSMOUSE, 0x0202, b"Mouse\0"),
+        (GUID_PAD, PAD_TYPE, b"Gamepad\0"),
     ];
     let inst = rc_runtime::vm::heap_alloc(m, 0x244, true);
     for (g, t, name) in devices {
@@ -192,6 +225,26 @@ fn dev_GetDeviceState(c: &mut Cpu) {
             s.dx = 0;
             s.dy = 0;
             s.dz = 0;
+        }
+        JOYSTICK => {
+            // DIJOYSTATE(2): the axes (x, y, z, rx, ry, rz), two sliders, four POVs (centred),
+            // the buttons; DIJOYSTATE2's velocities and forces stay zero.
+            for i in (0..size).step_by(4) {
+                m.st32(out + i, 0);
+            }
+            let (buttons, x, y) = s.pad;
+            let axis = |v: i16| (i32::from(v) + 32768) as u32;
+            m.st32(out, axis(x));
+            m.st32(out + 4, axis(y));
+            m.st32(out + 8, AXIS_MAX / 2);
+            for k in 0..4 {
+                m.st32(out + 32 + 4 * k, u32::MAX);
+            }
+            for b in 0..rc_platform::pad::BUTTONS {
+                if buttons & (1 << b) != 0 && 48 + b < size {
+                    m.st8(out + 48 + b, 0x80);
+                }
+            }
         }
         _ => {
             drop(s);
@@ -296,6 +349,132 @@ fn key_name(scan: u32) -> String {
     format!("Key {scan}")
 }
 
+/// DIDEVCAPS: attached, the device's type, its axes, buttons and POVs; the joystick with force
+/// feedback (the gamepads' vibration).
+fn dev_GetCapabilities(c: &mut Cpu) {
+    let m = c.mem();
+    let (this, p) = (c.arg(0), c.arg(1));
+    let size = m.ld32(p).clamp(24, 0x2c);
+    for i in (4..size).step_by(4) {
+        m.st32(p + i, 0);
+    }
+    let (kind, axes, buttons, povs) = match com::id_of(m, this) {
+        KEYBOARD => (0x0403, 0, 128, 0),
+        MOUSE => (0x0202, 3, 4, 0),
+        _ => (PAD_TYPE, 2, rc_platform::pad::BUTTONS, 0),
+    };
+    // DIDC_ATTACHED, and for the joystick DIDC_FORCEFEEDBACK.
+    let flags = if kind == PAD_TYPE { 0x101 } else { 1 };
+    m.st32(p + 4, flags);
+    m.st32(p + 8, kind);
+    m.st32(p + 12, axes);
+    m.st32(p + 16, buttons);
+    m.st32(p + 20, povs);
+    ret_stdcall(c, S_OK, 2);
+}
+
+/// The force feedback effect (the game makes one, a constant force it sets every frame): its
+/// magnitude (0 to 10 000) and gain, whether it plays.
+struct Effect {
+    magnitude: u32,
+    gain: u32,
+    playing: bool,
+}
+
+static EFFECT: Mutex<Effect> = Mutex::new(Effect {
+    magnitude: 0,
+    gain: 10_000,
+    playing: false,
+});
+
+/// The effect's strength to the gamepads.
+fn rumble(e: &Effect) {
+    let s = if e.playing {
+        e.magnitude as f32 / 10_000.0 * e.gain as f32 / 10_000.0
+    } else {
+        0.0
+    };
+    static LAST: Mutex<f32> = Mutex::new(-1.0);
+    let mut last = LAST.lock().expect("rumble");
+    if (s - *last).abs() >= 0.01 {
+        *last = s;
+        if rc_runtime::host::env("RC_TRACE").is_some_and(|t| t.contains("rumble")) {
+            rc_runtime::log!("[dinput] force feedback {s:.2}");
+        }
+    }
+    rc_platform::rumble::set(s);
+}
+
+/// DIEFFECT's parameters the flags name: the gain (`DIEP_GAIN`), the constant force's magnitude
+/// (`DIEP_TYPESPECIFICPARAMS`, a DICONSTANTFORCE); `DIEP_START` starts it.
+fn effect_parameters(m: Mem, p: u32, flags: u32) {
+    let mut e = EFFECT.lock().expect("effect");
+    if p != 0 {
+        if flags & 0x4 != 0 {
+            e.gain = m.ld32(p + 0x10).min(10_000);
+        }
+        if flags & 0x100 != 0 && m.ld32(p + 0x2c) >= 4 && m.ld32(p + 0x30) != 0 {
+            e.magnitude = (m.ld32(m.ld32(p + 0x30)) as i32).unsigned_abs().min(10_000);
+        }
+    }
+    if flags & 0x2000_0000 != 0 {
+        e.playing = true;
+    }
+    rumble(&e);
+}
+
+/// `CreateEffect(guid, DIEFFECT, out, outer)`: the one effect, with its parameters.
+fn dev_CreateEffect(c: &mut Cpu) {
+    let m = c.mem();
+    let (p, out) = (c.arg(2), c.arg(3));
+    effect_parameters(m, p, 0x104);
+    m.st32(out, com::new_object(m, &EFFECT_IFACE, 0));
+    ret_stdcall(c, S_OK, 5);
+}
+
+/// `SendForceFeedbackCommand`: a reset or stop (all) stops the vibration.
+fn dev_SendForceFeedbackCommand(c: &mut Cpu) {
+    let mut e = EFFECT.lock().expect("effect");
+    e.playing = false;
+    rumble(&e);
+    drop(e);
+    ret_stdcall(c, S_OK, 2);
+}
+
+fn effect_SetParameters(c: &mut Cpu) {
+    let m = c.mem();
+    effect_parameters(m, c.arg(1), c.arg(2));
+    ret_stdcall(c, S_OK, 3);
+}
+
+fn effect_Start(c: &mut Cpu) {
+    let mut e = EFFECT.lock().expect("effect");
+    e.playing = true;
+    rumble(&e);
+    drop(e);
+    ret_stdcall(c, S_OK, 3);
+}
+
+fn effect_Stop(c: &mut Cpu) {
+    let mut e = EFFECT.lock().expect("effect");
+    e.playing = false;
+    rumble(&e);
+    drop(e);
+    ret_stdcall(c, S_OK, 1);
+}
+
+/// `DIPROP_RANGE` (4) of the joystick's axes; nothing else is asked.
+fn dev_GetProperty(c: &mut Cpu) {
+    let m = c.mem();
+    let (prop, p) = (c.arg(1), c.arg(2));
+    if prop == 4 {
+        m.st32(p + 16, 0);
+        m.st32(p + 20, AXIS_MAX);
+        return ret_stdcall(c, S_OK, 3);
+    }
+    ret_stdcall(c, DIERR_UNSUPPORTED, 3)
+}
+
 /// DIDEVICEOBJECTINSTANCEA of a key or mouse object, by offset (`DIPH_BYOFFSET`).
 fn dev_GetObjectInfo(c: &mut Cpu) {
     let m = c.mem();
@@ -305,8 +484,22 @@ fn dev_GetObjectInfo(c: &mut Cpu) {
         m.st32(p + i, 0);
     }
     m.st32(p + 20, obj);
-    let name = if com::id_of(m, this) == KEYBOARD {
+    let kind = com::id_of(m, this);
+    let name = if kind == KEYBOARD {
         key_name(obj)
+    } else if kind == JOYSTICK {
+        const NAMES: [&str; 12] = [
+            "Square", "Triangle", "Cross", "Circle", "L2", "L1", "R2", "R1", "Select", "Start",
+            "L3", "R3",
+        ];
+        match obj {
+            0 => "X".into(),
+            4 => "Y".into(),
+            o => NAMES.get(o.wrapping_sub(48) as usize).map_or_else(
+                || format!("Button {}", o.saturating_sub(47)),
+                |n| (*n).into(),
+            ),
+        }
     } else {
         match obj {
             0 => "X".into(),
@@ -343,9 +536,9 @@ static DEVICE: Interface = Interface {
         ("QueryInterface", Some(dev_QueryInterface)),
         ("AddRef", Some(com::add_ref)),
         ("Release", Some(com::release)),
-        ("GetCapabilities", None),
+        ("GetCapabilities", Some(dev_GetCapabilities)),
         ("EnumObjects", None),
-        ("GetProperty", None),
+        ("GetProperty", Some(dev_GetProperty)),
         ("SetProperty", Some(ok3)),
         ("Acquire", Some(ok1)),
         ("Unacquire", Some(ok1)),
@@ -358,17 +551,44 @@ static DEVICE: Interface = Interface {
         ("GetDeviceInfo", None),
         ("RunControlPanel", None),
         ("Initialize", None),
-        ("CreateEffect", None),
+        ("CreateEffect", Some(dev_CreateEffect)),
         ("EnumEffects", None),
         ("GetEffectInfo", None),
         ("GetForceFeedbackState", None),
-        ("SendForceFeedbackCommand", None),
+        (
+            "SendForceFeedbackCommand",
+            Some(dev_SendForceFeedbackCommand),
+        ),
         ("EnumCreatedEffectObjects", None),
         ("Escape", None),
         ("Poll", Some(ok1)),
         ("SendDeviceData", None),
     ],
 };
+
+static EFFECT_IFACE: Interface = Interface {
+    dll: "dinput.dll",
+    name: "IDirectInputEffect",
+    methods: &[
+        ("QueryInterface", None),
+        ("AddRef", Some(com::add_ref)),
+        ("Release", Some(com::release)),
+        ("Initialize", Some(ok_effect4)),
+        ("GetEffectGuid", None),
+        ("GetParameters", None),
+        ("SetParameters", Some(effect_SetParameters)),
+        ("Start", Some(effect_Start)),
+        ("Stop", Some(effect_Stop)),
+        ("GetEffectStatus", None),
+        ("Download", Some(ok1)),
+        ("Unload", Some(ok1)),
+        ("Escape", None),
+    ],
+};
+
+fn ok_effect4(c: &mut Cpu) {
+    ret_stdcall(c, S_OK, 4);
+}
 
 const CLSID_DIRECTINPUT: [u8; 16] = com::guid(
     0x25e6_09e0,

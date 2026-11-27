@@ -8,6 +8,12 @@ include!("build_info.rs");
 
 fn main() {
     build_info(&["src"]);
+    // Android: the library's calls to functions it defines itself bind to them, not to a
+    // system library's of the same name (rc_platform::android takes the gamepads' events in
+    // its own AInputQueue_getEvent, which android-activity calls).
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "android") {
+        println!("cargo:rustc-link-arg=-Wl,-Bsymbolic-functions");
+    }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../generated/technomage");
     let set = root.join("set.rs");
     println!("cargo:rerun-if-changed={}", set.display());

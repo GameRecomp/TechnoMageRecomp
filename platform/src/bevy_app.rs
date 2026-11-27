@@ -7,6 +7,7 @@ use crate::{audio, input, Input};
 use bevy::asset::RenderAssetUsages;
 use bevy::audio::{AddAudioSource, AudioPlayer, Decodable};
 use bevy::image::ImageSampler;
+use bevy::input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest};
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseButtonInput, MouseMotion, MouseWheel};
 use bevy::input::touch::{TouchInput, TouchPhase};
@@ -128,7 +129,16 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
     .add_systems(Startup, setup)
     .add_systems(
         Update,
-        (show_frame, keyboard, mouse, touch, close, hardware_cursor),
+        (
+            show_frame,
+            keyboard,
+            mouse,
+            gamepad,
+            vibrate,
+            touch,
+            close,
+            hardware_cursor,
+        ),
     );
     // Without a mouse (Android) the game draws its pointer itself, where the finger is.
     crate::cursor::set_enabled(!cfg!(target_os = "android"));
@@ -512,6 +522,85 @@ fn mouse(
     for c in moved.read() {
         let (x, y) = to_game(win, &screen, c.position);
         input(Input::Cursor { x, y });
+    }
+}
+
+/// The gamepads' vibration follows the game's force feedback (`rumble`): when it changes, and
+/// renewed while it lasts (Bevy's rumbles have a duration). On Android through its own API.
+fn vibrate(
+    pads: Query<Entity, With<Gamepad>>,
+    mut requests: MessageWriter<GamepadRumbleRequest>,
+    mut last: Local<(f32, Option<std::time::Instant>)>,
+) {
+    use std::time::{Duration, Instant};
+    const RENEW: Duration = Duration::from_millis(100);
+    let s = crate::rumble::strength();
+    let now = Instant::now();
+    let due = last.1.is_none_or(|t| now.duration_since(t) >= RENEW);
+    if (s - last.0).abs() < 0.02 && !(s > 0.0 && due) {
+        return;
+    }
+    *last = (s, Some(now));
+    #[cfg(target_os = "android")]
+    crate::android::vibrate(s, RENEW + RENEW / 2);
+    for gamepad in &pads {
+        requests.write(GamepadRumbleRequest::Stop { gamepad });
+        if s > 0.0 {
+            requests.write(GamepadRumbleRequest::Add {
+                gamepad,
+                duration: RENEW + RENEW / 2,
+                intensity: GamepadRumbleIntensity {
+                    strong_motor: s,
+                    weak_motor: s,
+                },
+            });
+        }
+    }
+}
+
+/// The gamepads as one PlayStation pad (their buttons together, the first one's direction that
+/// is pushed), sent when it changes.
+fn gamepad(pads: Query<&Gamepad>, mut last: Local<Option<(u16, i16, i16)>>) {
+    use crate::pad;
+    const BUTTONS: [(GamepadButton, u16); 12] = [
+        (GamepadButton::West, pad::SQUARE),
+        (GamepadButton::North, pad::TRIANGLE),
+        (GamepadButton::South, pad::CROSS),
+        (GamepadButton::East, pad::CIRCLE),
+        (GamepadButton::LeftTrigger2, pad::L2),
+        (GamepadButton::LeftTrigger, pad::L1),
+        (GamepadButton::RightTrigger2, pad::R2),
+        (GamepadButton::RightTrigger, pad::R1),
+        (GamepadButton::Select, pad::SELECT),
+        (GamepadButton::Start, pad::START),
+        (GamepadButton::LeftThumb, pad::L3),
+        (GamepadButton::RightThumb, pad::R3),
+    ];
+    let mut buttons = 0u16;
+    let mut dir = Vec2::ZERO;
+    for g in &pads {
+        for (b, bit) in BUTTONS {
+            if g.pressed(b) {
+                buttons |= bit;
+            }
+        }
+        // The directional buttons push all the way; the stick as far as it is pushed.
+        let d = g.dpad();
+        let v = if d != Vec2::ZERO { d } else { g.left_stick() };
+        if dir == Vec2::ZERO {
+            dir = v;
+        }
+    }
+    let axis = |v: f32| (v.clamp(-1.0, 1.0) * 32767.0) as i16;
+    // Bevy's y points up, DirectInput's down.
+    let now = (buttons, axis(dir.x), axis(-dir.y));
+    if *last != Some(now) {
+        *last = Some(now);
+        input(Input::Pad {
+            buttons: now.0,
+            x: now.1,
+            y: now.2,
+        });
     }
 }
 

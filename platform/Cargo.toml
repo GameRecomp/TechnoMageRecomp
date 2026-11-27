@@ -37,6 +37,8 @@ bevy = { version = "0.20.1", optional = true, default-features = false, features
   "custom_cursor",
   "keyboard",
   "mouse",
+  "gamepad",
+  "bevy_gilrs",
   "touch",
   "x11",
   "wayland",
@@ -63,3 +65,5 @@ pollster = { version = "0.4", optional = true }
 bevy = { version = "0.20.1", optional = true, default-features = false, features = [
   "android-native-activity",
 ] }
+# Android's own APIs (the gamepads' vibrators) through JNI, from Rust.
+jni = "0.21"

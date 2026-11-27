@@ -80,6 +80,7 @@ fn on_input(i: rc_platform::Input) {
                 lparam: lp,
             });
         }
+        Input::Pad { buttons, x, y } => dinput::pad(buttons, x, y),
         Input::Cursor { x, y } => {
             // Widescreen: the game's screen is the middle of the frame; on a margin the pointer
             // is left or right of it (the message's coordinates are signed).
@@ -182,14 +183,24 @@ pub(crate) fn frame_done(c: &mut Cpu) {
     yield_point(c);
 }
 
-/// `RC_INPUT="150:esc 400:enter 450:click@320,240"`: at the given frames, a key is pressed for
-/// one frame (DirectInput and window messages) or the left button clicked at a position.
+/// `RC_INPUT="150:esc 400:enter 450:click@320,240 500:pad-cross"`: at the given frames, a key
+/// is pressed for one frame (DirectInput and window messages), the left button clicked at a
+/// position, or a button of the gamepad (`pad-square` … `pad-start`, `pad-l1` …, a direction
+/// `pad-left` …) held for four frames.
 fn scripted_input(frame: u64) {
     use std::sync::Mutex;
     static RELEASE: Mutex<Vec<(u64, u8, u32)>> = Mutex::new(Vec::new());
     let Some(script) = rc_runtime::host::env("RC_INPUT") else {
         return;
     };
+    static PAD_RELEASE: Mutex<Option<u64>> = Mutex::new(None);
+    {
+        let mut p = PAD_RELEASE.lock().expect("input");
+        if p.is_some_and(|f| f <= frame) {
+            *p = None;
+            dinput::pad(0, 0, 0);
+        }
+    }
     let mut rel = RELEASE.lock().expect("input");
     rel.retain(|&(f, scan, vk)| {
         if f <= frame {
@@ -220,6 +231,29 @@ fn scripted_input(frame: u64) {
             continue;
         };
         if f.parse::<u64>().ok() != Some(frame) {
+            continue;
+        }
+        if let Some(b) = what.strip_prefix("pad-") {
+            use rc_platform::pad;
+            let (bits, x, y) = match b {
+                "square" => (pad::SQUARE, 0, 0),
+                "triangle" => (pad::TRIANGLE, 0, 0),
+                "cross" => (pad::CROSS, 0, 0),
+                "circle" => (pad::CIRCLE, 0, 0),
+                "l1" => (pad::L1, 0, 0),
+                "l2" => (pad::L2, 0, 0),
+                "r1" => (pad::R1, 0, 0),
+                "r2" => (pad::R2, 0, 0),
+                "select" => (pad::SELECT, 0, 0),
+                "start" => (pad::START, 0, 0),
+                "left" => (0, -32768, 0),
+                "right" => (0, 32767, 0),
+                "up" => (0, 0, -32768),
+                "down" => (0, 0, 32767),
+                _ => continue,
+            };
+            dinput::pad(bits, x, y);
+            *PAD_RELEASE.lock().expect("input") = Some(frame + 4);
             continue;
         }
         if let Some(pos) = what.strip_prefix("move@") {
