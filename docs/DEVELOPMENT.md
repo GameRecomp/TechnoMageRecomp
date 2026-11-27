@@ -25,7 +25,7 @@ first (about a minute).
 ## Build and run
 
 ```sh
-cargo run -p rc-cli --release -- lift technomage cd-de   # → generated/technomage/ (16 shard crates)
+cargo run -p rc-cli --release -- lift orig/technomage/cd-de   # → generated/technomage/ (16 shard crates)
 cargo build --release -p technomage                      # about 7 minutes; dev builds about 5
 target/release/technomage --game-dir orig/technomage/cd-de
 ```
@@ -62,7 +62,9 @@ RC_HEADLESS=1 RC_INPUT="20:esc 60:esc 100:esc 140:esc 180:esc 220:esc 300:enter 
 `games/technomage/src/patches.rs` (also compiled into the browser player) wraps functions of the game that
 `[binary.patch] hooks` in `game.toml` lists: the lifter routes calls to them through the dispatcher, where
 `patches::register` installs the wrappers, and a wrapper runs the game's own function with
-`dispatch::call_original`. Changing the list needs a new lift. What the hooks touch is in RESEARCH.md ("The pause
+`dispatch::call_original`. Changing the list needs a new lift: the lift writes what it applied
+(`lift-inputs.txt` beside the lifted code), a cargo build stops when that is not what `game.toml` has
+(`rc_manifest::stale_lifts`), and the CMake build lifts again by itself. What the hooks touch is in RESEARCH.md ("The pause
 menu, the options panel and the texts"). So far two entries in the pause menu (its box grows by their lines), each
 opening the options panel with lines of its own: "Configure graphics" (the render resolution and the switches
 "native resolution", "widescreen", "antialiasing" and "show frame rate", kept in `TechnoMageRecomp.cfg` in the
@@ -160,7 +162,7 @@ VS Code picks a preset from `CMakePresets.json`, and `.vscode/` has the tasks an
 
 | Target | Does |
 |---|---|
-| `technomage` (default) | `cargo build -p technomage`; lifts first when `generated/` has no lifted code yet |
+| `technomage` (default) | `cargo build -p technomage`; lifts first when the executables, `game.toml` or the recompiler changed (only the changed files are written, so only those shards are compiled again) |
 | `lift` | `recomp lift RC_GAME_DIR` again (writes only the files that changed) |
 | `recomp` | the recompiler, always `--release` |
 | `inputs` | `recomp download` and `recomp extract` for `RC_LANGUAGE` into `orig/` |
@@ -175,7 +177,7 @@ it on `PATH`) and the Visual Studio debugger on Windows. From a terminal:
 ```sh
 cmake --preset release
 cmake --build --preset release                 # lift if needed, build the game
-cmake --build --preset release --target lift   # lift again after changing the recompiler
+cmake --build --preset release --target lift   # lift again
 ```
 
 ## Checks

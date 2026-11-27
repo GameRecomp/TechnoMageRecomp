@@ -282,6 +282,10 @@ pub fn lift(o: &LiftOpts, paths: &[PathBuf]) -> Result<ExitCode, String> {
             }
         }
         write_if_changed(&dir.join("codemap.json"), &(json + "\n"))?;
+        // What the build checks the lifted code against (rc_manifest::stale_lifts).
+        if let Some(k) = &l.known {
+            write_if_changed(&dir.join(rc_manifest::LIFT_RECORD), &k.binary.lift_record())?;
+        }
 
         let traps: u32 = lifted.traps.values().sum();
         println!("binary      {} ({})", l.map.binary.name, &l.sha256[..16]);

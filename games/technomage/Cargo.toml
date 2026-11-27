@@ -47,6 +47,9 @@ technomage-shard-13 = { path = "lifted/shard13" }
 technomage-shard-14 = { path = "lifted/shard14" }
 technomage-shard-15 = { path = "lifted/shard15" }
 
+[build-dependencies]
+rc-manifest.workspace = true
+
 # The generated dispatch tables declare the shards' functions in unsafe extern blocks.
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

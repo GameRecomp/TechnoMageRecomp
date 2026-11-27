@@ -16,7 +16,7 @@ converter (CLI and page) builds packages from the archive.org media. Open: playi
 loading, sound by ear, Windows by hand, the v0.1 tag (draft notes in `docs/RELEASE-NOTES.md`).
 
 ```sh
-cargo run -p rc-cli --release -- lift technomage cd-de      # generated/ (16 shards), then:
+cargo run -p rc-cli --release -- lift orig/technomage/cd-de # generated/ (16 shards), then:
 cargo build --release -p technomage                         # ~7 min
 target/release/technomage --game-dir orig/technomage/cd-de  # RC_* options: docs/DEVELOPMENT.md
 tools/audit.sh                                              # what the pre-commit hook runs

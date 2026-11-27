@@ -170,6 +170,48 @@ impl Binary {
         let v = self.variants.first().map_or("any", String::as_str);
         format!("{}-{v}", self.name.to_ascii_lowercase())
     }
+
+    /// What the manifest gives the lift of this binary besides the binary itself (the
+    /// discovery hints and the patches), as text. The lift writes it beside the lifted code
+    /// ([`LIFT_RECORD`]); [`stale_lifts`] compares it with the manifest's.
+    pub fn lift_record(&self) -> String {
+        Self::lift_record_of(&self.discover, &self.patch)
+    }
+
+    fn lift_record_of(discover: &Option<DiscoverHints>, patch: &Patch) -> String {
+        format!("{discover:#?}\n{patch:#?}\n")
+    }
+}
+
+/// The file in a lifted binary's directory that holds its [`Binary::lift_record`].
+pub const LIFT_RECORD: &str = "lift-inputs.txt";
+
+/// The lifted binaries in `generated` (`generated/<game>/`, a directory per binary) lifted
+/// with other discovery hints or patches than `m` now has: their directory names. A directory
+/// without a record (lifted before records were written) is stale unless the manifest gives
+/// its binary neither; one no binary of `m` names is left alone.
+pub fn stale_lifts(m: &Manifest, generated: &Path) -> Vec<String> {
+    let mut stale = Vec::new();
+    let Ok(entries) = fs::read_dir(generated) else {
+        return stale;
+    };
+    let empty = Binary::lift_record_of(&None, &Patch::default());
+    for e in entries.filter_map(Result::ok) {
+        let dir = e.path();
+        let Some(name) = dir.file_name().and_then(|n| n.to_str()).map(str::to_owned) else {
+            continue;
+        };
+        let Some(b) = m.binaries.iter().find(|b| b.output_dir_name() == name) else {
+            continue;
+        };
+        let want = b.lift_record();
+        let have = fs::read_to_string(dir.join(LIFT_RECORD)).unwrap_or_else(|_| empty.clone());
+        if have != want {
+            stale.push(name);
+        }
+    }
+    stale.sort();
+    stale
 }
 
 /// Where the game project changes what the game does (`[binary.patch]`, as in TropicoRecomp).
@@ -813,6 +855,27 @@ mod tests {
         assert!(errs.iter().any(|e| e.contains("not lifted")));
         assert!(errs.iter().any(|e| e.contains("not 64 KiB aligned")));
         assert_eq!(errs.len(), 4, "{errs:?}");
+    }
+
+    #[test]
+    fn a_lift_with_other_patches_is_stale() {
+        let text = fs::read_to_string(repo_games().join("technomage/game.toml")).unwrap();
+        let m = parse_str(&text, Path::new("game.toml")).unwrap();
+        let main = m.binaries.iter().find(|b| b.role == Role::Main).unwrap();
+        assert!(!main.patch.hooks.is_empty());
+        let dir = std::env::temp_dir().join(format!("rc-stale-lifts-{}", std::process::id()));
+        let lifted = dir.join(main.output_dir_name());
+        fs::create_dir_all(&lifted).unwrap();
+        fs::create_dir_all(dir.join("not-in-the-manifest")).unwrap();
+        // Lifted before records were written: stale (the manifest patches this binary).
+        assert_eq!(stale_lifts(&m, &dir), [main.output_dir_name()]);
+        fs::write(lifted.join(LIFT_RECORD), main.lift_record()).unwrap();
+        assert!(stale_lifts(&m, &dir).is_empty());
+        let mut fewer = main.clone();
+        fewer.patch.hooks.pop();
+        fs::write(lifted.join(LIFT_RECORD), fewer.lift_record()).unwrap();
+        assert_eq!(stale_lifts(&m, &dir), [main.output_dir_name()]);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

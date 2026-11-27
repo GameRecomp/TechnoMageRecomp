@@ -9,10 +9,11 @@
 #   cmake --build --preset release --target run                         play
 #   ctest --preset release                                              the checks
 #
-# Targets: technomage (default; the lifted code is lifted first when generated/ has none),
-# lift, recomp (the recompiler), inputs (download and extract the media), run, web, and the
-# checks audit, fmt, clippy, cargo-test (also as CTest tests). The game and the recompiler are
-# put into <build dir>/bin/ too, so a debugger finds the active preset's build in one place.
+# Targets: technomage (default; lifted again first when the executables, game.toml or the
+# recompiler changed), lift, recomp (the recompiler), inputs (download and extract the media),
+# run, web, and the checks audit, fmt, clippy, cargo-test (also as CTest tests). The game and the
+# recompiler are put into <build dir>/bin/ too, so a debugger finds the active preset's build in
+# one place.
 cmake_minimum_required(VERSION 3.25)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" RC_VERSION)
@@ -95,9 +96,13 @@ add_custom_target(lift
   USES_TERMINAL VERBATIM)
 add_dependencies(lift recomp)
 
-# The default build lifts only when there is no lifted code yet (or the executable is newer).
-set(_set_rs "${_src}/generated/technomage/set.rs")
-set(_lift_deps recomp)
+# The default build lifts again when what the lift reads changed: the executables, the
+# manifest (its patches and discovery hints) or the recompiler. The lifter writes only the files
+# that changed, so cargo then rebuilds only the shards whose code changed. The stamp lives in the
+# build directory: a new build directory lifts once. (A plain cargo build only checks the
+# manifest's part, rc_manifest::stale_lifts in games/technomage/build.rs.)
+set(_lift_stamp "${CMAKE_BINARY_DIR}/lift.stamp")
+set(_lift_deps recomp "${_recomp}" "${_src}/games/technomage/game.toml")
 foreach(_f TechnoMage.exe binkw32.dll)
   if(EXISTS "${RC_GAME_DIR}/${_f}")
     list(APPEND _lift_deps "${RC_GAME_DIR}/${_f}")
@@ -108,13 +113,14 @@ if(NOT EXISTS "${RC_GAME_DIR}")
                   "RC_GAME_DIR to an installed game, then configure again. Until then the game builds "
                   "without lifted code.")
 endif()
-add_custom_command(OUTPUT "${_set_rs}"
+add_custom_command(OUTPUT "${_lift_stamp}"
   COMMAND ${_lift_cmd}
+  COMMAND "${CMAKE_COMMAND}" -E touch "${_lift_stamp}"
   DEPENDS ${_lift_deps}
   WORKING_DIRECTORY "${_src}"
-  COMMENT "recomp lift ${RC_GAME_DIR} (no lifted code yet)"
+  COMMENT "recomp lift ${RC_GAME_DIR} (its inputs changed)"
   USES_TERMINAL VERBATIM)
-add_custom_target(lifted DEPENDS "${_set_rs}")
+add_custom_target(lifted DEPENDS "${_lift_stamp}")
 
 # The media from archive.org, checked by hash, unpacked to orig/technomage/<variant>/.
 if(RC_LANGUAGE STREQUAL "en")
