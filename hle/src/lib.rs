@@ -31,6 +31,7 @@ pub mod dsound;
 pub mod kernel32;
 pub mod mixer;
 pub mod mss32;
+pub mod profile;
 pub mod raster;
 pub mod small;
 pub mod user32;
@@ -185,6 +186,7 @@ pub(crate) fn frame_done(c: &mut Cpu) {
     let n = rc_platform::frame_number();
     measure_fps();
     fps_trace(n);
+    profile::frame_end(n);
     scripted_input(n);
     if let Some(limit) = rc_runtime::host::env("RC_FRAMES").and_then(|v| v.parse::<u64>().ok()) {
         if n >= limit {
@@ -192,7 +194,7 @@ pub(crate) fn frame_done(c: &mut Cpu) {
             rc_runtime::host::exit(0);
         }
     }
-    rc_runtime::host::frame_yield();
+    profile::time(profile::Section::Yield, rc_runtime::host::frame_yield);
     yield_point(c);
 }
 
@@ -374,5 +376,5 @@ fn scripted_key(what: &str) -> Option<(u8, u32)> {
 /// Where a guest thread may give way to another (`Sleep`, waits, the message loop).
 pub(crate) fn yield_point(c: &mut Cpu) {
     let _ = c;
-    rc_runtime::threads::yield_now();
+    profile::time(profile::Section::Yield, rc_runtime::threads::yield_now);
 }

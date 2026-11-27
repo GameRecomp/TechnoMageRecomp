@@ -49,6 +49,8 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution and widescreen follow (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug,rumble` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString`, the force feedback's strength |
+| `RC_TRACE=profile` (`RC_PROFILE=file.csv`) | a frame profiler: per frame the time of each section (game code, Direct3D recording, the GPU batch's read, upload, wait and write-back, the picture with native resolution, presenting, copies, sleeps), one CSV line a frame (`hle::profile`) |
+| `RC_FRAME_HASHES=file` | a line per frame shown: its size and a hash of its pixels; two scripted runs (virtual clock) before and after a change compared frame by frame show any change in the picture |
 
 A scripted run to the first room of a new game:
 

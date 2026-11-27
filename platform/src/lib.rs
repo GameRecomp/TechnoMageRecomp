@@ -562,6 +562,31 @@ pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, mut rgba: 
     #[cfg(not(target_family = "wasm"))]
     NEW_FRAME.notify_all();
     screenshot_if_asked(n);
+    hash_if_asked(n);
+}
+
+/// `RC_FRAME_HASHES=file`: each frame's size and a hash of its pixels, a line a frame (to compare
+/// whole scripted runs before and after a change).
+fn hash_if_asked(n: u64) {
+    use std::io::Write;
+    static OUT: Mutex<Option<std::fs::File>> = Mutex::new(None);
+    let Ok(path) = std::env::var("RC_FRAME_HASHES") else {
+        return;
+    };
+    let f = latest_frame();
+    // FNV-1a over the pixels, 8 bytes at a time.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for c in f.rgba.as_chunks::<8>().0 {
+        h ^= u64::from_le_bytes(*c);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut out = OUT.lock().expect("hashes");
+    if out.is_none() {
+        *out = std::fs::File::create(&path).ok();
+    }
+    if let Some(o) = out.as_mut() {
+        let _ = writeln!(o, "{n} {}x{} {h:016x}", f.width, f.height);
+    }
 }
 
 /// How many frames were submitted.

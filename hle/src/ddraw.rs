@@ -960,7 +960,7 @@ fn present_if_primary(c: &mut Cpu, id: u32) {
         return;
     }
     let m = c.mem();
-    let rgba = to_rgba(m, &s);
+    let rgba = crate::profile::time(crate::profile::Section::ToRgba, || to_rgba(m, &s));
     let picture = PICTURE
         .get()
         .filter(|_| rc_platform::render::widescreen())
@@ -1260,7 +1260,9 @@ fn s_Flip(c: &mut Cpu) {
     if rc_runtime::host::env("RC_TRACE").is_some_and(|v| v.contains("d3d")) {
         rc_runtime::log!("[d3d] frame: {} commands", commands.len());
     }
-    match info(m, shown.object).and_then(|i| crate::d3d::native_picture(m, &i)) {
+    use crate::profile::{time, Section as S};
+    match info(m, shown.object).and_then(|i| time(S::Picture, || crate::d3d::native_picture(m, &i)))
+    {
         Some((w, h, mut big)) => {
             if let Some(r) = crate::small::gamma_ramp() {
                 for px in big.as_chunks_mut::<4>().0 {
@@ -1269,23 +1271,31 @@ fn s_Flip(c: &mut Cpu) {
                     }
                 }
             }
-            overlay(m, &mut big, w, h, shown.width);
-            rc_platform::submit_frame_scaled((shown.width, shown.height), w, h, big);
+            time(S::Overlay, || overlay(m, &mut big, w, h, shown.width));
+            time(S::Submit, || {
+                rc_platform::submit_frame_scaled((shown.width, shown.height), w, h, big);
+            });
         }
         None => {
-            let mut rgba = to_rgba(m, &shown);
-            overlay(m, &mut rgba, shown.width, shown.height, shown.width);
-            rc_platform::submit_frame(shown.width, shown.height, rgba);
+            let mut rgba = time(S::ToRgba, || to_rgba(m, &shown));
+            time(S::Overlay, || {
+                overlay(m, &mut rgba, shown.width, shown.height, shown.width)
+            });
+            time(S::Submit, || {
+                rc_platform::submit_frame(shown.width, shown.height, rgba)
+            });
         }
     }
     // The front surface now holds what is shown, as after a real flip: a game that reads it
     // (TechnoMage's saved games take their picture from it) finds the frame there.
     if shown.buf != front_buf.0 && (shown.pitch, shown.height) == (front_buf.1, front_buf.2) {
-        let mut frame = vec![0u8; (shown.pitch * shown.height) as usize];
-        m.read(shown.buf, &mut frame);
-        m.write(front_buf.0, &frame);
+        time(S::FrontCopy, || {
+            let mut frame = vec![0u8; (shown.pitch * shown.height) as usize];
+            m.read(shown.buf, &mut frame);
+            m.write(front_buf.0, &frame);
+        });
     }
-    clear_margins(m, &shown);
+    time(S::ClearMargins, || clear_margins(m, &shown));
     apply_margin(m);
     crate::frame_done(c);
     ret_stdcall(c, S_OK, 3);

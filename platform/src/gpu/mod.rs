@@ -16,6 +16,10 @@
 
 use std::sync::Arc;
 
+/// The last render's stages (ns): prepared (upload, vertices, encoding), the GPU waited for
+/// (drawing and the copy back), the rows unpacked, the edges filled (for profiling).
+pub static LAST_RENDER: std::sync::Mutex<[u64; 4]> = std::sync::Mutex::new([0; 4]);
+
 #[cfg(not(target_family = "wasm"))]
 mod native;
 #[cfg(not(target_family = "wasm"))]

@@ -582,7 +582,7 @@ fn Sleep(c: &mut Cpu) {
     if clock::is_virtual() {
         clock::advance_ms(u64::from(ms));
     } else {
-        host::sleep_ms(ms);
+        crate::profile::time(crate::profile::Section::Sleep, || host::sleep_ms(ms));
     }
     crate::yield_point(c);
     ret_stdcall(c, 0, 1);

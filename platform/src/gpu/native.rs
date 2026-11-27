@@ -590,6 +590,7 @@ impl Renderer {
         rgba: &[u8],
         commands: &[Command],
     ) -> Vec<u8> {
+        let started = std::time::Instant::now();
         self.frame += 1;
         let samples = if self.msaa && crate::render::antialias() {
             MSAA
@@ -951,6 +952,7 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        let prepared = started.elapsed();
         self.queue.submit([enc.finish()]);
         let slice = out.slice(..);
         slice.map_async(wgpu::MapMode::Read, |_| {});
@@ -958,6 +960,7 @@ impl Renderer {
             submission_index: None,
             timeout: None,
         });
+        let waited = started.elapsed();
         let Ok(data) = slice.get_mapped_range() else {
             return rgba.to_vec();
         };
@@ -974,7 +977,15 @@ impl Renderer {
         };
         drop(data);
         out.unmap();
+        let unpacked = started.elapsed();
         fill_edges(&mut result, (width, height), view);
+        let all = started.elapsed();
+        *super::LAST_RENDER.lock().expect("render times") = [
+            prepared.as_nanos() as u64,
+            (waited - prepared).as_nanos() as u64,
+            (unpacked - waited).as_nanos() as u64,
+            (all - unpacked).as_nanos() as u64,
+        ];
         result
     }
 }

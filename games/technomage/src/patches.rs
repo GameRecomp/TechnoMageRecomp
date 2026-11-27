@@ -1174,6 +1174,7 @@ fn draw_split(c: &mut Cpu) {
         call_original(c, DRAW_OT);
         return;
     }
+    rc_hle::profile::begin(rc_hle::profile::Section::OtWalk);
     let first = last - 0x3ff * 16;
     let gw = m.ld32(SCREEN_W);
     // Whether the world is drawn this frame (not in the load and save book): `ui_shift`.
@@ -1286,6 +1287,7 @@ fn draw_split(c: &mut Cpu) {
         node = m.ld32(node);
         guard += 1;
     }
+    rc_hle::profile::end();
     // The renderer drops a primitive wholly beyond the screen's size: the wider screen's.
     wide_screen(c, |c| {
         rc_hle::d3d::on_whole_width(|| call_original(c, DRAW_OT))
