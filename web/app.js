@@ -283,9 +283,49 @@ function showLanguages() {
     b.addEventListener('click', () => fetchRelease(lang));
     box.append(b);
   }
-  $('installer').textContent = game.languages.map((l) => l.file).join(' or ');
-  $('needs').textContent = game.languages
-    .map((l) => `${l.label}: ${besides(l).map((s) => s.file).join(', ') || 'nothing'}`).join('; ');
+  showNeeds();
+  // The footer names the releases from the same list.
+  const titles = game.languages.map((l) => `${l.label} (${l.title})`);
+  $('supported').textContent = titles.length > 1
+    ? `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}`
+    : titles.join('');
+}
+
+/* The files of every language as a table, each linked where archive.org keeps it (its download
+ * address, not the /cors/ one the page fetches through). */
+function showNeeds() {
+  const link = (item) => {
+    const a = document.createElement('a');
+    a.href = item.url.replace('/cors/', '/download/');
+    a.textContent = item.file;
+    a.rel = 'noopener';
+    const code = document.createElement('code');
+    code.append(a);
+    const size = document.createElement('small');
+    size.textContent = item.size < 1 << 20 ? ` ${Math.ceil(item.size / 1024)} KiB` : ` ${mib(item.size)}`;
+    const line = document.createElement('div');
+    line.append(code, size);
+    return line;
+  };
+  const body = $('needs').querySelector('tbody');
+  body.replaceChildren();
+  for (const lang of game.languages) {
+    const tr = document.createElement('tr');
+    const name = document.createElement('th');
+    name.scope = 'row';
+    const img = document.createElement('img');
+    img.src = `flags/${lang.flag || lang.code}.svg`;
+    img.alt = '';
+    img.height = 16;
+    name.append(img, ` ${lang.label}`);
+    const medium = document.createElement('td');
+    for (const item of [lang, ...(lang.parts || [])]) medium.append(link(item));
+    const beside = document.createElement('td');
+    for (const item of lang.supplements || []) beside.append(link(item));
+    if (!(lang.supplements || []).length) beside.textContent = '–';
+    tr.append(name, medium, beside);
+    body.append(tr);
+  }
 }
 
 function buildStageList() {
