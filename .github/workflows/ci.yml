@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# A new run cancels the one still running for the same branch or pull request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   # No lifted code in CI (generated/ is never committed): the shell builds without it.

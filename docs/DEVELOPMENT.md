@@ -128,6 +128,10 @@ the host and `Cargo.lock`). Only runs on `main` save them, so branches and pull 
 10 GB the repository gets. The Pages and release builds of the shells share a key (`dist`), as do their
 Android jobs (`android`): a version tag restores what the last Pages run on `main` built and saves nothing.
 
+**Superseded runs.** A new CI run cancels the one still running for the same branch or pull request
+(`concurrency`, keyed by the workflow and the ref); a new Pages run cancels the one before. Release runs are
+never cancelled.
+
 ### Android
 
 ```sh
