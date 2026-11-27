@@ -41,6 +41,15 @@ if on web; then
     mkdir -p "$site/player"
     cp "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/technomage_web.wasm" \
         "$site/player/technomage.wasm"
+    # What player.js takes from the module (games/technomage-web/build.rs links them in).
+    if command -v node > /dev/null; then
+        node -e '
+            const m = new WebAssembly.Module(require("fs").readFileSync(process.argv[1]));
+            const have = new Set(WebAssembly.Module.exports(m).map((e) => e.name));
+            const missing = ["memory", "__indirect_function_table", "__stack_pointer"].filter((n) => !have.has(n));
+            if (missing.length) { console.error(`build-web: the player module does not export ${missing.join(", ")}`); process.exit(1); }
+        ' "$site/player/technomage.wasm"
+    fi
     if [ -n "$web_shell" ] && [ -d "$web_shell" ]; then
         cp -r "$web_shell"/. "$site/player/"
     fi
