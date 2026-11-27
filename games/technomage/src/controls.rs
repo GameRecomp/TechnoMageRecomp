@@ -45,6 +45,12 @@ const MOUSE_Y: u32 = 0x0059_cb16;
 const SCREEN_W: u32 = 0x00f5_b320;
 const LANGUAGE: u32 = 0x0059_de18;
 const DRAW_TEXT: u32 = 0x0040_10d7;
+/// Where the page puts its background at the next free primitive (`PRIM_NEXT`): a dark tile
+/// over the screen (0x18 bytes), then two Gouraud quads (0x34 bytes each) of a yellow and a
+/// cyan gradient behind the bindings' columns.
+const PANEL_QUADS: [u32; 2] = [0x18, 0x18 + 0x34];
+/// A Gouraud quad's command (its fourth byte): its vertices at +0x10, +0x18, +0x20 and +0x28.
+const GOURAUD_QUAD: u8 = 0x38;
 
 // The pad's bits, as the game's actions have them.
 const L2: u16 = 0x01;
@@ -792,6 +798,24 @@ fn click(m: Mem) -> Option<(i32, i32)> {
     })
 }
 
+/// The game's page, without the yellow and cyan gradient behind its columns: its two quads
+/// are made to cover no area (the ordering table still holds them; drawn at the frame's end).
+fn page(c: &mut Cpu) {
+    let m = c.mem();
+    let at = m.ld32(PRIM_NEXT);
+    call_original(c, CONFIG_PAGE);
+    for q in PANEL_QUADS.map(|o| at + o) {
+        if m.ld8(q + 0xf) != GOURAUD_QUAD {
+            continue;
+        }
+        let (x, y) = (m.ld16(q + 0x10), m.ld16(q + 0x12));
+        for v in [0x18, 0x20, 0x28] {
+            m.st16(q + v, x);
+            m.st16(q + v + 2, y);
+        }
+    }
+}
+
 /// The input page, once per frame: the tabs (L1 and R1, or a click), then the keyboard's
 /// page as the game has it or one of ours on its frame.
 pub fn config_page(c: &mut Cpu) {
@@ -821,7 +845,7 @@ pub fn config_page(c: &mut Cpu) {
     }
     let mut s = Strings::new(m);
     if tab() == Tab::Keys {
-        call_original(c, CONFIG_PAGE);
+        page(c);
         draw_tabs(c, &mut s);
         return;
     }
@@ -866,7 +890,7 @@ pub fn config_page(c: &mut Cpu) {
     m.st32(PRESSED, m.ld32(PRESSED) & u32::from(START | SELECT));
     let held = m.ld32(HELD);
     m.st32(HELD, held & !u32::from(SQUARE | CROSS));
-    call_original(c, CONFIG_PAGE);
+    page(c);
     m.st32(HELD, held);
     for (a, v) in saved.into_iter().rev() {
         m.st32(a, v);

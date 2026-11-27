@@ -1196,6 +1196,13 @@ fn draw_split(c: &mut Cpu) {
             let offsets = vertex_offsets(code);
             let xs: Vec<i16> = offsets.iter().map(|&o| m.ld16(node + o) as i16).collect();
             if xs.iter().all(|x| (0..=gw as i16).contains(x)) {
+                // A rectangle (the input page's dark tile) by its width too: otherwise what
+                // lies beyond it is never cleared and keeps old pictures.
+                if let Some((at, w)) = rect_width(m, node, code) {
+                    let wide = (w * (gw + 2 * ox) as i32 / gw as i32) as u16;
+                    set(node + at, wide as u8);
+                    set(node + at + 1, (wide >> 8) as u8);
+                }
                 for (o, x) in offsets.into_iter().zip(xs) {
                     let wide = (i32::from(x) * (gw + 2 * ox) as i32 / gw as i32) as u16;
                     set(node + o, wide as u8);

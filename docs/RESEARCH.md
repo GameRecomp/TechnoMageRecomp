@@ -212,7 +212,9 @@ format needs a host service **(open)**.
   `(r-3)<<11` also overflows its 16 bits), so at 16:9 the room is complete but at 21:9 a corner on the right
   still shows. The tubes' buckets 12 to 15 also hold the pause menu's title and the load and save book's
   question (the book draws no world): only what lies in the bottom left corner keeps to the edge, and only
-  while the world is drawn. Three functions the widened world functions call ask the width: texture
+  while the world is drawn. A rectangle in the
+  background bucket (the input page's dark tile over the 640 pixels) is widened by its width as well: beyond
+  it nothing clears the screen, and the keyboard tab's long names stayed beside the gamepad tab's. Three functions the widened world functions call ask the width: texture
   scrolling (`0x401654`) and an object's sprite animation (`0x402135`) whether it is 640 (else the 320-pixel
   mode's half steps), and the sprite of the hero's body (`0x401910`) is sized by `320 / SCREEN_W`, so on the
   wider screen he shrank by its share, smaller than his cape; they run with the game's width. The input
@@ -316,7 +318,10 @@ format needs a host service **(open)**.
   below, and has click regions named `OK`, `CANCEL`, `DEFAULT`, `WHEEL`, `FORCE`. `0x59d72c` is non-zero while it
   waits for a key to bind; it is left by the pressed button `0x100` (Escape and start reach it so) and applies the
   bindings (`0x401195`). Its font has no `/`, `&`, `<`, `>`, `[`, `]`, `=` or `*` (it has `+`, `(`, `)`, `:`,
-  `#`, `-`). `0x59cb10` holds the buttons held.
+  `#`, `-`). `0x59cb10` holds the buttons held. Its background, put first at the next free primitive
+  (`0x59de10`): a dark tile over the screen (0x18 bytes, the background bucket) and two Gouraud quads (0x34
+  bytes each) of a white-to-cyan and a white-to-yellow gradient behind the bindings' columns; the patches make
+  the two quads cover no area (the maintainer's call: the page without them).
 
 ## Saved games
 
