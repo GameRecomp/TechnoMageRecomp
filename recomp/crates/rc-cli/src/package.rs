@@ -88,7 +88,14 @@ pub fn package(
 }
 
 /// The systems a converter makes builds for.
-const SYSTEMS: [&str; 4] = ["windows", "linux", "macos", "android"];
+const SYSTEMS: [&str; 6] = [
+    "windows",
+    "windows-arm64",
+    "linux",
+    "linux-arm64",
+    "macos",
+    "android",
+];
 
 /// The templates folder beside the running program (a converter download's).
 fn templates_beside_program() -> Result<std::path::PathBuf, String> {

@@ -13,20 +13,12 @@ use rc_emit_native::{Compiled, Compiler, Options, Target};
 use crate::discover::{default_out, load};
 
 /// A target by name: `host`, or one of rc-emit-native's (`x86_64-sysv`, `x86_64-windows`,
-/// `arm64-linux`, `arm64-apple`).
+/// `arm64-linux`, `arm64-windows`, `arm64-apple`).
 pub fn target(name: &str) -> Result<Target, String> {
     if name == "host" {
         return Target::host().ok_or_else(|| "no native code for this machine".to_string());
     }
-    [
-        Target::X64SysV,
-        Target::X64Windows,
-        Target::Arm64Linux,
-        Target::Arm64Apple,
-    ]
-    .into_iter()
-    .find(|t| t.name() == name)
-    .ok_or_else(|| format!("unknown target {name:?}"))
+    Target::from_name(name).ok_or_else(|| format!("unknown target {name:?}"))
 }
 
 pub use rc_convert::lift::Program;

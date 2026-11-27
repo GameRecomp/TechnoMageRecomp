@@ -24,6 +24,8 @@ pub fn host_target() -> u32 {
         1
     } else if cfg!(all(target_arch = "aarch64", target_vendor = "apple")) {
         3
+    } else if cfg!(all(target_arch = "aarch64", windows)) {
+        6
     } else if cfg!(target_arch = "aarch64") {
         4
     } else {
@@ -38,6 +40,7 @@ pub fn target_name() -> Option<&'static str> {
         2 => Some("x86_64-windows"),
         3 => Some("arm64-apple"),
         4 => Some("arm64-linux"),
+        6 => Some("arm64-windows"),
         _ => None,
     }
 }
@@ -292,6 +295,7 @@ pub fn load(b: &[u8]) -> Result<Loaded, String> {
     map[..csize].copy_from_slice(&b[code_at..code_at + csize]);
     let exec = map.make_exec().map_err(|e| e.to_string())?;
     let base = exec.as_ptr();
+    flush_instruction_cache(base, csize);
     let loaded = read_tables(b, csize, &mut |off| {
         // SAFETY: `off` lies inside the executable mapping, which is never unmapped (it is
         // leaked below), and the converter put a function of this signature there.
@@ -300,6 +304,25 @@ pub fn load(b: &[u8]) -> Result<Loaded, String> {
     // The mapping stays for the rest of the process.
     Box::leak(Box::new(exec));
     Ok(loaded)
+}
+
+/// Make freshly written code visible to instruction fetch. Windows on ARM64 asks for it
+/// explicitly; Linux does it when the pages become executable, and x86 keeps the caches coherent.
+#[cfg(not(target_family = "wasm"))]
+fn flush_instruction_cache(base: *const u8, len: usize) {
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn FlushInstructionCache(process: isize, base: *const u8, len: usize) -> i32;
+        }
+        // SAFETY: the range is the mapping just made executable; both calls only read it.
+        unsafe {
+            FlushInstructionCache(GetCurrentProcess(), base, len);
+        }
+    }
+    let _ = (base, len);
 }
 
 /// The tables of the WebAssembly module of the game's code (its `rc.code` section, the blob's

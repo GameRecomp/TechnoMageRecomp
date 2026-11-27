@@ -30,7 +30,9 @@ pub type Error = String;
 pub fn default_targets(system: &str) -> Option<&'static [&'static str]> {
     match system {
         "windows" => Some(&["x86_64-windows"]),
+        "windows-arm64" => Some(&["arm64-windows"]),
         "linux" => Some(&["x86_64-sysv"]),
+        "linux-arm64" => Some(&["arm64-linux"]),
         "macos" => Some(&["arm64-apple", "x86_64-sysv"]),
         "android" => Some(&["arm64-linux", "x86_64-sysv"]),
         _ => None,
@@ -106,14 +108,7 @@ pub struct Template<'a> {
 
 /// A target by its name in a template's `targets`.
 pub fn target_named(name: &str) -> Option<Target> {
-    [
-        Target::X64SysV,
-        Target::X64Windows,
-        Target::Arm64Linux,
-        Target::Arm64Apple,
-    ]
-    .into_iter()
-    .find(|t| t.name() == name)
+    Target::from_name(name)
 }
 
 pub fn template(bytes: &[u8]) -> Result<Template<'_>, Error> {

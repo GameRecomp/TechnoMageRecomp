@@ -110,16 +110,19 @@ pub enum Target {
     X64Windows,
     /// ARM64 macOS.
     Arm64Apple,
-    /// ARM64 Linux.
+    /// ARM64 Linux (and Android).
     Arm64Linux,
+    /// ARM64 Windows.
+    Arm64Windows,
 }
 
 impl Target {
-    pub const ALL: [Target; 4] = [
+    pub const ALL: [Target; 5] = [
         Target::X64SysV,
         Target::X64Windows,
         Target::Arm64Apple,
         Target::Arm64Linux,
+        Target::Arm64Windows,
     ];
 
     pub fn name(self) -> &'static str {
@@ -128,6 +131,7 @@ impl Target {
             Target::X64Windows => "x86_64-windows",
             Target::Arm64Apple => "arm64-apple",
             Target::Arm64Linux => "arm64-linux",
+            Target::Arm64Windows => "arm64-windows",
         }
     }
 
@@ -142,6 +146,8 @@ impl Target {
             Target::X64Windows => 2,
             Target::Arm64Apple => 3,
             Target::Arm64Linux => 4,
+            // 5 is WebAssembly (the runtime's numbering).
+            Target::Arm64Windows => 6,
         }
     }
 
@@ -151,6 +157,11 @@ impl Target {
             Target::X64Windows => "x86_64-pc-windows-msvc",
             Target::Arm64Apple => "aarch64-apple-darwin",
             Target::Arm64Linux => "aarch64-unknown-linux-gnu",
+            // Windows on ARM64 calls C functions as AAPCS64 does (the code only makes plain calls
+            // with integer and pointer arguments, no variadic ones) and keeps x18 for the
+            // thread's block, which Cranelift never allocates; its Windows triple would ask for
+            // the x86 fastcall convention, which the ARM64 back end does not have.
+            Target::Arm64Windows => "aarch64-unknown-linux-gnu",
         }
     }
 
@@ -165,6 +176,8 @@ impl Target {
         } else if cfg!(target_arch = "aarch64") {
             Some(if cfg!(target_vendor = "apple") {
                 Target::Arm64Apple
+            } else if cfg!(windows) {
+                Target::Arm64Windows
             } else {
                 Target::Arm64Linux
             })
