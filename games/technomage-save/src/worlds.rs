@@ -1,783 +1,1627 @@
 // SPDX-License-Identifier: MIT
-//! The current world's script state (block offsets 0x73c4..0x74c4): one layout per world. The
-//! offsets and their uses were worked out from the world scripts; where only the code's use is
-//! known, the doc names the identifiers the code uses next to the value and the values it
-//! writes or compares with. Bytes no reader was found for are described as such.
+//! The current world's script state (block offsets 0x73c4..0x74c4), one layout per world,
+//! worked out from the world scripts (their entry, leave and save functions and the code that
+//! writes and compares each value with the dialogues, quest log entries and objects it goes
+//! with). Values the analysis could not settle say so; bytes no code reads are named unused.
 
-use crate::schema::Ty;
+use crate::schema::{Label, Ty};
 
-/// Bytes of state each world keeps (index: world 1..=8).
+/// Bytes of state each world keeps (index: world 1..=8); the rest of the 256 are zero.
 pub const LEN: [usize; 9] = [0, 0x94, 0xbc, 0x17, 0x100, 0xbc, 0x88, 0xd8, 0xf8];
 
-/// (offset in the state, type, path, meaning) of each world, covering all 256 bytes.
-pub fn layout(world: u8) -> &'static [(usize, Ty, &'static str, &'static str)] {
-    match world {
-        1 => &[
-            (0x00, Ty::U32, "world.timer[0].event", "timer slot 0: event id (0xdeadbeef = empty)"),
-            (0x04, Ty::I32, "world.timer[0].countdown", "timer slot 0: countdown, 1/480 s; the event fires at <= 0"),
-            (0x08, Ty::U32, "world.timer[0].arg", "timer slot 0: the event's argument"),
-            (0x0c, Ty::U32, "world.timer[1].event", "timer slot 1: event id (0xdeadbeef = empty)"),
-            (0x10, Ty::I32, "world.timer[1].countdown", "timer slot 1: countdown, 1/480 s; the event fires at <= 0"),
-            (0x14, Ty::U32, "world.timer[1].arg", "timer slot 1: the event's argument"),
-            (0x18, Ty::U32, "world.timer[2].event", "timer slot 2: event id (0xdeadbeef = empty)"),
-            (0x1c, Ty::I32, "world.timer[2].countdown", "timer slot 2: countdown, 1/480 s; the event fires at <= 0"),
-            (0x20, Ty::U32, "world.timer[2].arg", "timer slot 2: the event's argument"),
-            (0x24, Ty::U32, "world.timer[3].event", "timer slot 3: event id (0xdeadbeef = empty)"),
-            (0x28, Ty::I32, "world.timer[3].countdown", "timer slot 3: countdown, 1/480 s; the event fires at <= 0"),
-            (0x2c, Ty::U32, "world.timer[3].arg", "timer slot 3: the event's argument"),
-            (0x30, Ty::U32, "world.timer[4].event", "timer slot 4: event id (0xdeadbeef = empty)"),
-            (0x34, Ty::I32, "world.timer[4].countdown", "timer slot 4: countdown, 1/480 s; the event fires at <= 0"),
-            (0x38, Ty::U32, "world.timer[4].arg", "timer slot 4: the event's argument"),
-            (0x3c, Ty::U32, "world.timer[5].event", "timer slot 5: event id (0xdeadbeef = empty)"),
-            (0x40, Ty::I32, "world.timer[5].countdown", "timer slot 5: countdown, 1/480 s; the event fires at <= 0"),
-            (0x44, Ty::U32, "world.timer[5].arg", "timer slot 5: the event's argument"),
-            (0x48, Ty::U32, "world.timer[6].event", "timer slot 6: event id (0xdeadbeef = empty)"),
-            (0x4c, Ty::I32, "world.timer[6].countdown", "timer slot 6: countdown, 1/480 s; the event fires at <= 0"),
-            (0x50, Ty::U32, "world.timer[6].arg", "timer slot 6: the event's argument"),
-            (0x54, Ty::U32, "world.timer[7].event", "timer slot 7: event id (0xdeadbeef = empty)"),
-            (0x58, Ty::I32, "world.timer[7].countdown", "timer slot 7: countdown, 1/480 s; the event fires at <= 0"),
-            (0x5c, Ty::U32, "world.timer[7].arg", "timer slot 7: the event's argument"),
-            (0x60, Ty::U8, "world.x60", "guard/bellboy flag (KEY_SILVER)"),
-            (0x61, Ty::U8, "world.x61", "uncle note flag"),
-            (0x62, Ty::U8, "world.x62", "bit mask, 0x3f = all six parts done (UNCLENOTE, W_MESSENGER*)"),
-            (0x63, Ty::U8, "world.x63", "bit mask, 0x1f = all five parts done (BARAS, BALLON, messengers)"),
-            (0x64, Ty::U8, "world.x64", "NPC quest stage"),
-            (0x65, Ty::U8, "world.x65", "NPC quest stage"),
-            (0x66, Ty::U8, "world.x66", "DRUNKEN quest stage"),
-            (0x67, Ty::U8, "world.x67", "DANNY quest stage"),
-            (0x68, Ty::U8, "world.x68", "HERNT quest stage"),
-            (0x69, Ty::U8, "world.x69", "SALIK quest stage"),
-            (0x6a, Ty::U8, "world.x6a", "BACHUS quest stage"),
-            (0x6b, Ty::U8, "world.x6b", "LARISA quest stage"),
-            (0x6c, Ty::U8, "world.x6c", "TALISSA quest stage"),
-            (0x6d, Ty::U8, "world.x6d", "SARIS quest stage"),
-            (0x6e, Ty::U8, "world.x6e", "SABRINA quest stage"),
-            (0x6f, Ty::U8, "world.x6f", "VESNEGGS quest stage (0..3)"),
-            (0x70, Ty::U8, "world.x70", "SENGARN quest stage"),
-            (0x71, Ty::U8, "world.x71", "LIBRARIUS quest stage"),
-            (0x72, Ty::U8, "world.x72", "BELLBOY quest stage"),
-            (0x73, Ty::U8, "world.x73", "RISSEN quest stage (0..3)"),
-            (0x74, Ty::U8, "world.x74", "FIRNA / find-mother stage (2 = done)"),
-            (0x75, Ty::U8, "world.x75", "SYRANDORON quest stage"),
-            (0x76, Ty::U8, "world.x76", "one-shot flag (compass found)"),
-            (0x77, Ty::U8, "world.x77", "one-shot flag (guard asleep)"),
-            (0x78, Ty::U8, "world.x78", "one-shot flag"),
-            (0x79, Ty::U8, "world.x79", "one-shot flag"),
-            (0x7a, Ty::U8, "world.x7a", "TUTOR_USEMAP hint pending"),
-            (0x7b, Ty::U8, "world.x7b", "tutorial step counter"),
-            (0x7c, Ty::U8, "world.x7c", "GLACNORE stage (0..2)"),
-            (0x7d, Ty::U8, "world.x7d", "guard3 / find-mother flag"),
-            (0x7e, Ty::U8, "world.x7e", "messenger flag"),
-            (0x7f, Ty::U8, "world.x7f", "combat tutorial doors flag"),
-            (0x80, Ty::U8, "world.x80", "idle hint in level 5: 0 off, 1 armed, 2 done"),
-            (0x81, Ty::Bytes(3), "world.x81", "padding"),
-            (0x84, Ty::I32, "world.x84", "idle hint countdown, starts at 7200 (1/480 s); at <= 0 the hint shows"),
-            (0x88, Ty::I32, "world.x88", "player x when the idle hint was armed (moving away cancels it)"),
-            (0x8c, Ty::I32, "world.x8c", "player z when the idle hint was armed"),
-            (0x90, Ty::U8, "world.timers_used", "timer slots in use (0..8)"),
-            (0x91, Ty::Bytes(3), "world.x91", "padding"),
-            (0x94, Ty::Bytes(108), "world.beyond", "past the DREAMER state (0x94 bytes): always zero"),
-        ],
-        2 => &[
-            (0x00, Ty::I8, "world.shop[0].item", "MERCHANT_TRADE entry 0: item type (the shop's own numbering; 127 ends the list)"),
-            (0x01, Ty::U8, "world.shop[0].stock", "MERCHANT_TRADE entry 0: stock"),
-            (0x02, Ty::U8, "world.shop[0].cap", "MERCHANT_TRADE entry 0: stock cap (unsure)"),
-            (0x03, Ty::U8, "world.shop[0].buy", "MERCHANT_TRADE entry 0: price to buy, in 5 gold"),
-            (0x04, Ty::U8, "world.shop[0].sell", "MERCHANT_TRADE entry 0: price paid when selling, in 5 gold"),
-            (0x05, Ty::I8, "world.shop[1].item", "MERCHANT_TRADE entry 1: item type (the shop's own numbering; 127 ends the list)"),
-            (0x06, Ty::U8, "world.shop[1].stock", "MERCHANT_TRADE entry 1: stock"),
-            (0x07, Ty::U8, "world.shop[1].cap", "MERCHANT_TRADE entry 1: stock cap (unsure)"),
-            (0x08, Ty::U8, "world.shop[1].buy", "MERCHANT_TRADE entry 1: price to buy, in 5 gold"),
-            (0x09, Ty::U8, "world.shop[1].sell", "MERCHANT_TRADE entry 1: price paid when selling, in 5 gold"),
-            (0x0a, Ty::I8, "world.shop[2].item", "MERCHANT_TRADE entry 2: item type (the shop's own numbering; 127 ends the list)"),
-            (0x0b, Ty::U8, "world.shop[2].stock", "MERCHANT_TRADE entry 2: stock"),
-            (0x0c, Ty::U8, "world.shop[2].cap", "MERCHANT_TRADE entry 2: stock cap (unsure)"),
-            (0x0d, Ty::U8, "world.shop[2].buy", "MERCHANT_TRADE entry 2: price to buy, in 5 gold"),
-            (0x0e, Ty::U8, "world.shop[2].sell", "MERCHANT_TRADE entry 2: price paid when selling, in 5 gold"),
-            (0x0f, Ty::I8, "world.shop[3].item", "MERCHANT_TRADE entry 3: item type (the shop's own numbering; 127 ends the list)"),
-            (0x10, Ty::U8, "world.shop[3].stock", "MERCHANT_TRADE entry 3: stock"),
-            (0x11, Ty::U8, "world.shop[3].cap", "MERCHANT_TRADE entry 3: stock cap (unsure)"),
-            (0x12, Ty::U8, "world.shop[3].buy", "MERCHANT_TRADE entry 3: price to buy, in 5 gold"),
-            (0x13, Ty::U8, "world.shop[3].sell", "MERCHANT_TRADE entry 3: price paid when selling, in 5 gold"),
-            (0x14, Ty::I8, "world.shop[4].item", "MERCHANT_TRADE entry 4: item type (the shop's own numbering; 127 ends the list)"),
-            (0x15, Ty::U8, "world.shop[4].stock", "MERCHANT_TRADE entry 4: stock"),
-            (0x16, Ty::U8, "world.shop[4].cap", "MERCHANT_TRADE entry 4: stock cap (unsure)"),
-            (0x17, Ty::U8, "world.shop[4].buy", "MERCHANT_TRADE entry 4: price to buy, in 5 gold"),
-            (0x18, Ty::U8, "world.shop[4].sell", "MERCHANT_TRADE entry 4: price paid when selling, in 5 gold"),
-            (0x19, Ty::I8, "world.shop[5].item", "MERCHANT_TRADE entry 5: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1a, Ty::U8, "world.shop[5].stock", "MERCHANT_TRADE entry 5: stock"),
-            (0x1b, Ty::U8, "world.shop[5].cap", "MERCHANT_TRADE entry 5: stock cap (unsure)"),
-            (0x1c, Ty::U8, "world.shop[5].buy", "MERCHANT_TRADE entry 5: price to buy, in 5 gold"),
-            (0x1d, Ty::U8, "world.shop[5].sell", "MERCHANT_TRADE entry 5: price paid when selling, in 5 gold"),
-            (0x1e, Ty::I8, "world.shop[6].item", "MERCHANT_TRADE entry 6: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1f, Ty::U8, "world.shop[6].stock", "MERCHANT_TRADE entry 6: stock"),
-            (0x20, Ty::U8, "world.shop[6].cap", "MERCHANT_TRADE entry 6: stock cap (unsure)"),
-            (0x21, Ty::U8, "world.shop[6].buy", "MERCHANT_TRADE entry 6: price to buy, in 5 gold"),
-            (0x22, Ty::U8, "world.shop[6].sell", "MERCHANT_TRADE entry 6: price paid when selling, in 5 gold"),
-            (0x23, Ty::I8, "world.shop[7].item", "MERCHANT_TRADE entry 7: item type (the shop's own numbering; 127 ends the list)"),
-            (0x24, Ty::U8, "world.shop[7].stock", "MERCHANT_TRADE entry 7: stock"),
-            (0x25, Ty::U8, "world.shop[7].cap", "MERCHANT_TRADE entry 7: stock cap (unsure)"),
-            (0x26, Ty::U8, "world.shop[7].buy", "MERCHANT_TRADE entry 7: price to buy, in 5 gold"),
-            (0x27, Ty::U8, "world.shop[7].sell", "MERCHANT_TRADE entry 7: price paid when selling, in 5 gold"),
-            (0x28, Ty::I8, "world.shop[8].item", "MERCHANT_TRADE entry 8: item type (the shop's own numbering; 127 ends the list)"),
-            (0x29, Ty::U8, "world.shop[8].stock", "MERCHANT_TRADE entry 8: stock"),
-            (0x2a, Ty::U8, "world.shop[8].cap", "MERCHANT_TRADE entry 8: stock cap (unsure)"),
-            (0x2b, Ty::U8, "world.shop[8].buy", "MERCHANT_TRADE entry 8: price to buy, in 5 gold"),
-            (0x2c, Ty::U8, "world.shop[8].sell", "MERCHANT_TRADE entry 8: price paid when selling, in 5 gold"),
-            (0x2d, Ty::I8, "world.shop[9].item", "MERCHANT_TRADE entry 9: item type (the shop's own numbering; 127 ends the list)"),
-            (0x2e, Ty::U8, "world.shop[9].stock", "MERCHANT_TRADE entry 9: stock"),
-            (0x2f, Ty::U8, "world.shop[9].cap", "MERCHANT_TRADE entry 9: stock cap (unsure)"),
-            (0x30, Ty::U8, "world.shop[9].buy", "MERCHANT_TRADE entry 9: price to buy, in 5 gold"),
-            (0x31, Ty::U8, "world.shop[9].sell", "MERCHANT_TRADE entry 9: price paid when selling, in 5 gold"),
-            (0x32, Ty::I8, "world.shop[10].item", "MERCHANT_TRADE entry 10: item type (the shop's own numbering; 127 ends the list)"),
-            (0x33, Ty::U8, "world.shop[10].stock", "MERCHANT_TRADE entry 10: stock"),
-            (0x34, Ty::U8, "world.shop[10].cap", "MERCHANT_TRADE entry 10: stock cap (unsure)"),
-            (0x35, Ty::U8, "world.shop[10].buy", "MERCHANT_TRADE entry 10: price to buy, in 5 gold"),
-            (0x36, Ty::U8, "world.shop[10].sell", "MERCHANT_TRADE entry 10: price paid when selling, in 5 gold"),
-            (0x37, Ty::I8, "world.shop[11].item", "MERCHANT_TRADE entry 11: item type (the shop's own numbering; 127 ends the list)"),
-            (0x38, Ty::U8, "world.shop[11].stock", "MERCHANT_TRADE entry 11: stock"),
-            (0x39, Ty::U8, "world.shop[11].cap", "MERCHANT_TRADE entry 11: stock cap (unsure)"),
-            (0x3a, Ty::U8, "world.shop[11].buy", "MERCHANT_TRADE entry 11: price to buy, in 5 gold"),
-            (0x3b, Ty::U8, "world.shop[11].sell", "MERCHANT_TRADE entry 11: price paid when selling, in 5 gold"),
-            (0x3c, Ty::I8, "world.shop[12].item", "MERCHANT_TRADE entry 12: item type (the shop's own numbering; 127 ends the list)"),
-            (0x3d, Ty::U8, "world.shop[12].stock", "MERCHANT_TRADE entry 12: stock"),
-            (0x3e, Ty::U8, "world.shop[12].cap", "MERCHANT_TRADE entry 12: stock cap (unsure)"),
-            (0x3f, Ty::U8, "world.shop[12].buy", "MERCHANT_TRADE entry 12: price to buy, in 5 gold"),
-            (0x40, Ty::U8, "world.shop[12].sell", "MERCHANT_TRADE entry 12: price paid when selling, in 5 gold"),
-            (0x41, Ty::Bytes(3), "world.x41", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x44, Ty::U32, "world.x44", "bit mask; values seen 8/32; used with Q_OILCAN, CROWBAR1, CROWBAR2, Q_PNEUL, KEY GOLD"),
-            (0x48, Ty::U8, "world.x48", "values seen 1/2; used with UHGOSHITSCLOSED, JUNKGUARD, ST SWITCH, RAAKE_CLOSED, Q_ERZ"),
-            (0x49, Ty::U8, "world.x49", "values seen 1/2; used with Q_SUPPE_LEER, TUMPO_BEANSINSTEW, TUMPO_BEANSNOTINSTEW, Q_LEBERTRAN, TM_HASBEANS"),
-            (0x4a, Ty::U8, "world.x4a", "values seen 1/2; used with QUESTLOG_BARAS, Q_SUPPE_OK, WD_EXPLOSION, Q_SUPPE_VERSEUCHT, BARAS_TMHASSTEW"),
-            (0x4b, Ty::U8, "world.x4b", "values seen 2; used with QUESTLOG_FINDCAT, KATJESCAT, Q_KATZE, RAAKE_TMHASKITTY, RAAKE_NOKITTY"),
-            (0x4c, Ty::U8, "world.x4c", "values seen 1/2; used with KEY_COPPER, FATHERSDOOR_CLOSED, QUESTLOG_FINDHOUSE, QUESTLOG_GETKEY, Q_ERZ"),
-            (0x4d, Ty::U8, "world.x4d", "values seen 1/2/3/5; used with SMITH_TMHASORE, QUESTLOG_GETORE, DADS_HOUSE, GRAVEYARD"),
-            (0x4e, Ty::U8, "world.x4e", "values seen 1/2/3; used with AREATANKS, QUESTLOG_ENGINEER, ENGINEER_TMDONEFOUNTAIN, ENGINEER_NOTALLTANKS"),
-            (0x4f, Ty::U8, "world.x4f", "values seen 1; used with QUESTLOG_CORK, SONTA_2TALK"),
-            (0x50, Ty::U8, "world.x50", "values seen 1; used with LIFT0, LIFT1, BWALL, BWALL3, TM_WALLEXPLODED"),
-            (0x51, Ty::U8, "world.x51", "values seen 1; used with BWALL2, E_CRASHWALL, CROWBAR1, Q_TNT, E_BWALL2"),
-            (0x52, Ty::U8, "world.x52", "values seen 1; used with BWALL3, LIFT1, BWALL, STEAMER_INJURED, Q_TNT"),
-            (0x53, Ty::U8, "world.x53", "values seen 1; used with DOORHTOC, PLASMAH, EO_DOORHTOC, EO_PLASMAH, _ROOMIPOS1"),
-            (0x54, Ty::U8, "world.x54", "values seen 0/1; used with PLASMAH, DOORHTOC, EO_PLASMAH, _ENEMIESH, EO_DOORHTOC"),
-            (0x55, Ty::U8, "world.x55", "values seen 0/1; used with DOORETOF, DOORFTOG, EO_DOORETOF, _ENEMIESF, EO_DOORFTOG"),
-            (0x56, Ty::U8, "world.x56", "values seen 1; used with DOORATOB, EDO_DOORATOB, PLASMAB, EO_PLASMAB, STEAMER_GHOST"),
-            (0x57, Ty::U8, "world.x57", "used with QUESTLOG_CORK, TM_EXAMINECORK, CORK1, CORK2"),
-            (0x58, Ty::U8, "world.x58", "used with CORK1, CORK2, CORK3"),
-            (0x59, Ty::U8, "world.x59", "used with CORK1, CORK2, CORK3, CORK4"),
-            (0x5a, Ty::U8, "world.x5a", "used with CORK2, CORK3, CORK4"),
-            (0x5b, Ty::U8, "world.x5b", "used with CORK4, CORK5, CORK6"),
-            (0x5c, Ty::U8, "world.x5c", "used with CORK5, CORK6"),
-            (0x5d, Ty::U8, "world.x5d", "values seen 1/2/3; used with STEAMERTOWN PNEUL, KID1_TRYLAST, E_MAINWHEEL, YARDFENCE, KID1_TMWINGAME"),
-            (0x5e, Ty::U8, "world.x5e", "values seen 3; used with KID1_1TALK, QUESTLOG_SCRAPYARD, KID1_LIKETOPLAY"),
-            (0x5f, Ty::U8, "world.x5f", "values seen 0; used with MENU_NEGATIVE, KID1_FAULT, KID1_LIKETOPLAY"),
-            (0x60, Ty::U8, "world.x60", "values seen 0; used with MENU_NEGATIVE, KID1_1TALK, QUESTLOG_SCRAPYARD, KID1_LIKETOPLAY"),
-            (0x61, Ty::U8, "world.x61", "values seen 1; used with KID1_1TALK, QUESTLOG_SCRAPYARD, KID1_LIKETOPLAY"),
-            (0x62, Ty::U8, "world.x62", "values seen 6; used with STEAMER_INDICATOR1, STEAMER_INDICATOR3"),
-            (0x63, Ty::U8, "world.x63", "used with STEAMER_INDICATOR1, STEAMER_INDICATOR2, STEAMER_INDICATOR3"),
-            (0x64, Ty::U8, "world.x64", "used with STEAMER_INDICATOR3, STEAMER_INDICATOR2"),
-            (0x65, Ty::U8, "world.x65", "used with JUNCT2, JUNCT3"),
-            (0x66, Ty::U8, "world.x66", "values seen 2; used with JUNCT2, JUNCT3"),
-            (0x67, Ty::U8, "world.x67", "used with JUNCT2, JUNCT3, LORRY"),
-            (0x68, Ty::U8, "world.x68", "values seen 7/8/9/12; used with JUNCT1, JUNCT3"),
-            (0x69, Ty::U8, "world.x69", "used with JUNKTION"),
-            (0x6a, Ty::U8, "world.x6a", "values seen 1; used with LSWITCH2, LSWITCH1, MINE LORE, JUNCT1"),
-            (0x6b, Ty::U8, "world.x6b", "values seen 1; used with BWALL4, MINE LORE, LIFT1, LIFT2, LIFTDOOR"),
-            (0x6c, Ty::U16, "world.x6c", "used with JUNCT1"),
-            (0x6e, Ty::U8, "world.x6e", "values seen 1; used with LSWITCH2"),
-            (0x6f, Ty::U8, "world.x6f", "values seen 1; used with QUESTLOG_FREEMINER, STEAMER_INJURED, W_ALDER_B, W_ALDER_C, WORKER1_QUESTDONE"),
-            (0x70, Ty::U8, "world.x70", "used with JOLA_2TALK"),
-            (0x71, Ty::U8, "world.x71", "values seen 1; used with PLASMAI, _ROOMIPOS4, EO_PLASMAI"),
-            (0x72, Ty::U8, "world.x72", "values seen 0/1; used with ST_SWITCHMAN, ST SWITCH"),
-            (0x73, Ty::U8, "world.x73", "values seen 0/1; used with ST SWITCH, ST_SWITCHMAN, E_SWITCHHAUS2, ASFULO_KICKSTM1"),
-            (0x74, Ty::U8, "world.x74", "values seen 1; used with TM_LOREEXPLODED, E_CRASHWALL"),
-            (0x75, Ty::U8, "world.x75", "values seen 1; used with INN, GUARD1_NIGHTTALKS"),
-            (0x76, Ty::U8, "world.x76", "values seen 1; used with GUARD2_NIGHTTALKS"),
-            (0x77, Ty::U8, "world.x77", "values seen 1; used with STATISTM1_1TALK, STATISTM1_2TALK"),
-            (0x78, Ty::U8, "world.x78", "values seen 1; used with STATISTM2_2TALK"),
-            (0x79, Ty::U8, "world.x79", "values seen 1; used with STATISTM3_2TALK"),
-            (0x7a, Ty::U8, "world.x7a", "used with STATISTM4_1TALK, QUESTLOG_SCRAPYARD, STATISTM4_2TALK"),
-            (0x7b, Ty::U8, "world.x7b", "used with QUESTLOG_FREEMINER, STATISTW1_2TALK"),
-            (0x7c, Ty::U8, "world.x7c", "values seen 1; used with INN, STATISTW2_2TALK"),
-            (0x7d, Ty::U8, "world.x7d", "values seen 1; used with QUESTLOG_ENGINEER, AREAENGINEER, Q_PNEUL"),
-            (0x7e, Ty::U8, "world.x7e", "values seen 1; used with AREAENGINEER, QUESTLOG_SCRAPYARD, STATISTW4_2TALK"),
-            (0x7f, Ty::U8, "world.x7f", "values seen 1; used with INNGUESTMAN_2TALK"),
-            (0x80, Ty::U8, "world.x80", "values seen 1; used with NURSE1_2TALK"),
-            (0x81, Ty::U8, "world.x81", "values seen 1; used with NURSE2_1TALK, NURSE2_2TALK"),
-            (0x82, Ty::U8, "world.x82", "values seen 1; used with VICTIM_2TALK"),
-            (0x83, Ty::U8, "world.x83", "values seen 1; used with GRAVEYARD, MOSTIK_2TALK"),
-            (0x84, Ty::U8, "world.x84", "values seen 1; used with RULOF_2TALK"),
-            (0x85, Ty::U8, "world.x85", "values seen 1; used with NANDA_QUESTDONE, QUESTLOG_FREEMINER, NANDA_2TALK"),
-            (0x86, Ty::U8, "world.x86", "values seen 1; used with STEAMER_GRIMHILDE, STEAMER_GRIMHILDE2TALK"),
-            (0x87, Ty::U8, "world.x87", "values seen 1; used with YARDFENCE, STAND, S_ASQTRASHY, SAVE_HINT"),
-            (0x88, Ty::U8, "world.x88", "values seen 1; used with STAND, S_ASQTRASHY, W_SAVEHINT, JUNKGUARD, YARDFENCE"),
-            (0x89, Ty::Bytes(3), "world.x89", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x8c, Ty::U32, "world.x8c", "values seen 0/4096; used with ST_SWITCHMAN, ST SWITCH, ASFULO_KICKSTM1, E_SWITCHHAUS2"),
-            (0x90, Ty::I16, "world.switchman.x", "ST_SWITCHMAN snapshot: x >> 8"),
-            (0x92, Ty::I16, "world.switchman.z", "ST_SWITCHMAN snapshot: z >> 8"),
-            (0x94, Ty::U16, "world.switchman.angle", "ST_SWITCHMAN snapshot: heading (4096 = 360°)"),
-            (0x96, Ty::U16, "world.switchman.x96", "ST_SWITCHMAN snapshot: state word (unsure)"),
-            (0x98, Ty::U8, "world.switchman.x98", "ST_SWITCHMAN snapshot: state byte (unsure)"),
-            (0x99, Ty::U8, "world.switchman.x99", "ST_SWITCHMAN snapshot: state byte (unsure)"),
-            (0x9a, Ty::U8, "world.x9a", "accessed by the world script"),
-            (0x9b, Ty::U8, "world.x9b", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x9c, Ty::U32, "world.x9c", "accessed by the world script"),
-            (0xa0, Ty::U32, "world.xa0", "accessed by the world script"),
-            (0xa4, Ty::U32, "world.xa4", "accessed by the world script"),
-            (0xa8, Ty::U8, "world.xa8", "values seen 0"),
-            (0xa9, Ty::U8, "world.xa9", "values seen 0"),
-            (0xaa, Ty::Bytes(2), "world.xaa", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xac, Ty::U32, "world.xac", "accessed by the world script"),
-            (0xb0, Ty::U32, "world.xb0", "accessed by the world script"),
-            (0xb4, Ty::U32, "world.xb4", "accessed by the world script"),
-            (0xb8, Ty::U8, "world.xb8", "values seen 0"),
-            (0xb9, Ty::U8, "world.xb9", "values seen 0"),
-            (0xba, Ty::Bytes(2), "world.xba", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xbc, Ty::Bytes(68), "world.beyond", "past the STEAMER state (0xbc bytes): always zero"),
-        ],
-        3 => &[
-            (0x00, Ty::U8, "world.x00", "values seen 0/1; used with SYMBOL_2, SYMBOL_4"),
-            (0x01, Ty::U8, "world.x01", "values seen 1; used with DOORNORTH, SYMBOL_9, DOOREAST, DOORSOUTH, SYMBOL_7"),
-            (0x02, Ty::U8, "world.x02", "values seen 1; used with DOOREAST, DOORNORTH, SYMBOL_1, SYMBOL_6, DOORSOUTH"),
-            (0x03, Ty::U8, "world.x03", "values seen 1; used with DOORSOUTH, SYMBOL_8, DOOREAST, SYMBOL_5, DOORNORTH"),
-            (0x04, Ty::U8, "world.x04", "used with DOORRIDDLE1"),
-            (0x05, Ty::U8, "world.x05", "used with DOORRIDDLE2"),
-            (0x06, Ty::U8, "world.x06", "values seen 1/2; used with FREDO_SHORTPASS, FREDO_QUESTDONE"),
-            (0x07, Ty::U8, "world.x07", "values seen 1; used with EXIT_FAIRY"),
-            (0x08, Ty::U8, "world.x08", "values seen 1; used with QUESTLOG_FATHER, HIVE_FATHER, BWALL_VATER, BWALL_1, QUESTLOG_EXITHIVE"),
-            (0x09, Ty::U8, "world.x09", "values seen 1; used with TELEKEYBLK, RING_A, RS_A, TELEPORTER FIELD A1 S10, TELEPORTER FIELD A2 S10"),
-            (0x0a, Ty::U8, "world.x0a", "values seen 1; used with RING_B, TELEPORTER FIELD B1 S11, TELEPORTER FIELD B2 S11, TELEKEYRED, RING_A"),
-            (0x0b, Ty::U8, "world.x0b", "values seen 1; used with RING_C, TELEPORTER FIELD C1 S12, TELEPORTER FIELD C2 S12, TELEKEYBLU, RING_B"),
-            (0x0c, Ty::U8, "world.x0c", "values seen 1; used with RING_D, TELEPORTER FIELD D1 S13, TELEPORTER FIELD D2 S13, TELEKEYGRE, RING_C"),
-            (0x0d, Ty::U8, "world.x0d", "values seen 0/128"),
-            (0x0e, Ty::U8, "world.x0e", "values seen 0/128"),
-            (0x0f, Ty::U8, "world.x0f", "values seen 0/128"),
-            (0x10, Ty::U8, "world.x10", "values seen 1/2; used with L_CRYSTALOFF"),
-            (0x11, Ty::U8, "world.x11", "values seen 1; used with SPIDERDOOR"),
-            (0x12, Ty::U8, "world.x12", "values seen 1; used with SPIDERDOOR, BIGSPIDER, FIGHT_I, SAVE_HINT"),
-            (0x13, Ty::U8, "world.x13", "values seen 1; used with SPIDERDOOR, BIGSPIDER"),
-            (0x14, Ty::U8, "world.x14", "values seen 1; used with QUESTLOG_FATHER"),
-            (0x15, Ty::U8, "world.x15", "accessed by the world script"),
-            (0x16, Ty::U8, "world.x16", "values seen 1/2/4; used with HIVE_FATHER, BWALL_VATER, BWALL_1, BWALL1, BWALL2"),
-            (0x17, Ty::Bytes(233), "world.beyond", "past the THEHIVE state (0x17 bytes): always zero"),
-        ],
-        4 => &[
-            (0x00, Ty::I8, "world.shop[0].item", "LONICERA_TRADE entry 0: item type (the shop's own numbering; 127 ends the list)"),
-            (0x01, Ty::U8, "world.shop[0].stock", "LONICERA_TRADE entry 0: stock"),
-            (0x02, Ty::U8, "world.shop[0].cap", "LONICERA_TRADE entry 0: stock cap (unsure)"),
-            (0x03, Ty::U8, "world.shop[0].buy", "LONICERA_TRADE entry 0: price to buy, in 5 gold"),
-            (0x04, Ty::U8, "world.shop[0].sell", "LONICERA_TRADE entry 0: price paid when selling, in 5 gold"),
-            (0x05, Ty::I8, "world.shop[1].item", "LONICERA_TRADE entry 1: item type (the shop's own numbering; 127 ends the list)"),
-            (0x06, Ty::U8, "world.shop[1].stock", "LONICERA_TRADE entry 1: stock"),
-            (0x07, Ty::U8, "world.shop[1].cap", "LONICERA_TRADE entry 1: stock cap (unsure)"),
-            (0x08, Ty::U8, "world.shop[1].buy", "LONICERA_TRADE entry 1: price to buy, in 5 gold"),
-            (0x09, Ty::U8, "world.shop[1].sell", "LONICERA_TRADE entry 1: price paid when selling, in 5 gold"),
-            (0x0a, Ty::I8, "world.shop[2].item", "LONICERA_TRADE entry 2: item type (the shop's own numbering; 127 ends the list)"),
-            (0x0b, Ty::U8, "world.shop[2].stock", "LONICERA_TRADE entry 2: stock"),
-            (0x0c, Ty::U8, "world.shop[2].cap", "LONICERA_TRADE entry 2: stock cap (unsure)"),
-            (0x0d, Ty::U8, "world.shop[2].buy", "LONICERA_TRADE entry 2: price to buy, in 5 gold"),
-            (0x0e, Ty::U8, "world.shop[2].sell", "LONICERA_TRADE entry 2: price paid when selling, in 5 gold"),
-            (0x0f, Ty::I8, "world.shop[3].item", "LONICERA_TRADE entry 3: item type (the shop's own numbering; 127 ends the list)"),
-            (0x10, Ty::U8, "world.shop[3].stock", "LONICERA_TRADE entry 3: stock"),
-            (0x11, Ty::U8, "world.shop[3].cap", "LONICERA_TRADE entry 3: stock cap (unsure)"),
-            (0x12, Ty::U8, "world.shop[3].buy", "LONICERA_TRADE entry 3: price to buy, in 5 gold"),
-            (0x13, Ty::U8, "world.shop[3].sell", "LONICERA_TRADE entry 3: price paid when selling, in 5 gold"),
-            (0x14, Ty::I8, "world.shop[4].item", "LONICERA_TRADE entry 4: item type (the shop's own numbering; 127 ends the list)"),
-            (0x15, Ty::U8, "world.shop[4].stock", "LONICERA_TRADE entry 4: stock"),
-            (0x16, Ty::U8, "world.shop[4].cap", "LONICERA_TRADE entry 4: stock cap (unsure)"),
-            (0x17, Ty::U8, "world.shop[4].buy", "LONICERA_TRADE entry 4: price to buy, in 5 gold"),
-            (0x18, Ty::U8, "world.shop[4].sell", "LONICERA_TRADE entry 4: price paid when selling, in 5 gold"),
-            (0x19, Ty::I8, "world.shop[5].item", "LONICERA_TRADE entry 5: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1a, Ty::U8, "world.shop[5].stock", "LONICERA_TRADE entry 5: stock"),
-            (0x1b, Ty::U8, "world.shop[5].cap", "LONICERA_TRADE entry 5: stock cap (unsure)"),
-            (0x1c, Ty::U8, "world.shop[5].buy", "LONICERA_TRADE entry 5: price to buy, in 5 gold"),
-            (0x1d, Ty::U8, "world.shop[5].sell", "LONICERA_TRADE entry 5: price paid when selling, in 5 gold"),
-            (0x1e, Ty::I8, "world.shop[6].item", "LONICERA_TRADE entry 6: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1f, Ty::U8, "world.shop[6].stock", "LONICERA_TRADE entry 6: stock"),
-            (0x20, Ty::U8, "world.shop[6].cap", "LONICERA_TRADE entry 6: stock cap (unsure)"),
-            (0x21, Ty::U8, "world.shop[6].buy", "LONICERA_TRADE entry 6: price to buy, in 5 gold"),
-            (0x22, Ty::U8, "world.shop[6].sell", "LONICERA_TRADE entry 6: price paid when selling, in 5 gold"),
-            (0x23, Ty::I8, "world.shop[7].item", "LONICERA_TRADE entry 7: item type (the shop's own numbering; 127 ends the list)"),
-            (0x24, Ty::U8, "world.shop[7].stock", "LONICERA_TRADE entry 7: stock"),
-            (0x25, Ty::U8, "world.shop[7].cap", "LONICERA_TRADE entry 7: stock cap (unsure)"),
-            (0x26, Ty::U8, "world.shop[7].buy", "LONICERA_TRADE entry 7: price to buy, in 5 gold"),
-            (0x27, Ty::U8, "world.shop[7].sell", "LONICERA_TRADE entry 7: price paid when selling, in 5 gold"),
-            (0x28, Ty::I8, "world.shop[8].item", "LONICERA_TRADE entry 8: item type (the shop's own numbering; 127 ends the list)"),
-            (0x29, Ty::U8, "world.shop[8].stock", "LONICERA_TRADE entry 8: stock"),
-            (0x2a, Ty::U8, "world.shop[8].cap", "LONICERA_TRADE entry 8: stock cap (unsure)"),
-            (0x2b, Ty::U8, "world.shop[8].buy", "LONICERA_TRADE entry 8: price to buy, in 5 gold"),
-            (0x2c, Ty::U8, "world.shop[8].sell", "LONICERA_TRADE entry 8: price paid when selling, in 5 gold"),
-            (0x2d, Ty::I8, "world.shop[9].item", "LONICERA_TRADE entry 9: item type (the shop's own numbering; 127 ends the list)"),
-            (0x2e, Ty::U8, "world.shop[9].stock", "LONICERA_TRADE entry 9: stock"),
-            (0x2f, Ty::U8, "world.shop[9].cap", "LONICERA_TRADE entry 9: stock cap (unsure)"),
-            (0x30, Ty::U8, "world.shop[9].buy", "LONICERA_TRADE entry 9: price to buy, in 5 gold"),
-            (0x31, Ty::U8, "world.shop[9].sell", "LONICERA_TRADE entry 9: price paid when selling, in 5 gold"),
-            (0x32, Ty::I8, "world.shop[10].item", "LONICERA_TRADE entry 10: item type (the shop's own numbering; 127 ends the list)"),
-            (0x33, Ty::U8, "world.shop[10].stock", "LONICERA_TRADE entry 10: stock"),
-            (0x34, Ty::U8, "world.shop[10].cap", "LONICERA_TRADE entry 10: stock cap (unsure)"),
-            (0x35, Ty::U8, "world.shop[10].buy", "LONICERA_TRADE entry 10: price to buy, in 5 gold"),
-            (0x36, Ty::U8, "world.shop[10].sell", "LONICERA_TRADE entry 10: price paid when selling, in 5 gold"),
-            (0x37, Ty::I8, "world.shop[11].item", "LONICERA_TRADE entry 11: item type (the shop's own numbering; 127 ends the list)"),
-            (0x38, Ty::U8, "world.shop[11].stock", "LONICERA_TRADE entry 11: stock"),
-            (0x39, Ty::U8, "world.shop[11].cap", "LONICERA_TRADE entry 11: stock cap (unsure)"),
-            (0x3a, Ty::U8, "world.shop[11].buy", "LONICERA_TRADE entry 11: price to buy, in 5 gold"),
-            (0x3b, Ty::U8, "world.shop[11].sell", "LONICERA_TRADE entry 11: price paid when selling, in 5 gold"),
-            (0x3c, Ty::I8, "world.shop[12].item", "LONICERA_TRADE entry 12: item type (the shop's own numbering; 127 ends the list)"),
-            (0x3d, Ty::U8, "world.shop[12].stock", "LONICERA_TRADE entry 12: stock"),
-            (0x3e, Ty::U8, "world.shop[12].cap", "LONICERA_TRADE entry 12: stock cap (unsure)"),
-            (0x3f, Ty::U8, "world.shop[12].buy", "LONICERA_TRADE entry 12: price to buy, in 5 gold"),
-            (0x40, Ty::U8, "world.shop[12].sell", "LONICERA_TRADE entry 12: price paid when selling, in 5 gold"),
-            (0x41, Ty::Bytes(3), "world.x41", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x44, Ty::U32, "world.raft.pos", "RAFT snapshot: position, 10 bits each of x, y, z in 512 units"),
-            (0x48, Ty::Bytes(42), "world.raft.state", "RAFT snapshot: further state words (layout unsure)"),
-            (0x72, Ty::Bytes(2), "world.x72", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x74, Ty::U32, "world.raft2.pos", "RAFT2 snapshot: position, 10 bits each of x, y, z in 512 units"),
-            (0x78, Ty::Bytes(42), "world.raft2.state", "RAFT2 snapshot: further state words (layout unsure)"),
-            (0xa2, Ty::Bytes(2), "world.xa2", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xa4, Ty::U32, "world.cable[0].pos", "CABLE1 snapshot: packed position"),
-            (0xa8, Ty::U16, "world.cable[0].a", "CABLE1 snapshot: state word (unsure)"),
-            (0xaa, Ty::U16, "world.cable[0].b", "CABLE1 snapshot: state word (unsure)"),
-            (0xac, Ty::U32, "world.cable[1].pos", "CABLE2 snapshot: packed position"),
-            (0xb0, Ty::U16, "world.cable[1].a", "CABLE2 snapshot: state word (unsure)"),
-            (0xb2, Ty::U16, "world.cable[1].b", "CABLE2 snapshot: state word (unsure)"),
-            (0xb4, Ty::U32, "world.cable[2].pos", "CABLE3 snapshot: packed position"),
-            (0xb8, Ty::U16, "world.cable[2].a", "CABLE3 snapshot: state word (unsure)"),
-            (0xba, Ty::U16, "world.cable[2].b", "CABLE3 snapshot: state word (unsure)"),
-            (0xbc, Ty::U32, "world.cable[3].pos", "CABLE4 snapshot: packed position"),
-            (0xc0, Ty::U16, "world.cable[3].a", "CABLE4 snapshot: state word (unsure)"),
-            (0xc2, Ty::U16, "world.cable[3].b", "CABLE4 snapshot: state word (unsure)"),
-            (0xc4, Ty::U32, "world.cable[4].pos", "CABLE5 snapshot: packed position"),
-            (0xc8, Ty::U16, "world.cable[4].a", "CABLE5 snapshot: state word (unsure)"),
-            (0xca, Ty::U16, "world.cable[4].b", "CABLE5 snapshot: state word (unsure)"),
-            (0xcc, Ty::U32, "world.xcc", "bit mask; values seen 1/16; used with RADUNZCHEN, Q_BEEBASKET, _TARGET, BASKET1, BASKET2"),
-            (0xd0, Ty::U8, "world.xd0", "values seen 0/1; used with W_QUACK1, W_QUACK2"),
-            (0xd1, Ty::U8, "world.xd1", "values seen 1/2/3/4; used with QUESTLOG_FINDBUCKETF, QUESTLOG_SINIVER, QUESTLOG_FREEGWEN"),
-            (0xd2, Ty::U8, "world.xd2", "values seen 1/2; used with QUESTLOG_FINDBUCKETF, Q_BUCKET_F, MERINA_WHEREISWATER, MERINA_QUESTDONE"),
-            (0xd3, Ty::U8, "world.xd3", "values seen 1/2; used with QUESTLOG_GOMEADOW, Q_MANTISSILK, Q_BEESTING, Q_FAIRYGOLD"),
-            (0xd4, Ty::U8, "world.xd4", "values seen 1/2; used with QUESTLOG_GOMEADOW, Q_MANTISSILK, QUESTLOG_REAGENTS, Q_BEESTING, Q_FAIRYGOLD"),
-            (0xd5, Ty::U8, "world.xd5", "values seen 1/2/3; used with QUESTLOG_FINDHERB, QUESTLOG_FINDSEALS, Q_HEARTC, Q_HEARTB, Q_HEARTA"),
-            (0xd6, Ty::U8, "world.xd6", "values seen 1; used with QUESTLOG_GOMEADOW, QUESTLOG_FINDSEALS"),
-            (0xd7, Ty::U8, "world.xd7", "values seen 1; used with QUESTLOG_FINDSEALS, QUESTLOG_GOMEADOW"),
-            (0xd8, Ty::U8, "world.xd8", "values seen 1/2/3; used with JECK_1TALK, MELVIN_JECKTALK, JECK_RIDDLE1, JECK_RIDDLE2, JECK_RIDDLEAGAIN"),
-            (0xd9, Ty::U8, "world.xd9", "values seen 1/2; used with QUESTLOG_FINDBASKET, CORINA_ALLBEEBASKETS, CORINA_STANDUP"),
-            (0xda, Ty::U8, "world.xda", "values seen 1/2/3; used with Q_BUCKET_E, Q_BUCKET_F, Q_FLOWER_WI"),
-            (0xdb, Ty::U8, "world.xdb", "values seen 1/2/3; used with Q_STRINGS, QUESTLOG_FINDTOOLS, Q_TUNINGFORK, Q_KNIFE, W_BRIDGETROLL"),
-            (0xdc, Ty::U8, "world.xdc", "values seen 1/2; used with QUESTLOG_GETBEES, Q_BEEGLASS, Q_BEE, APYDIA_ALLBEES"),
-            (0xdd, Ty::U8, "world.xdd", "values seen 1/2/3/4; used with QUESTLOG_TELLHONEY, LONICERA_1TALK, QUESTLOG_BEATHORPACH"),
-            (0xde, Ty::U8, "world.xde", "values seen 1/2/3/4/5/6/7; used with HORPACH, HORPACH_WRONGFORMULA, HELIANA, Q_ZAHNRAD, QUESTLOG_GETWAND"),
-            (0xdf, Ty::U8, "world.xdf", "values seen 1; used with HORN, AMBER_PLAYSONG"),
-            (0xe0, Ty::U8, "world.xe0", "values seen 1; used with W_GUARDIAN, E_MANTIS, BOMBGROUND1, JAKHUL, HEART C"),
-            (0xe1, Ty::U8, "world.xe1", "values seen 1; used with RADUNZCHEN, BOMBGROUND2, GUARDIAN, HEART B"),
-            (0xe2, Ty::U8, "world.xe2", "values seen 1; used with BOMBGROUND3, SNOW, HEART A"),
-            (0xe3, Ty::U8, "world.xe3", "values seen 1/2; used with Q_RAYGLASS_F, HELIANA_QUESTDONE, CORVINE, IRWEN2, LEONA2"),
-            (0xe4, Ty::U8, "world.xe4", "values seen 0; used with RAFT, E_S1"),
-            (0xe5, Ty::U8, "world.xe5", "values seen 0/1; used with RAFT, E_S1, E_S2"),
-            (0xe6, Ty::U8, "world.xe6", "values seen 0/1/2/3/4; used with E_S1, E_S2, E_S3, _TARGET, RAFT"),
-            (0xe7, Ty::U8, "world.xe7", "used with Q_KNIFE, QUESTLOG_FINDTOOLS, Q_TUNINGFORK, LYSINTHIA_QUESTDONE"),
-            (0xe8, Ty::U8, "world.xe8", "used with Q_KNIFE, Q_TUNINGFORK, LYSINTHIA_QUESTDONE"),
-            (0xe9, Ty::U8, "world.xe9", "values seen 1; used with BD_KOBOLDDOOR"),
-            (0xea, Ty::U8, "world.xea", "values seen 1; used with FIONA, FIONA_YOUWIN"),
-            (0xeb, Ty::U8, "world.xeb", "values seen 1/2; used with QUESTLOG_HELPSARINA, SARINA_QUESTDONE, _ENEMYCOUNT2, MELVIN_MAZECLEARED, _ENEMYCOUNT"),
-            (0xec, Ty::U8, "world.xec", "values seen 1/2; used with QUESTLOG_HELPSARINA, LEONA_QUESTDONE, LEONA_NOTDONE"),
-            (0xed, Ty::U8, "world.xed", "values seen 1/2/3/4; used with Q_RAYGLASS_F, MERIVEN_GOTTHEBEAM, Q_RAYGLASS_E, MERIVEN_TELLYAHOW, QUESTLOG_USEVESSEL"),
-            (0xee, Ty::U8, "world.xee", "used with BEE1, BEE2, BEE3"),
-            (0xef, Ty::U8, "world.xef", "used with BEE2, BEE3, BEE4, BEE1"),
-            (0xf0, Ty::U8, "world.xf0", "used with BEE3, BEE4, BEE5, BEE1, BEE2"),
-            (0xf1, Ty::U8, "world.xf1", "used with BEE4, BEE5, CABLE1, BEE2, BEE3"),
-            (0xf2, Ty::U8, "world.xf2", "used with BEE5, CABLE1, BEE3, BEE4"),
-            (0xf3, Ty::U8, "world.xf3", "used with RADUNZCHEN, BOMBGROUND2, GUARDIAN, GUARDIANARM, W_GUARDIAN"),
-            (0xf4, Ty::U8, "world.xf4", "values seen 1; used with Q_WEED, DUNA_FIRSTSEAL, DUNA_SECONDSEAL, DUNA_HELPSEAL, DUNA_HERBUTNOSEAL"),
-            (0xf5, Ty::U8, "world.xf5", "values seen 1; used with Q_POPPA, FIONA_NOTAGAIN"),
-            (0xf6, Ty::U8, "world.xf6", "used with RAFT2"),
-            (0xf7, Ty::U8, "world.xf7", "used with W_FSPIKETRAP, QUESTLOG_FINDBUCKET"),
-            (0xf8, Ty::U8, "world.xf8", "used with QUESTLOG_FINDBUCKET"),
-            (0xf9, Ty::U8, "world.xf9", "values seen 1; used with STAND, F_ASQKROETE, W_SAVEHINT, SAVE_HINT"),
-            (0xfa, Ty::U8, "world.xfa", "values seen 1; used with QUESTLOG_FINDBUCKET, IRWEN_NOBUCKET, Q_BUCKET_E"),
-            (0xfb, Ty::U8, "world.xfb", "values seen 1; used with SARINA_QUESTDONE, QUESTLOG_HELPSARINA"),
-            (0xfc, Ty::U8, "world.xfc", "used with KDOOR2, GWEN, KDOOR1, E_KOBOLDDOOR"),
-            (0xfd, Ty::U8, "world.xfd", "used with LEONA, RAFT, E_S1"),
-            (0xfe, Ty::U16, "world.xfe", "values seen 0/1440; used with WD_TRAP, W_FTRAP"),
-        ],
-        5 => &[
-            (0x00, Ty::I8, "world.shop[0].item", "TORLORE_TRADE entry 0: item type (the shop's own numbering; 127 ends the list)"),
-            (0x01, Ty::U8, "world.shop[0].stock", "TORLORE_TRADE entry 0: stock"),
-            (0x02, Ty::U8, "world.shop[0].cap", "TORLORE_TRADE entry 0: stock cap (unsure)"),
-            (0x03, Ty::U8, "world.shop[0].buy", "TORLORE_TRADE entry 0: price to buy, in 5 gold"),
-            (0x04, Ty::U8, "world.shop[0].sell", "TORLORE_TRADE entry 0: price paid when selling, in 5 gold"),
-            (0x05, Ty::I8, "world.shop[1].item", "TORLORE_TRADE entry 1: item type (the shop's own numbering; 127 ends the list)"),
-            (0x06, Ty::U8, "world.shop[1].stock", "TORLORE_TRADE entry 1: stock"),
-            (0x07, Ty::U8, "world.shop[1].cap", "TORLORE_TRADE entry 1: stock cap (unsure)"),
-            (0x08, Ty::U8, "world.shop[1].buy", "TORLORE_TRADE entry 1: price to buy, in 5 gold"),
-            (0x09, Ty::U8, "world.shop[1].sell", "TORLORE_TRADE entry 1: price paid when selling, in 5 gold"),
-            (0x0a, Ty::I8, "world.shop[2].item", "TORLORE_TRADE entry 2: item type (the shop's own numbering; 127 ends the list)"),
-            (0x0b, Ty::U8, "world.shop[2].stock", "TORLORE_TRADE entry 2: stock"),
-            (0x0c, Ty::U8, "world.shop[2].cap", "TORLORE_TRADE entry 2: stock cap (unsure)"),
-            (0x0d, Ty::U8, "world.shop[2].buy", "TORLORE_TRADE entry 2: price to buy, in 5 gold"),
-            (0x0e, Ty::U8, "world.shop[2].sell", "TORLORE_TRADE entry 2: price paid when selling, in 5 gold"),
-            (0x0f, Ty::I8, "world.shop[3].item", "TORLORE_TRADE entry 3: item type (the shop's own numbering; 127 ends the list)"),
-            (0x10, Ty::U8, "world.shop[3].stock", "TORLORE_TRADE entry 3: stock"),
-            (0x11, Ty::U8, "world.shop[3].cap", "TORLORE_TRADE entry 3: stock cap (unsure)"),
-            (0x12, Ty::U8, "world.shop[3].buy", "TORLORE_TRADE entry 3: price to buy, in 5 gold"),
-            (0x13, Ty::U8, "world.shop[3].sell", "TORLORE_TRADE entry 3: price paid when selling, in 5 gold"),
-            (0x14, Ty::I8, "world.shop[4].item", "TORLORE_TRADE entry 4: item type (the shop's own numbering; 127 ends the list)"),
-            (0x15, Ty::U8, "world.shop[4].stock", "TORLORE_TRADE entry 4: stock"),
-            (0x16, Ty::U8, "world.shop[4].cap", "TORLORE_TRADE entry 4: stock cap (unsure)"),
-            (0x17, Ty::U8, "world.shop[4].buy", "TORLORE_TRADE entry 4: price to buy, in 5 gold"),
-            (0x18, Ty::U8, "world.shop[4].sell", "TORLORE_TRADE entry 4: price paid when selling, in 5 gold"),
-            (0x19, Ty::I8, "world.shop[5].item", "TORLORE_TRADE entry 5: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1a, Ty::U8, "world.shop[5].stock", "TORLORE_TRADE entry 5: stock"),
-            (0x1b, Ty::U8, "world.shop[5].cap", "TORLORE_TRADE entry 5: stock cap (unsure)"),
-            (0x1c, Ty::U8, "world.shop[5].buy", "TORLORE_TRADE entry 5: price to buy, in 5 gold"),
-            (0x1d, Ty::U8, "world.shop[5].sell", "TORLORE_TRADE entry 5: price paid when selling, in 5 gold"),
-            (0x1e, Ty::I8, "world.shop[6].item", "TORLORE_TRADE entry 6: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1f, Ty::U8, "world.shop[6].stock", "TORLORE_TRADE entry 6: stock"),
-            (0x20, Ty::U8, "world.shop[6].cap", "TORLORE_TRADE entry 6: stock cap (unsure)"),
-            (0x21, Ty::U8, "world.shop[6].buy", "TORLORE_TRADE entry 6: price to buy, in 5 gold"),
-            (0x22, Ty::U8, "world.shop[6].sell", "TORLORE_TRADE entry 6: price paid when selling, in 5 gold"),
-            (0x23, Ty::I8, "world.shop[7].item", "TORLORE_TRADE entry 7: item type (the shop's own numbering; 127 ends the list)"),
-            (0x24, Ty::U8, "world.shop[7].stock", "TORLORE_TRADE entry 7: stock"),
-            (0x25, Ty::U8, "world.shop[7].cap", "TORLORE_TRADE entry 7: stock cap (unsure)"),
-            (0x26, Ty::U8, "world.shop[7].buy", "TORLORE_TRADE entry 7: price to buy, in 5 gold"),
-            (0x27, Ty::U8, "world.shop[7].sell", "TORLORE_TRADE entry 7: price paid when selling, in 5 gold"),
-            (0x28, Ty::I8, "world.shop[8].item", "TORLORE_TRADE entry 8: item type (the shop's own numbering; 127 ends the list)"),
-            (0x29, Ty::U8, "world.shop[8].stock", "TORLORE_TRADE entry 8: stock"),
-            (0x2a, Ty::U8, "world.shop[8].cap", "TORLORE_TRADE entry 8: stock cap (unsure)"),
-            (0x2b, Ty::U8, "world.shop[8].buy", "TORLORE_TRADE entry 8: price to buy, in 5 gold"),
-            (0x2c, Ty::U8, "world.shop[8].sell", "TORLORE_TRADE entry 8: price paid when selling, in 5 gold"),
-            (0x2d, Ty::I8, "world.shop[9].item", "TORLORE_TRADE entry 9: item type (the shop's own numbering; 127 ends the list)"),
-            (0x2e, Ty::U8, "world.shop[9].stock", "TORLORE_TRADE entry 9: stock"),
-            (0x2f, Ty::U8, "world.shop[9].cap", "TORLORE_TRADE entry 9: stock cap (unsure)"),
-            (0x30, Ty::U8, "world.shop[9].buy", "TORLORE_TRADE entry 9: price to buy, in 5 gold"),
-            (0x31, Ty::U8, "world.shop[9].sell", "TORLORE_TRADE entry 9: price paid when selling, in 5 gold"),
-            (0x32, Ty::I8, "world.shop[10].item", "TORLORE_TRADE entry 10: item type (the shop's own numbering; 127 ends the list)"),
-            (0x33, Ty::U8, "world.shop[10].stock", "TORLORE_TRADE entry 10: stock"),
-            (0x34, Ty::U8, "world.shop[10].cap", "TORLORE_TRADE entry 10: stock cap (unsure)"),
-            (0x35, Ty::U8, "world.shop[10].buy", "TORLORE_TRADE entry 10: price to buy, in 5 gold"),
-            (0x36, Ty::U8, "world.shop[10].sell", "TORLORE_TRADE entry 10: price paid when selling, in 5 gold"),
-            (0x37, Ty::I8, "world.shop[11].item", "TORLORE_TRADE entry 11: item type (the shop's own numbering; 127 ends the list)"),
-            (0x38, Ty::U8, "world.shop[11].stock", "TORLORE_TRADE entry 11: stock"),
-            (0x39, Ty::U8, "world.shop[11].cap", "TORLORE_TRADE entry 11: stock cap (unsure)"),
-            (0x3a, Ty::U8, "world.shop[11].buy", "TORLORE_TRADE entry 11: price to buy, in 5 gold"),
-            (0x3b, Ty::U8, "world.shop[11].sell", "TORLORE_TRADE entry 11: price paid when selling, in 5 gold"),
-            (0x3c, Ty::I8, "world.shop[12].item", "TORLORE_TRADE entry 12: item type (the shop's own numbering; 127 ends the list)"),
-            (0x3d, Ty::U8, "world.shop[12].stock", "TORLORE_TRADE entry 12: stock"),
-            (0x3e, Ty::U8, "world.shop[12].cap", "TORLORE_TRADE entry 12: stock cap (unsure)"),
-            (0x3f, Ty::U8, "world.shop[12].buy", "TORLORE_TRADE entry 12: price to buy, in 5 gold"),
-            (0x40, Ty::U8, "world.shop[12].sell", "TORLORE_TRADE entry 12: price paid when selling, in 5 gold"),
-            (0x41, Ty::Bytes(3), "world.x41", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x44, Ty::U32, "world.x44", "used with CMINE KRAN"),
-            (0x48, Ty::U32, "world.x48", "used with CMINE KRAN, DRILL_A"),
-            (0x4c, Ty::U32, "world.x4c", "used with DRILL_A"),
-            (0x50, Ty::U32, "world.x50", "bit mask; used with QUESTLOG_MONSTERS, DRILL_A, LEVER_DRILL2_A, DOOR_D, DOOR_C"),
-            (0x54, Ty::U32, "world.x54", "bit mask; values seen 2/32; used with CRYSTAL_YELLOW_1, REDCRYSTAL6, CRYSTAL_BLUE_2, CMINE KRAN, E_ELSEWHERE2"),
-            (0x58, Ty::U8, "world.x58", "values seen 1; used with RED_1, CRYSTAL_RED_1, CNCRYSTAL_RED, Q_SHRINKPOTION, ROTER"),
-            (0x59, Ty::U8, "world.x59", "values seen 1; used with RED_3, CRYSTAL_RED_3, CNCRYSTAL_RED, CRYSTAL_YELLOW_3, BLUE_4"),
-            (0x5a, Ty::U8, "world.x5a", "values seen 1; used with BLUE_1, CRYSTAL_BLUE_1, CNCRYSTAL_BLUE, ROTER, RED_1"),
-            (0x5b, Ty::Bytes(2), "world.x5b", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x5d, Ty::U8, "world.x5d", "values seen 1; used with BLUE_4, CRYSTAL_BLUE_4, CNCRYSTAL_BLUE, GRUENER, YELLOW_3"),
-            (0x5e, Ty::U8, "world.x5e", "values seen 1; used with GREEN_1, CRYSTAL_GREEN_1, CNCRYSTAL_GREEN, CRYSTAL_RED_1, BLUE_1"),
-            (0x5f, Ty::U8, "world.x5f", "values seen 1; used with E_AFTERBABE, GREEN, CRYSTAL_GREEN, CNCRYSTAL_GREEN, YELLOW_2"),
-            (0x60, Ty::U8, "world.x60", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x61, Ty::U8, "world.x61", "values seen 1; used with YELLOW_2, CRYSTAL_YELLOW_2, CNCRYSTAL_YEL, CRYSTAL_BLUE_2, CRYSTAL_YELLOW_1"),
-            (0x62, Ty::U8, "world.x62", "values seen 1; used with YELLOW_3, CRYSTAL_YELLOW_3, CNCRYSTAL_YEL, REDCRYSTAL6, GRUENER"),
-            (0x63, Ty::U8, "world.x63", "values seen 1; used with SHUTDOOR, NOCOLOR_1, W_OPENDOOR, E_ELSEWHERE1, CRYSTAL_BLUE_1"),
-            (0x64, Ty::U8, "world.x64", "values seen 1; used with SHUTDOOR, NOCOLOR_1, W_OPENDOOR, E_ELSEWHERE1, NOCOLOR_2"),
-            (0x65, Ty::U8, "world.x65", "values seen 1/2; used with LEVER_2, GREEN, CRYSTAL_GREEN, E_LEVER2, Q_LEVER"),
-            (0x66, Ty::U8, "world.x66", "values seen 1; used with DOORCLOSE, STATUE4, FELS"),
-            (0x67, Ty::U8, "world.x67", "used with TORLORE_SHOPPING"),
-            (0x68, Ty::U8, "world.x68", "values seen 1/2/4/8; used with STATUE2, STATUE1, STATUE3, QUESTLOG_MONSTERS, STATUE4"),
-            (0x69, Ty::U8, "world.x69", "values seen 1/2/4; used with LENSGREEN, LENSRED, LENSBLUE, Q_LENS_BLUE, Q_LENS_GREEN"),
-            (0x6a, Ty::U8, "world.x6a", "values seen 4; used with KRAFTFELD, LIGHTNING_RED, LIGHTNING_GREEN, LIGHTNING_BLUE, W_BOMB"),
-            (0x6b, Ty::U8, "world.x6b", "used with KRAFTFELD, W_BOMB, QUESTLOG_MINE"),
-            (0x6c, Ty::U8, "world.x6c", "values seen 1/2; used with Q_HORN, QUESTLOG_LENS, LENSKEEPER, Q_LENS_BLUE"),
-            (0x6d, Ty::U8, "world.x6d", "values seen 2; used with RAFT_1, LEVER_7, LEVER_8, E_SWITCH4, E_SWITCH5"),
-            (0x6e, Ty::U8, "world.x6e", "values seen 2; used with RAFT_2, LEVER_6, E_SWITCH4, RAFT_1"),
-            (0x6f, Ty::U8, "world.x6f", "values seen 2; used with RAFT_3, LEVER_5, RAFT_1"),
-            (0x70, Ty::U8, "world.x70", "values seen 2; used with RAFT_4, LEVER_4, RAFT_1"),
-            (0x71, Ty::U8, "world.x71", "used with QUESTLOG_MINE"),
-            (0x72, Ty::U8, "world.x72", "values seen 1/2/3; used with TALIS, _ENEMYCNT, TM_SCORPIONSDEAD, LEVER_2, SCORPION2"),
-            (0x73, Ty::U8, "world.x73", "values seen 1; used with CRYSTAL_YELLOW_1, YELLOW_2, CRYSTAL_YELLOW_2, TALIS1, E_AFTERBABE"),
-            (0x74, Ty::U8, "world.x74", "values seen 1; used with _ENEMYCOUNT, W_ASOLDONETWO"),
-            (0x75, Ty::U8, "world.x75", "values seen 1; used with PLANTRING, TELEPORTER FIELD A1 S10, TELEPORTER FIELD A2 S10, TELEKEYBLK, PLANTKEY"),
-            (0x76, Ty::U8, "world.x76", "values seen 4; used with DRILL_A, LEVER_DRILL2_A, LEVER_DRILL2_B"),
-            (0x77, Ty::U8, "world.x77", "used with DRILL_B, EXPLO01"),
-            (0x78, Ty::U32, "world.x78", "used with DRILL_A"),
-            (0x7c, Ty::Bytes(36), "world.x7c", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xa0, Ty::U8, "world.xa0", "used with CMINE KRAN"),
-            (0xa1, Ty::U8, "world.xa1", "used with LEVER_CRANE2, CMINE KRAN"),
-            (0xa2, Ty::U8, "world.xa2", "used with CMINE KRAN"),
-            (0xa3, Ty::U8, "world.xa3", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xa4, Ty::U8, "world.xa4", "values seen 1"),
-            (0xa5, Ty::Bytes(8), "world.xa5", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xad, Ty::U8, "world.xad", "used with CMINE KRAN"),
-            (0xae, Ty::Bytes(4), "world.xae", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xb2, Ty::U8, "world.xb2", "values seen 2; used with CMINE KRAN"),
-            (0xb3, Ty::U8, "world.xb3", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xb4, Ty::U8, "world.xb4", "values seen 3"),
-            (0xb5, Ty::U8, "world.xb5", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xb6, Ty::U8, "world.xb6", "values seen 0; used with CMINE KRAN, CRANE"),
-            (0xb7, Ty::U8, "world.xb7", "values seen 1; used with WP_WARHAMMER, QUESTLOG_HAMMER, E_SWITCH4, E_SWITCH5, E_SWITCH6"),
-            (0xb8, Ty::U8, "world.xb8", "values seen 1; used with QUESTLOG_MONSTERS, _STEINSTATUE2, _STEINSTATUE3, _STEINSTATUE4"),
-            (0xb9, Ty::U8, "world.xb9", "values seen 1; used with LIFT1, LIFT2, LIFT3, STAND, C_ASQDEATHBALL"),
-            (0xba, Ty::Bytes(2), "world.xba", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xbc, Ty::Bytes(68), "world.beyond", "past the CANYON state (0xbc bytes): always zero"),
-        ],
-        6 => &[
-            (0x00, Ty::U32, "world.timer[0].event", "timer slot 0: event id (0xdeadbeef = empty)"),
-            (0x04, Ty::I32, "world.timer[0].countdown", "timer slot 0: countdown, 1/480 s; the event fires at <= 0"),
-            (0x08, Ty::U32, "world.timer[0].arg", "timer slot 0: the event's argument"),
-            (0x0c, Ty::U32, "world.timer[1].event", "timer slot 1: event id (0xdeadbeef = empty)"),
-            (0x10, Ty::I32, "world.timer[1].countdown", "timer slot 1: countdown, 1/480 s; the event fires at <= 0"),
-            (0x14, Ty::U32, "world.timer[1].arg", "timer slot 1: the event's argument"),
-            (0x18, Ty::U32, "world.timer[2].event", "timer slot 2: event id (0xdeadbeef = empty)"),
-            (0x1c, Ty::I32, "world.timer[2].countdown", "timer slot 2: countdown, 1/480 s; the event fires at <= 0"),
-            (0x20, Ty::U32, "world.timer[2].arg", "timer slot 2: the event's argument"),
-            (0x24, Ty::U32, "world.timer[3].event", "timer slot 3: event id (0xdeadbeef = empty)"),
-            (0x28, Ty::I32, "world.timer[3].countdown", "timer slot 3: countdown, 1/480 s; the event fires at <= 0"),
-            (0x2c, Ty::U32, "world.timer[3].arg", "timer slot 3: the event's argument"),
-            (0x30, Ty::U32, "world.timer[4].event", "timer slot 4: event id (0xdeadbeef = empty)"),
-            (0x34, Ty::I32, "world.timer[4].countdown", "timer slot 4: countdown, 1/480 s; the event fires at <= 0"),
-            (0x38, Ty::U32, "world.timer[4].arg", "timer slot 4: the event's argument"),
-            (0x3c, Ty::U32, "world.timer[5].event", "timer slot 5: event id (0xdeadbeef = empty)"),
-            (0x40, Ty::I32, "world.timer[5].countdown", "timer slot 5: countdown, 1/480 s; the event fires at <= 0"),
-            (0x44, Ty::U32, "world.timer[5].arg", "timer slot 5: the event's argument"),
-            (0x48, Ty::U32, "world.timer[6].event", "timer slot 6: event id (0xdeadbeef = empty)"),
-            (0x4c, Ty::I32, "world.timer[6].countdown", "timer slot 6: countdown, 1/480 s; the event fires at <= 0"),
-            (0x50, Ty::U32, "world.timer[6].arg", "timer slot 6: the event's argument"),
-            (0x54, Ty::U32, "world.timer[7].event", "timer slot 7: event id (0xdeadbeef = empty)"),
-            (0x58, Ty::I32, "world.timer[7].countdown", "timer slot 7: countdown, 1/480 s; the event fires at <= 0"),
-            (0x5c, Ty::U32, "world.timer[7].arg", "timer slot 7: the event's argument"),
-            (0x60, Ty::U32, "world.x60", "bit mask; values seen 8; used with BEAMSWITCH2, BATTLEKEY1, BEAMPOLDER, BULLY, TALIS"),
-            (0x64, Ty::Bytes(4), "world.x64", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x68, Ty::U16, "world.x68", "values seen 1024; used with W_6_1_4_45, HEILBRUNNEN"),
-            (0x6a, Ty::Bytes(2), "world.x6a", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x6c, Ty::U8, "world.x6c", "values seen 2; used with W_6_1_4_45"),
-            (0x6d, Ty::U8, "world.x6d", "values seen 2"),
-            (0x6e, Ty::U8, "world.x6e", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x6f, Ty::U8, "world.x6f", "values seen 0/2"),
-            (0x70, Ty::Bytes(5), "world.x70", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x75, Ty::U8, "world.x75", "values seen 1/2; used with BULLY, MOUNTAIN_WIND, ASBULLY_CRY"),
-            (0x76, Ty::U8, "world.x76", "values seen 1/2; used with TW_OLDONE, OLDONE, OLDONE_ENEMY, AS2_TM1"),
-            (0x77, Ty::U8, "world.x77", "values seen 0/82; used with CONFIDOOR8"),
-            (0x78, Ty::U8, "world.x78", "values seen 1"),
-            (0x79, Ty::U8, "world.x79", "values seen 1/2/4/7/16; used with FIRECAST, E_BOWL, Q_SPELLBOOK, TM_GOTPEARL, TM_GOTBELLADONNA"),
-            (0x7a, Ty::U8, "world.x7a", "values seen 1/2; used with LIBGHOST_NOGLAS, TOWER_LIBARIAN, ASGLAS_TMHASGLAS, Q_GLASSES, QUESTLOG_FINDGLASSES"),
-            (0x7b, Ty::U8, "world.timers_used", "timer slots in use (0..8)"),
-            (0x7c, Ty::U8, "world.x7c", "values seen 1/2; used with W_BEAMAREA1, Q_SPELLBOOK, TOWER_LIBARIAN, BEAMPOLDER, LIGHTNING_RED"),
-            (0x7d, Ty::U8, "world.x7d", "accessed by the world script"),
-            (0x7e, Ty::U8, "world.x7e", "used with W_6_4_2_225, FOYERDOOR2"),
-            (0x7f, Ty::U8, "world.x7f", "values seen 1; used with ASGLAS_TM1TALK"),
-            (0x80, Ty::U8, "world.x80", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x81, Ty::U8, "world.x81", "used with W_6_1_3_225, IT SAULEN SCHALTER, WD_MENTORBALKON, W_6_4_2_225, FOYERDOOR2"),
-            (0x82, Ty::U8, "world.x82", "used with W_6_1_5_170, IT SAULEN SCHALTER, Q_SPELLBOOK, XBOOK, W_6_4_2_225"),
-            (0x83, Ty::U8, "world.x83", "used with W_6_1_4_45, W_6_5_1_225, W_6_6_2_225, IT SAULEN SCHALTER"),
-            (0x84, Ty::U8, "world.x84", "values seen 1; used with STAND, T_ASQDRAGON, SAVE_HINT"),
-            (0x85, Ty::U8, "world.x85", "used with ASSCHIEBEGHOST_ALLOK"),
-            (0x86, Ty::Bytes(2), "world.x86", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x88, Ty::Bytes(120), "world.beyond", "past the TOWER state (0x88 bytes): always zero"),
-        ],
-        7 => &[
-            (0x00, Ty::I8, "world.shop[0].item", "SHACH_TRADERX_TRADE entry 0: item type (the shop's own numbering; 127 ends the list)"),
-            (0x01, Ty::U8, "world.shop[0].stock", "SHACH_TRADERX_TRADE entry 0: stock"),
-            (0x02, Ty::U8, "world.shop[0].cap", "SHACH_TRADERX_TRADE entry 0: stock cap (unsure)"),
-            (0x03, Ty::U8, "world.shop[0].buy", "SHACH_TRADERX_TRADE entry 0: price to buy, in 5 gold"),
-            (0x04, Ty::U8, "world.shop[0].sell", "SHACH_TRADERX_TRADE entry 0: price paid when selling, in 5 gold"),
-            (0x05, Ty::I8, "world.shop[1].item", "SHACH_TRADERX_TRADE entry 1: item type (the shop's own numbering; 127 ends the list)"),
-            (0x06, Ty::U8, "world.shop[1].stock", "SHACH_TRADERX_TRADE entry 1: stock"),
-            (0x07, Ty::U8, "world.shop[1].cap", "SHACH_TRADERX_TRADE entry 1: stock cap (unsure)"),
-            (0x08, Ty::U8, "world.shop[1].buy", "SHACH_TRADERX_TRADE entry 1: price to buy, in 5 gold"),
-            (0x09, Ty::U8, "world.shop[1].sell", "SHACH_TRADERX_TRADE entry 1: price paid when selling, in 5 gold"),
-            (0x0a, Ty::I8, "world.shop[2].item", "SHACH_TRADERX_TRADE entry 2: item type (the shop's own numbering; 127 ends the list)"),
-            (0x0b, Ty::U8, "world.shop[2].stock", "SHACH_TRADERX_TRADE entry 2: stock"),
-            (0x0c, Ty::U8, "world.shop[2].cap", "SHACH_TRADERX_TRADE entry 2: stock cap (unsure)"),
-            (0x0d, Ty::U8, "world.shop[2].buy", "SHACH_TRADERX_TRADE entry 2: price to buy, in 5 gold"),
-            (0x0e, Ty::U8, "world.shop[2].sell", "SHACH_TRADERX_TRADE entry 2: price paid when selling, in 5 gold"),
-            (0x0f, Ty::I8, "world.shop[3].item", "SHACH_TRADERX_TRADE entry 3: item type (the shop's own numbering; 127 ends the list)"),
-            (0x10, Ty::U8, "world.shop[3].stock", "SHACH_TRADERX_TRADE entry 3: stock"),
-            (0x11, Ty::U8, "world.shop[3].cap", "SHACH_TRADERX_TRADE entry 3: stock cap (unsure)"),
-            (0x12, Ty::U8, "world.shop[3].buy", "SHACH_TRADERX_TRADE entry 3: price to buy, in 5 gold"),
-            (0x13, Ty::U8, "world.shop[3].sell", "SHACH_TRADERX_TRADE entry 3: price paid when selling, in 5 gold"),
-            (0x14, Ty::I8, "world.shop[4].item", "SHACH_TRADERX_TRADE entry 4: item type (the shop's own numbering; 127 ends the list)"),
-            (0x15, Ty::U8, "world.shop[4].stock", "SHACH_TRADERX_TRADE entry 4: stock"),
-            (0x16, Ty::U8, "world.shop[4].cap", "SHACH_TRADERX_TRADE entry 4: stock cap (unsure)"),
-            (0x17, Ty::U8, "world.shop[4].buy", "SHACH_TRADERX_TRADE entry 4: price to buy, in 5 gold"),
-            (0x18, Ty::U8, "world.shop[4].sell", "SHACH_TRADERX_TRADE entry 4: price paid when selling, in 5 gold"),
-            (0x19, Ty::I8, "world.shop[5].item", "SHACH_TRADERX_TRADE entry 5: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1a, Ty::U8, "world.shop[5].stock", "SHACH_TRADERX_TRADE entry 5: stock"),
-            (0x1b, Ty::U8, "world.shop[5].cap", "SHACH_TRADERX_TRADE entry 5: stock cap (unsure)"),
-            (0x1c, Ty::U8, "world.shop[5].buy", "SHACH_TRADERX_TRADE entry 5: price to buy, in 5 gold"),
-            (0x1d, Ty::U8, "world.shop[5].sell", "SHACH_TRADERX_TRADE entry 5: price paid when selling, in 5 gold"),
-            (0x1e, Ty::I8, "world.shop[6].item", "SHACH_TRADERX_TRADE entry 6: item type (the shop's own numbering; 127 ends the list)"),
-            (0x1f, Ty::U8, "world.shop[6].stock", "SHACH_TRADERX_TRADE entry 6: stock"),
-            (0x20, Ty::U8, "world.shop[6].cap", "SHACH_TRADERX_TRADE entry 6: stock cap (unsure)"),
-            (0x21, Ty::U8, "world.shop[6].buy", "SHACH_TRADERX_TRADE entry 6: price to buy, in 5 gold"),
-            (0x22, Ty::U8, "world.shop[6].sell", "SHACH_TRADERX_TRADE entry 6: price paid when selling, in 5 gold"),
-            (0x23, Ty::I8, "world.shop[7].item", "SHACH_TRADERX_TRADE entry 7: item type (the shop's own numbering; 127 ends the list)"),
-            (0x24, Ty::U8, "world.shop[7].stock", "SHACH_TRADERX_TRADE entry 7: stock"),
-            (0x25, Ty::U8, "world.shop[7].cap", "SHACH_TRADERX_TRADE entry 7: stock cap (unsure)"),
-            (0x26, Ty::U8, "world.shop[7].buy", "SHACH_TRADERX_TRADE entry 7: price to buy, in 5 gold"),
-            (0x27, Ty::U8, "world.shop[7].sell", "SHACH_TRADERX_TRADE entry 7: price paid when selling, in 5 gold"),
-            (0x28, Ty::I8, "world.shop[8].item", "SHACH_TRADERX_TRADE entry 8: item type (the shop's own numbering; 127 ends the list)"),
-            (0x29, Ty::U8, "world.shop[8].stock", "SHACH_TRADERX_TRADE entry 8: stock"),
-            (0x2a, Ty::U8, "world.shop[8].cap", "SHACH_TRADERX_TRADE entry 8: stock cap (unsure)"),
-            (0x2b, Ty::U8, "world.shop[8].buy", "SHACH_TRADERX_TRADE entry 8: price to buy, in 5 gold"),
-            (0x2c, Ty::U8, "world.shop[8].sell", "SHACH_TRADERX_TRADE entry 8: price paid when selling, in 5 gold"),
-            (0x2d, Ty::I8, "world.shop[9].item", "SHACH_TRADERX_TRADE entry 9: item type (the shop's own numbering; 127 ends the list)"),
-            (0x2e, Ty::U8, "world.shop[9].stock", "SHACH_TRADERX_TRADE entry 9: stock"),
-            (0x2f, Ty::U8, "world.shop[9].cap", "SHACH_TRADERX_TRADE entry 9: stock cap (unsure)"),
-            (0x30, Ty::U8, "world.shop[9].buy", "SHACH_TRADERX_TRADE entry 9: price to buy, in 5 gold"),
-            (0x31, Ty::U8, "world.shop[9].sell", "SHACH_TRADERX_TRADE entry 9: price paid when selling, in 5 gold"),
-            (0x32, Ty::I8, "world.shop[10].item", "SHACH_TRADERX_TRADE entry 10: item type (the shop's own numbering; 127 ends the list)"),
-            (0x33, Ty::U8, "world.shop[10].stock", "SHACH_TRADERX_TRADE entry 10: stock"),
-            (0x34, Ty::U8, "world.shop[10].cap", "SHACH_TRADERX_TRADE entry 10: stock cap (unsure)"),
-            (0x35, Ty::U8, "world.shop[10].buy", "SHACH_TRADERX_TRADE entry 10: price to buy, in 5 gold"),
-            (0x36, Ty::U8, "world.shop[10].sell", "SHACH_TRADERX_TRADE entry 10: price paid when selling, in 5 gold"),
-            (0x37, Ty::I8, "world.shop[11].item", "SHACH_TRADERX_TRADE entry 11: item type (the shop's own numbering; 127 ends the list)"),
-            (0x38, Ty::U8, "world.shop[11].stock", "SHACH_TRADERX_TRADE entry 11: stock"),
-            (0x39, Ty::U8, "world.shop[11].cap", "SHACH_TRADERX_TRADE entry 11: stock cap (unsure)"),
-            (0x3a, Ty::U8, "world.shop[11].buy", "SHACH_TRADERX_TRADE entry 11: price to buy, in 5 gold"),
-            (0x3b, Ty::U8, "world.shop[11].sell", "SHACH_TRADERX_TRADE entry 11: price paid when selling, in 5 gold"),
-            (0x3c, Ty::I8, "world.shop[12].item", "SHACH_TRADERX_TRADE entry 12: item type (the shop's own numbering; 127 ends the list)"),
-            (0x3d, Ty::U8, "world.shop[12].stock", "SHACH_TRADERX_TRADE entry 12: stock"),
-            (0x3e, Ty::U8, "world.shop[12].cap", "SHACH_TRADERX_TRADE entry 12: stock cap (unsure)"),
-            (0x3f, Ty::U8, "world.shop[12].buy", "SHACH_TRADERX_TRADE entry 12: price to buy, in 5 gold"),
-            (0x40, Ty::U8, "world.shop[12].sell", "SHACH_TRADERX_TRADE entry 12: price paid when selling, in 5 gold"),
-            (0x41, Ty::I8, "world.shop[13].item", "SHACH_TRADERX_TRADE entry 13: item type (the shop's own numbering; 127 ends the list)"),
-            (0x42, Ty::U8, "world.shop[13].stock", "SHACH_TRADERX_TRADE entry 13: stock"),
-            (0x43, Ty::U8, "world.shop[13].cap", "SHACH_TRADERX_TRADE entry 13: stock cap (unsure)"),
-            (0x44, Ty::U8, "world.shop[13].buy", "SHACH_TRADERX_TRADE entry 13: price to buy, in 5 gold"),
-            (0x45, Ty::U8, "world.shop[13].sell", "SHACH_TRADERX_TRADE entry 13: price paid when selling, in 5 gold"),
-            (0x46, Ty::I8, "world.shop[14].item", "SHACH_TRADERX_TRADE entry 14: item type (the shop's own numbering; 127 ends the list)"),
-            (0x47, Ty::U8, "world.shop[14].stock", "SHACH_TRADERX_TRADE entry 14: stock"),
-            (0x48, Ty::U8, "world.shop[14].cap", "SHACH_TRADERX_TRADE entry 14: stock cap (unsure)"),
-            (0x49, Ty::U8, "world.shop[14].buy", "SHACH_TRADERX_TRADE entry 14: price to buy, in 5 gold"),
-            (0x4a, Ty::U8, "world.shop[14].sell", "SHACH_TRADERX_TRADE entry 14: price paid when selling, in 5 gold"),
-            (0x4b, Ty::Bytes(62), "world.x4b", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x89, Ty::U8, "world.x89", "used with BOXMOVE"),
-            (0x8a, Ty::U8, "world.x8a", "values seen 1/2/3; used with START, PLATFORM3, PLATFORM2, V_KUGEL, PLATFORM1"),
-            (0x8b, Ty::U8, "world.x8b", "values seen 1; used with SHACHGUARD_DONE, Q_GAEN, SHACH GUARD2, W_HANDELSMEISTERA, QUESTLOG_FIND7GAENS"),
-            (0x8c, Ty::U8, "world.x8c", "values seen 1; used with TALIS, OLDONE, PLATFORM1, PLATFORM2, PLATFORM3"),
-            (0x8d, Ty::U8, "world.x8d", "values seen 1; used with OLDONE, TALIS, PLASMA_GREEN, LIGHTNING_GREEN, TM_RIDDLECOMPLETED"),
-            (0x8e, Ty::U8, "world.x8e", "values seen 1/2; used with VUL SCHALTER1, PLATFORM4, PLATFORM1, PLATFORM2, PLATFORM3"),
-            (0x8f, Ty::U8, "world.x8f", "values seen 1; used with QUESTLOG_BRINGEVIDENCE, QUESTLOG_GOTOHMEISTER, MASTER_NEED3, TRADER1_1TALK"),
-            (0x90, Ty::U8, "world.x90", "values seen 2; used with Q_SHOVEL, TM_NEEDSHOVEL, TM_PLANT, TRADER2, TRADER3"),
-            (0x91, Ty::U8, "world.x91", "values seen 1/3; used with Q_CRYST_BLUE, FREDO_TALKING, QUESTLOG_BRINGCRYSTAL, FREDO_IDOTRADE"),
-            (0x92, Ty::U8, "world.x92", "values seen 1; used with QUESTLOG_BRINGEVIDENCE, Q_DOKU, BROTHER_MOREEVIDENCE, BROTHER_QUESTDONE"),
-            (0x93, Ty::U8, "world.x93", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x94, Ty::U8, "world.x94", "used with Q_SHOVEL, Q_COIN_A, Q_COIN_C, QUESTLOG_BRINGEVIDENCE, ASGAMBLER_YOUWIN"),
-            (0x95, Ty::U8, "world.x95", "values seen 0/4"),
-            (0x96, Ty::U8, "world.x96", "values seen 1/3/4; used with VS SCHAUFEL, QUESTLOG_FIXPIPE, QUESTLOG_GOTOHMEISTER, QUESTLOG_GET3COINS"),
-            (0x97, Ty::U8, "world.x97", "values seen 1; used with GRANDPA2_1TALK, GRANDPA2_2TALK, TNTWALL, ROHR, GRANDPA1_1TALK"),
-            (0x98, Ty::U8, "world.x98", "values seen 1; used with FORKBOY_1TALK, FORKBOY_2TALK"),
-            (0x99, Ty::U8, "world.x99", "values seen 2; used with TRADER1_1TALK, GUARDJAIL"),
-            (0x9a, Ty::U8, "world.x9a", "values seen 1"),
-            (0x9b, Ty::U8, "world.x9b", "values seen 1/2; used with HANDELSMEISTERAS, HANDELSMEISTER, W_HANDELCHANGE, SHACH MAGNET, WORKER"),
-            (0x9c, Ty::U8, "world.x9c", "used with TM_IKNOW"),
-            (0x9d, Ty::U8, "world.x9d", "values seen 5; used with W_JAILDOOR"),
-            (0x9e, Ty::U8, "world.x9e", "values seen 1; used with W_JAILDOOR, VS EIMER -PLATT-, EIMERLEHMANN, GUARDJAIL, TRADER2"),
-            (0x9f, Ty::U8, "world.x9f", "values seen 0/1; used with ZOCKER, E_MAGNETFELD, SHACH MAGNET, HANDELSMEISTERAS, HANDELSMEISTER"),
-            (0xa0, Ty::U8, "world.xa0", "values seen 1; used with QUESTLOG_NEEDQUATTERBALL, Q_BALLBLUE, ASGAMBLER_LETSPLAY, ASGAMBLER_YOUWIN, Q_COIN_B"),
-            (0xa1, Ty::U8, "world.xa1", "values seen 1; used with HANDELSMEISTERAS, HANDELSMEISTER, WORKER, ZOCKERWOMAN, W_ZOCKERWOMAN"),
-            (0xa2, Ty::U8, "world.xa2", "values seen 1; used with Q_EIMERP, QUESTLOG_FIXPIPE, GRANDPA2_2TALK, TNTWALL, ROHR"),
-            (0xa3, Ty::U8, "world.xa3", "values seen 1; used with GRANDPA1_1TALK, GRANDPA1_REPAIRIT, GRANDPA1_GOODJOB, GRANDPA, WORKER"),
-            (0xa4, Ty::U8, "world.xa4", "values seen 0/1; used with GUARDJAIL, GUARD_ASGOJAIL, W_JAILDOOR, ROHR, ROHR2"),
-            (0xa5, Ty::U8, "world.xa5", "values seen 1/2/3/4/5/7/8/9; used with H_RING, H_BUCH, H_PILZCHEN, H_HIVEEI, H_DRAZAHN"),
-            (0xa6, Ty::U8, "world.xa6", "values seen 1/2/3/4; used with H_RING, H_BUCH, H_MUTTER, H_PILZCHEN, H_DRAZAHN"),
-            (0xa7, Ty::U8, "world.xa7", "values seen 1; used with W_JAILDOOR, PALAVERKISTE, E_MAGNETFELD"),
-            (0xa8, Ty::U8, "world.xa8", "values seen 1; used with E_MAGNETFELD, GUARDJAIL, TRADER2, TRADER3, TRADER4"),
-            (0xa9, Ty::U8, "world.xa9", "used with TM_WONTGOTHERE, Q_EIMER, TM_DANGEROUS"),
-            (0xaa, Ty::U8, "world.xaa", "values seen 1; used with GRANDPA1_GOODJOB, GRANDPA1_QUESTDONE"),
-            (0xab, Ty::U8, "world.xab", "values seen 1; used with RIDDLELIGHT, SHACH D CRYSTAL, TM_CODESHOWN, TM_CODEHIDDEN"),
-            (0xac, Ty::U8, "world.xac", "values seen 1; used with QUESTLOG_FINDTALIS"),
-            (0xad, Ty::U8, "world.xad", "values seen 1; used with LEVER1, SHACH D GEAR, SWITCH, E_SCHALTER1"),
-            (0xae, Ty::U8, "world.xae", "values seen 1; used with TORCH1, MANABRUNNEN_1, DOOR1, DOOR2"),
-            (0xaf, Ty::U8, "world.xaf", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xb0, Ty::U16, "world.xb0", "used with MANABRUNNEN_1, DOOR1, DOOR2, SHACH D GEAR"),
-            (0xb2, Ty::U8, "world.xb2", "values seen 1; used with DOOR7"),
-            (0xb3, Ty::U8, "world.xb3", "values seen 0/1; used with W_RIDDLESTART"),
-            (0xb4, Ty::U8, "world.xb4", "used with DOOR3, DOOR2"),
-            (0xb5, Ty::Bytes(15), "world.xb5", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xc4, Ty::U8, "world.xc4", "values seen 16/17"),
-            (0xc5, Ty::U8, "world.xc5", "values seen 99; used with PLATFORMDRAGON, V_WYRM, WD_WYRMTOT, WURM_2"),
-            (0xc6, Ty::U8, "world.xc6", "values seen 1; used with PLATFORMDRAGON, V_WYRM, WURM_2, WD_WYRMTOT, LIGHTNING_BLUE"),
-            (0xc7, Ty::U8, "world.xc7", "values seen 1; used with MOVINGPLATFORM1"),
-            (0xc8, Ty::U8, "world.xc8", "values seen 1; used with WURM_1, TM_MOONRIDDLEDOC, E_UPSWURM, E_UPSWURM1"),
-            (0xc9, Ty::U8, "world.xc9", "values seen 12; used with BEHAELTER, LIGHTNING_BLUE, TM_THEWRONGONE"),
-            (0xca, Ty::U8, "world.xca", "used with TM_MAPQUESTDONE, TM_STRANGESYMBOLS"),
-            (0xcb, Ty::U8, "world.xcb", "values seen 1/2/4/5; used with KARTE_1, KARTE_2, GUARDIAN_WANATRYITAGAIN, PLASMA_BLUE, LIGHTNING_BLUE"),
-            (0xcc, Ty::U8, "world.xcc", "values seen 1; used with BEHAELTER, LIGHTNING_BLUE, E_STARTER"),
-            (0xcd, Ty::U8, "world.xcd", "values seen 1"),
-            (0xce, Ty::U8, "world.xce", "values seen 2; used with DOOR1, CHAINL2, DOOR2, SHACH D GEAR, SCHALTER_1"),
-            (0xcf, Ty::U8, "world.xcf", "values seen 1; used with WURM_2, SPELL EARTHQUAKE, SAVE_HINT"),
-            (0xd0, Ty::U32, "world.xd0", "bit mask; used with SHACH_TRADERX_1TALK, SHACH_TRADERX_TRADE"),
-            (0xd4, Ty::U8, "world.xd4", "values seen 1; used with SHACHGUARD_2ND, QUESTLOG_FIND7GAENS"),
-            (0xd5, Ty::Bytes(3), "world.xd5", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xd8, Ty::Bytes(40), "world.beyond", "past the VULCANO state (0xd8 bytes): always zero"),
-        ],
-        8 => &[
-            (0x00, Ty::U32, "world.timer[0].event", "timer slot 0: event id (0 = empty)"),
-            (0x04, Ty::I32, "world.timer[0].countdown", "timer slot 0: countdown, 1/480 s; the event fires at <= 0"),
-            (0x08, Ty::U32, "world.timer[0].arg", "timer slot 0: the event's argument"),
-            (0x0c, Ty::U32, "world.timer[1].event", "timer slot 1: event id (0 = empty)"),
-            (0x10, Ty::I32, "world.timer[1].countdown", "timer slot 1: countdown, 1/480 s; the event fires at <= 0"),
-            (0x14, Ty::U32, "world.timer[1].arg", "timer slot 1: the event's argument"),
-            (0x18, Ty::U32, "world.timer[2].event", "timer slot 2: event id (0 = empty)"),
-            (0x1c, Ty::I32, "world.timer[2].countdown", "timer slot 2: countdown, 1/480 s; the event fires at <= 0"),
-            (0x20, Ty::U32, "world.timer[2].arg", "timer slot 2: the event's argument"),
-            (0x24, Ty::U32, "world.timer[3].event", "timer slot 3: event id (0 = empty)"),
-            (0x28, Ty::I32, "world.timer[3].countdown", "timer slot 3: countdown, 1/480 s; the event fires at <= 0"),
-            (0x2c, Ty::U32, "world.timer[3].arg", "timer slot 3: the event's argument"),
-            (0x30, Ty::U32, "world.timer[4].event", "timer slot 4: event id (0 = empty)"),
-            (0x34, Ty::I32, "world.timer[4].countdown", "timer slot 4: countdown, 1/480 s; the event fires at <= 0"),
-            (0x38, Ty::U32, "world.timer[4].arg", "timer slot 4: the event's argument"),
-            (0x3c, Ty::U8, "world.x3c", "used with TL_BOMB"),
-            (0x3d, Ty::U8, "world.x3d", "used with TL_ACCELERATOR, WP_DAGGER"),
-            (0x3e, Ty::U8, "world.x3e", "used with WP_DAGGER, TL_BOMB"),
-            (0x3f, Ty::U8, "world.x3f", "used with TL_ACCELERATOR, WP_DAGGER"),
-            (0x40, Ty::Bytes(16), "world.x40", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x50, Ty::U32, "world.x50", "accessed by the world script"),
-            (0x54, Ty::U32, "world.x54", "accessed by the world script"),
-            (0x58, Ty::U32, "world.x58", "accessed by the world script"),
-            (0x5c, Ty::U8, "world.x5c", "values seen 0"),
-            (0x5d, Ty::U8, "world.x5d", "values seen 0"),
-            (0x5e, Ty::Bytes(2), "world.x5e", "no reader found for these bytes in the world script (array members or unused)"),
-            (0x60, Ty::U32, "world.x60", "used with TURTLE1, TURTLE2"),
-            (0x64, Ty::Bytes(92), "world.x64", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xc0, Ty::U32, "world.xc0", "used with R_FISH, TURTLE4"),
-            (0xc4, Ty::U32, "world.xc4", "accessed by the world script"),
-            (0xc8, Ty::U32, "world.xc8", "accessed by the world script"),
-            (0xcc, Ty::U32, "world.xcc", "bit mask; used with SEAL SCROLL, SEAL SWORD, SEAL SHIELD, SEAL GEAR, _WALL"),
-            (0xd0, Ty::U32, "world.xd0", "bit mask; values seen 1; used with FD4D, FD3C, FD2D, FD3D, FD1B"),
-            (0xd4, Ty::U32, "world.xd4", "used with B_1B, B_1C, B_1D, B_2A, B_2B"),
-            (0xd8, Ty::U8, "world.timers_used", "timer slots in use (0..5)"),
-            (0xd9, Ty::U8, "world.xd9", "used with SYMBOL1A, SYMBOL1B"),
-            (0xda, Ty::U8, "world.xda", "used with SYMBOL1B, SYMBOL2A"),
-            (0xdb, Ty::U8, "world.xdb", "used with SYMBOL2A, SYMBOL2B"),
-            (0xdc, Ty::U8, "world.xdc", "used with SYMBOL2B, SYMBOL3A"),
-            (0xdd, Ty::U8, "world.xdd", "used with SYMBOL3A, SYMBOL3B"),
-            (0xde, Ty::U8, "world.xde", "used with SYMBOL3B"),
-            (0xdf, Ty::U8, "world.xdf", "values seen 0; used with MPL_1E"),
-            (0xe0, Ty::U8, "world.xe0", "values seen 4/255; used with MPL_1E"),
-            (0xe1, Ty::U8, "world.xe1", "used with KEYLOCK_A2, KEYLOCK_A3, KEYLOCK_A4, KEYLOCK_A1, KEYLOCK_A5"),
-            (0xe2, Ty::U8, "world.xe2", "used with KEYLOCK_B2, KEYLOCK_B1, KEYLOCK_B3, KEYLOCK_B4, E_KEYLOCKB1"),
-            (0xe3, Ty::U8, "world.xe3", "used with KEYLOCK_C1, KEYLOCK_C2, E_KEYLOCKC1, E_KEYLOCKC2, KEYLOCK_B4"),
-            (0xe4, Ty::U8, "world.xe4", "values seen 0/1/3; used with PARROT_CODEE, PARROT_CODED, PARROT_CODEB, PARROT_CODEC, PARROT_TRASHTALK"),
-            (0xe5, Ty::U8, "world.xe5", "values seen 10/20/30/40/50; used with OLDONE, VOODOO2, VOODOO3, VOODOO1, VOODOO4"),
-            (0xe6, Ty::U8, "world.xe6", "values seen 0/1/2/4/16/255; used with E_RC, RM PLASMA, RMMANAANIM1A_001, CRYSTAL_GREEN, E_GC"),
-            (0xe7, Ty::U8, "world.xe7", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xe8, Ty::U16, "world.xe8", "values seen 0; used with SWITCHD01, SWITCHD02, SWITCHD03, SWITCHD04, SWITCHD05"),
-            (0xea, Ty::U16, "world.xea", "values seen 2409; used with TORCH14, TORCH21, TORCH22, TORCH23, TORCH24"),
-            (0xec, Ty::U8, "world.xec", "values seen 1/2; used with ASWEAPON2_MASTER1TALK, ASWEAPON2_SHORT2TALK"),
-            (0xed, Ty::U8, "world.xed", "values seen 1/2; used with ASMAGIC2_MASTER1TALK, MSTONE2, MSTONE3, MSTONE4, MSTONE5"),
-            (0xee, Ty::U8, "world.xee", "values seen 1/2; used with ASMYST2_MASTER1TALK, ASMYST1_SHORT1TALK, ASMYST2_SHORT2TALK"),
-            (0xef, Ty::U8, "world.xef", "values seen 1/2; used with ASDEF2_MASTER1TALK, ASDEF1_SHORT1TALK, ASDEF2_SHORT2TALK"),
-            (0xf0, Ty::U8, "world.xf0", "values seen 1; used with SEAL SHIELD, SEAL GEAR, BGROUND, W_BOULDERDASH, OLD_ONES_FIGHT_I"),
-            (0xf1, Ty::U8, "world.xf1", "values seen 1; used with QUESTLOG_FINDCLOCK, QUESTLOG_REPAIRCLOCK, ASTEMPLE_SHORT1TALK"),
-            (0xf2, Ty::U8, "world.xf2", "values seen 3; used with FIRE2, FIRE1, TRAPDOOR2"),
-            (0xf3, Ty::U8, "world.xf3", "values seen 1; used with RMMANAANIM1A_001, R_ASQOLDONE_ENEMY, SAVE_HINT, OLD_ONES_FIGHT_II"),
-            (0xf4, Ty::U8, "world.xf4", "values seen 1; used with TM_NEEDPOWPEARL"),
-            (0xf5, Ty::Bytes(3), "world.xf5", "no reader found for these bytes in the world script (array members or unused)"),
-            (0xf8, Ty::Bytes(8), "world.beyond", "past the RUINS state (0xf8 bytes): always zero"),
-        ],
-        _ => &[],
+/// A field of a world's state: offset in it, type, name (below `world.`), label, meaning.
+#[derive(Debug, Clone)]
+pub struct WField {
+    pub off: usize,
+    pub ty: Ty,
+    pub name: String,
+    pub label: Label,
+    pub doc: String,
+}
+
+struct L(Vec<WField>);
+
+impl L {
+    fn f(
+        &mut self,
+        off: usize,
+        ty: Ty,
+        name: impl Into<String>,
+        doc: impl Into<String>,
+    ) -> &mut Self {
+        self.l(off, ty, name, Label::None, doc)
+    }
+
+    fn l(
+        &mut self,
+        off: usize,
+        ty: Ty,
+        name: impl Into<String>,
+        label: Label,
+        doc: impl Into<String>,
+    ) -> &mut Self {
+        self.0.push(WField {
+            off,
+            ty,
+            name: name.into(),
+            label,
+            doc: doc.into(),
+        });
+        self
+    }
+
+    fn unused(&mut self, off: usize, n: usize) -> &mut Self {
+        let ty = if n == 1 { Ty::U8 } else { Ty::Bytes(n) };
+        self.f(
+            off,
+            ty,
+            format!("unused_{off:02x}"),
+            "unused: no code reads or writes it",
+        )
+    }
+
+    /// `n` timer slots from offset 0: an event id (`empty` when free), a countdown in 1/480 s
+    /// (the event fires at <= 0) and the event's argument.
+    fn timers(&mut self, n: usize, empty: &str, events: &str) -> &mut Self {
+        for i in 0..n {
+            let b = 12 * i;
+            self.f(
+                b,
+                Ty::U32,
+                format!("timer[{i}].event"),
+                format!("timer slot {i}: event id ({empty} = free){events}"),
+            );
+            self.f(
+                b + 4,
+                Ty::I32,
+                format!("timer[{i}].countdown"),
+                format!("timer slot {i}: countdown in 1/480 s; the event fires at <= 0"),
+            );
+            self.f(
+                b + 8,
+                Ty::U32,
+                format!("timer[{i}].arg"),
+                format!("timer slot {i}: the event's argument"),
+            );
+        }
+        self
+    }
+
+    /// A shop of `n` entries from offset 0.
+    fn shop(&mut self, n: usize, name: &str) -> &mut Self {
+        for i in 0..n {
+            let b = 5 * i;
+            self.l(b, Ty::I8, format!("shop[{i}].item"), Label::ShopItem, format!("{name} entry {i}: item type (the trade screen's own numbering; 127 ends the list, read up to 16 entries)"));
+            self.f(b + 1, Ty::U8, format!("shop[{i}].stock"), format!("{name} entry {i}: units on offer (0 hides the entry); a purchase takes a pack: 10 for ammunition, 5 for chalk, else 1"));
+            self.f(b + 2, Ty::U8, format!("shop[{i}].cap"), format!("{name} entry {i}: the most the merchant holds when buying back (selling needs stock < cap)"));
+            self.f(
+                b + 3,
+                Ty::U8,
+                format!("shop[{i}].buy"),
+                format!("{name} entry {i}: price of a pack in 5 gold"),
+            );
+            self.f(
+                b + 4,
+                Ty::U8,
+                format!("shop[{i}].sell"),
+                format!(
+                    "{name} entry {i}: what he pays for a pack in 5 gold (255: he does not buy it)"
+                ),
+            );
+        }
+        self
+    }
+
+    /// Bytes each a flag or stage, named `name[i]`.
+    fn bytes(&mut self, off: usize, names: &[(&str, &str)]) -> &mut Self {
+        for (i, (n, d)) in names.iter().enumerate() {
+            self.f(off + i, Ty::U8, *n, *d);
+        }
+        self
+    }
+
+    /// Sorted, checked to cover `len` bytes, the rest of the 256 as `beyond`.
+    fn finish(mut self, world: &str, len: usize) -> Vec<WField> {
+        self.0.sort_by_key(|f| f.off);
+        let mut at = 0;
+        for f in &self.0 {
+            assert_eq!(
+                f.off, at,
+                "{world}: {} at {:#x}, expected {at:#x}",
+                f.name, f.off
+            );
+            at += f.ty.size();
+        }
+        assert_eq!(at, len, "{world}: covers {at:#x} of {len:#x}");
+        if len < 0x100 {
+            self.0.push(WField {
+                off: len,
+                ty: Ty::Bytes(0x100 - len),
+                name: "beyond".into(),
+                label: Label::None,
+                doc: format!("past the {world} state ({len:#x} bytes): always zero"),
+            });
+        }
+        self.0
     }
 }
+
+/// The layout of `world`'s state (empty for a world outside 1..=8).
+pub fn layout(world: u8) -> Vec<WField> {
+    match world {
+        1 => dreamer(),
+        2 => steamer(),
+        3 => thehive(),
+        4 => forest(),
+        5 => canyon(),
+        6 => tower(),
+        7 => vulcano(),
+        8 => ruins(),
+        _ => Vec::new(),
+    }
+}
+
+const DAY_QUESTS: &[&str] = &["BOOKS", "ROSE", "BALLON", "FERN", "STULLE", "WINE"];
+const TOWN_INFO: &[&str] = &["QUAKE", "SHACH", "DANNY", "RACES", "LAW"];
+
+fn dreamer() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.timers(8, "0xdeadbeef", "; 0x100 the bell (arg: strikes left), 0xa the mystic music (not kept in a save: the save drops ids 1..0xff)");
+    l.f(0x60, Ty::U8, "night", "0 day, 1 night (set in the tutorial room once the combat tutorial is beaten and the COMPASS held): the town's doors lead to the night town, the day quest log entries go, people say their night lines");
+    l.f(
+        0x61,
+        Ty::U8,
+        "clock",
+        "0..6: +1 a day quest finished; the clock's picture and the bell's strikes",
+    );
+    l.l(0x62, Ty::U8, "day_quests_done", Label::Flags(DAY_QUESTS), "day quests done (BOOKS: the book to Librarius, ROSE: Saris, BALLON: Danny, FERN: Salik, STULLE: Larisa, WINE: Hernt); all six (0x3f): the uncle's note goes, his door opens");
+    l.l(0x63, Ty::U8, "town_info", Label::Flags(TOWN_INFO), "the town's news heard (QUAKE: guards, Sandem, Firna; SHACH: guard 2, Listach, Glacnore; DANNY: Danny, Klarisa, the old man, Ansgar; RACES and LAW: the books, Sabrina, Salik); all five (0x1f): the messengers come");
+    l.l(
+        0x64,
+        Ty::U8,
+        "day_quests_rewarded",
+        Label::Flags(DAY_QUESTS),
+        "day_quests_done when last rewarded: each new bit gives 1000 experience",
+    );
+    l.l(
+        0x65,
+        Ty::U8,
+        "town_info_rewarded",
+        Label::Flags(TOWN_INFO),
+        "town_info when last rewarded: each new bit gives 400 experience",
+    );
+    l.bytes(0x66, &[
+        ("drunken_talked", "1 = the drunkard talked to (adds QUESTLOG_FINDKEY)"),
+        ("danny_talked", "1 = Danny talked to (QUESTLOG_BALLON); done is day_quests_done BALLON"),
+        ("hernt", "0 not talked to, 1 wants wine (QUESTLOG_WINE), 2 wine brought (WINE done, clock + 1)"),
+        ("salik", "0 not talked to, 1 wants a fern (QUESTLOG_FERN), 2 fern brought (FERN and LAW, clock + 1); the shadow fern gives Q_FARN below 2"),
+        ("bachus", "0 not met, 1 met (FINDKEY done), 2 wine bought (5 gold; needs hernt 1)"),
+        ("larisa_talked", "1 = Larisa talked to (QUESTLOG_STULLE)"),
+        ("talissa_talked", "0 = Talissa's first line, else her second (nothing in the world script sets it)"),
+        ("saris_talked", "1 = Saris talked to"),
+        ("sabrina", "0 = Sabrina's first line (sets town_info RACES), 1 = her last"),
+        ("vesneggs", "the night's rats: 0 not talked to, 1 told, rats left, 2 all rats dead, 3 thanked (QUESTLOG_RATS done)"),
+        ("sengarn_thanked", "1 = Sengarn thanked the hero (needs BOOKS)"),
+        ("librarius_talked", "1 = Librarius talked to (QUESTLOG_BOOKS)"),
+        ("bellboy_talked", "1 = the bellboy talked to"),
+        ("rissen", "0 not met, 1 met (GOUNCLE done), 2 sent to the cellar for the compass (needs messenger_came; QUESTLOG_COMPASS), 3 at night sent to his mother (COMPASS done)"),
+        ("firna", "0 not met, 1 met by day (adds GOUNCLE, town_info QUAKE), 2 found at night (FINDMOTHER done, QUESTLOG_TRANQ added)"),
+        ("syrandoron", "0 not met, 1 met, 2 Glacnore's news passed on (needs glacnore 2)"),
+        ("hint_weapon", "1 = the weapon hint shown (WP_DAGGER held)"),
+        ("silver_key_taken", "1 = KEY_SILVER picked up (the key is gone on later visits)"),
+        ("hint_questitem", "1 = the quest item hint shown"),
+        ("hint_useable", "1 = the usable item hint shown"),
+        ("tutorial_hint_due", "1 = the next tutorial hint shows (set on entering any DREAMER level but the first)"),
+        ("tutorial_hint_step", "0..5: 0 the map, 2 the map's shortcut, 4 experience, 1 and 3 silent, 5 done"),
+        ("glacnore", "0 not met (sets town_info SHACH), 1 wants 5 gold, 2 paid, news bought"),
+        ("guard3_asleep", "1 = the tranquilliser given to Firna: guard 3 sleeps, the back door lets through"),
+        ("messenger_came", "1 = a messenger scene played (people say to go to the uncle; rissen can reach 2)"),
+        ("combat_tutorial", "0 not started, 1 running (its doors shut, enemies), 2 beaten (its door opens)"),
+        ("idle_hint", "level 5's idle hint: 0 off, 1 armed, 2 shown or cancelled"),
+    ]);
+    l.unused(0x81, 3);
+    l.f(
+        0x84,
+        Ty::I32,
+        "idle_hint_countdown",
+        "1/480 s, from 7200 (15 s); the hint shows at <= 0 while the hero stands still",
+    );
+    l.f(
+        0x88,
+        Ty::I32,
+        "idle_hint_x",
+        "the hero's x when the hint was armed (moving cancels it)",
+    );
+    l.f(
+        0x8c,
+        Ty::I32,
+        "idle_hint_z",
+        "the hero's z when the hint was armed",
+    );
+    l.f(
+        0x90,
+        Ty::U8,
+        "timers_used",
+        "timer slots in use, 0..8 (no more are taken at 8)",
+    );
+    l.unused(0x91, 3);
+    l.finish("DREAMER", 0x94)
+}
+
+const STEAMER_FLAGS: &[&str] = &[
+    "spooky_scene",
+    "miners_overheard",
+    "corks_all_in",
+    "crypt_c_cleared",
+    "asfulo_caught_hero",
+    "pneul_fitted",
+    "oil_applied",
+    "tanks_balanced",
+    "left_house2_with_oilcan",
+    "diary_read",
+    "explosion_played",
+    "fountain_running",
+    "tumpo_latch",
+    "crowbar1_placed",
+    "crowbar2_placed",
+    "arrived_steamer_a",
+    "lockmaster_door_open",
+    "miner_rescue_started",
+    "spooky2_scene",
+    "shop_open",
+    "firewall_trap_running",
+    "gold_key_dropped",
+];
+
+fn steamer() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.shop(13, "MERCHANT_TRADE");
+    l.unused(0x41, 3);
+    l.l(0x44, Ty::U32, "flags", Label::Flags(STEAMER_FLAGS), "STEAMER's events (tumpo_latch, shop_open, firewall_trap_running only while they last; bits 22..31 unused)");
+    l.bytes(0x48, &[
+        ("day_phase", "0 the first day, 1 night (the smith took the ore; the exits lead to the night levels 12..15), 2 the second day"),
+        ("tumpo_beans", "0 nothing, 1 Q_LEBERTRAN put in Tumpo's oven, 2 beans cooked into the stew (Q_SUPPE_LEER taken)"),
+        ("baras", "0 not met, 1 guards the miners' door (QUESTLOG_BARAS), 2 given the tainted stew: gone, the miners' door leads to level 22"),
+        ("raake_cat", "0 not talked to, 1 find the cat (QUESTLOG_FINDCAT), 2 Q_KATZE handed over"),
+        ("fathers_door", "0 not reached, 1 found locked (FINDHOUSE done, GETKEY added), 2 opened with KEY_COPPER (leads to level 19)"),
+        ("smith", "0 not talked to, 1 talked to, 2 asked for ore (GETORE), 3 ore brought (night falls), 4 the second day, key given (GETKEY done), 5 sent to the power plant (needs flags explosion_played)"),
+        ("engineer", "0 not met, 1 talked to (QUESTLOG_ENGINEER), 2 job taken (names the repair still missing), 3 done"),
+        ("sonta_talked", "1 = Sonta talked to (QUESTLOG_CORK)"),
+        ("bwall_blown", "1 = BWALL (level 5) blown with Q_TNT (broken again on loading)"),
+        ("bwall2_blown", "1 = BWALL2 (level 7) blown"),
+        ("bwall3_blown", "1 = BWALL3 (level 5) blown"),
+        ("in_room_i", "1 while the hero is in crypt A's room I (its plasma door opens while all four places are taken)"),
+        ("room_h_fight", "1 = room H's plasma door shut, its fight running; 0 once its enemies are dead"),
+        ("room_f_fight", "the same for crypt B's room F"),
+        ("jumped_c_to_a", "1 = took the jump to crypt A: its plasma door B stays open"),
+    ]);
+    for i in 0..6 {
+        l.f(0x57 + i, Ty::U8, format!("cork[{i}]"), format!("CORK{}: 0 open, 1 plugged with Q_KORK (1..4 in STEAMER_A, 5 and 6 in STEAMER_C); all six: flags corks_all_in", i + 1));
+    }
+    l.bytes(0x5d, &[
+        ("hop_game", "hopscotch with KID1: 0 never started, 1 between rounds or failed, 2 a round running, 3 won (SCRAPYARD done, the yard's fence broken)"),
+        ("hop_round_len", "fields of the round: 3, then 5, then 7"),
+        ("hop_jumped", "1 = jumped since the last field (while a round runs)"),
+        ("hop_pos", "the next field (reset by a fault and each round)"),
+        ("kid1_talked", "1 = KID1 talked to (QUESTLOG_SCRAPYARD)"),
+    ]);
+    for i in 0..3 {
+        l.f(
+            0x62 + i,
+            Ty::U8,
+            format!("tank_level[{i}]"),
+            format!(
+                "pressure in tank {}, 0..6 (6/0/0 when the fountain restarts; 2/2/2 balances them)",
+                i + 1
+            ),
+        );
+    }
+    for i in 0..3 {
+        l.f(
+            0x65 + i,
+            Ty::U8,
+            format!("junction[{i}]"),
+            format!(
+                "JUNCT{}'s direction 0..3 (its lever cycles 0, 2, 1, 3)",
+                i + 1
+            ),
+        );
+    }
+    l.bytes(0x68, &[
+        ("lorry_node", "the mine lorry's track node 0..12 (7..9 junctions, 10 and 11 under the rock chute, 12 the dead end at BWALL4)"),
+        ("lorry_dir", "the lorry's direction 0..3"),
+        ("lorry_loaded", "1 = rocks fell into the lorry"),
+        ("bwall4_smashed", "1 = the loaded lorry smashed BWALL4: the track goes on, level 4's lift door opens"),
+    ]);
+    l.l(
+        0x6c,
+        Ty::U16,
+        "lorry_angle",
+        Label::Angle,
+        "the lorry's heading (restored on loading)",
+    );
+    l.bytes(
+        0x6e,
+        &[
+            (
+                "lorry_moving",
+                "1 while the lorry is pushed (levers are ignored)",
+            ),
+            (
+                "miner_freed",
+                "1 = the injured miner rescued (FREEMINER done)",
+            ),
+            ("jola_talked", "1 = Jola talked to"),
+            ("room_i_scene_seen", "1 = room I's camera scene played"),
+            (
+                "switchman_scene",
+                "1 = the switchman's kick-out scene running (level 17)",
+            ),
+            (
+                "light_switch_on",
+                "the switch house's light: 1 on (the switchman goes to turn it off), 0 off",
+            ),
+            (
+                "lorry_exploded",
+                "1 = the lorry exploded (level 7's crash wall is used again)",
+            ),
+            (
+                "talked_soldier1",
+                "0 = guard 1's first line next, 1 = his night or second line",
+            ),
+            ("talked_soldier2", "the same for guard 2"),
+        ],
+    );
+    for (i, who) in [
+        "STATISTM1",
+        "STATISTM2",
+        "STATISTM3",
+        "STATISTM4 (adds SCRAPYARD)",
+        "STATISTW1 (adds FREEMINER)",
+        "STATISTW2",
+        "STATISTW3 (adds ENGINEER)",
+        "STATISTW4 (adds SCRAPYARD)",
+        "INNGUEST2",
+        "NURSE1",
+        "NURSE2",
+        "VICTIM",
+        "MOSTIK",
+        "RULOF",
+        "NANDA (adds FREEMINER)",
+        "GRIMHILDE",
+    ]
+    .iter()
+    .enumerate()
+    {
+        l.f(
+            0x77 + i,
+            Ty::U8,
+            format!("talked[{i}]"),
+            format!("{who}: 0 = the first line next (then 1), 1 = the second"),
+        );
+    }
+    l.bytes(0x87, &[
+        ("save_hint_seen", "1 = the scrapyard's save hint fired (its set-up is rebuilt on entry)"),
+        ("trashy_killed", "0 alive (the junk guard blocks the way), 1 killed (Q_PNEUL dropped again if never taken)"),
+    ]);
+    l.unused(0x89, 3);
+    l.f(
+        0x8c,
+        Ty::I32,
+        "switchhouse_light",
+        "the switch house's light blend 0..4096 (towards light_switch_on)",
+    );
+    l.f(
+        0x90,
+        Ty::U16,
+        "switchman.x",
+        "ST_SWITCHMAN: x >> 8 (restored on entering level 17 from a save)",
+    );
+    l.f(0x92, Ty::U16, "switchman.z", "ST_SWITCHMAN: z >> 8");
+    l.l(
+        0x94,
+        Ty::U16,
+        "switchman.heading",
+        Label::Angle,
+        "ST_SWITCHMAN: heading",
+    );
+    l.f(
+        0x96,
+        Ty::U16,
+        "switchman.waypoint",
+        "ST_SWITCHMAN: path node (0xffff = none)",
+    );
+    l.f(0x98, Ty::U8, "switchman.ai_state", "ST_SWITCHMAN: 1 sent to the switch, 3 at it, 4 turned it off, 7 noticed the hero (0 idle, unsure)");
+    l.f(
+        0x99,
+        Ty::U8,
+        "switchman.path_dir",
+        "ST_SWITCHMAN: walking direction along his path (0 or 1; which is forward unsure)",
+    );
+    l.l(0x9a, Ty::U8, "corks_found", Label::Flags(&["haus1", "haus2", "haus3", "gasthaus", "haus1_dropped", "haus2_dropped", "haus3_dropped", "gasthaus_dropped"]), "Q_KORK's search spots: a cork collected there (bits 0..3), or dropped but not yet taken (4..7, dropped again on entry)");
+    l.unused(0x9b, 1);
+    for (n, base) in [(1, 0x9c), (2, 0xac)] {
+        let p = format!("lifepool{n}");
+        l.f(
+            base,
+            Ty::I32,
+            format!("{p}.level"),
+            format!(
+                "healing fountain {n} (crypt {}): its fill, HP << 12 (30 HP when full)",
+                if n == 1 { "A" } else { "B" }
+            ),
+        );
+        l.f(
+            base + 4,
+            Ty::I32,
+            format!("{p}.capacity"),
+            "its full level, HP << 12",
+        );
+        l.f(
+            base + 8,
+            Ty::I32,
+            format!("{p}.drain"),
+            "what is still to drain after a use",
+        );
+        l.f(
+            base + 0xc,
+            Ty::U8,
+            format!("{p}.refilling"),
+            "1 = refilling",
+        );
+        l.f(
+            base + 0xd,
+            Ty::U8,
+            format!("{p}.ready"),
+            "1 = usable (a use sets 0)",
+        );
+        l.unused(base + 0xe, 2);
+    }
+    l.finish("STEAMER", 0xbc)
+}
+
+fn thehive() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.bytes(0, &[
+        ("symbol_puzzle_on", "level 8: 1 between its start and stop triggers (the symbols are checked only then)"),
+        ("door_north_open", "1 = DOORNORTH open (with SYMBOL_2, 4, 9 active; one door at a time: north, east, south)"),
+        ("door_east_open", "1 = DOOREAST open (SYMBOL_7, 3, 6); 1 at the world's start"),
+        ("door_south_open", "1 = DOORSOUTH open (SYMBOL_1, 5, 8)"),
+        ("riddle1_presses", "level 2: SWITCHRIDDLE1 pressed, counting to 2"),
+        ("riddle2_presses", "level 2: SWITCHRIDDLE2 pressed, counting to 2"),
+        ("fredo", "Fredo: 0 not talked to, 1 the short pass (gives 2000 experience, then 2), 2 done"),
+        ("fairy_exit_open", "1 = the fairy exit opened after the big spider died (opened again on entering level 10)"),
+        ("father_met", "0: QUESTLOG_FATHER added on entry; 1 = the father's scene done (EXITHIVE added, 3000 experience)"),
+        ("teleporter_a", "level 6: 1 = plant A activated with TELEKEYBLK (its ring and fields on)"),
+        ("teleporter_b", "1 = plant B activated with TELEKEYRED"),
+        ("teleporter_c", "1 = plant C activated with TELEKEYBLU"),
+        ("teleporter_d", "1 = plant D activated with TELEKEYGRE"),
+    ]);
+    for (i, (lvl, n)) in [("level 4", 7), ("level 7", 2), ("level 8", 2)]
+        .iter()
+        .enumerate()
+    {
+        l.f(0x0d + i, Ty::U8, format!("bridges[{i}]"), format!("{lvl}: bit i = BRIDGE(i+1) extended (bits 0..{}), bit 7 = taken when leaving the level", n - 1));
+    }
+    l.bytes(
+        0x10,
+        &[
+            (
+                "crystal",
+                "level 7: 0 the crystal on, 1 switched off, 2 the vision shown",
+            ),
+            ("spiderdoor_shown", "1 = the spider door's opening shown"),
+            (
+                "spider_fight_started",
+                "1 = the spider's prelude done (with spider_dead 0 the boss comes back on entry)",
+            ),
+            ("spider_dead", "1 = the big spider killed"),
+            ("intro_done", "1 = level 1's arrival done (Q_KORK taken)"),
+            (
+                "foundstone_said",
+                "1 = Melvin's line on the first stone found",
+            ),
+        ],
+    );
+    l.l(
+        0x16,
+        Ty::U8,
+        "bwalls",
+        Label::Flags(&["bwall1", "bwall2", "bwall_1_level2"]),
+        "walls broken (BWALL1 and BWALL2 in level 5, BWALL_1 in level 2; broken again on entry)",
+    );
+    l.finish("THEHIVE", 0x17)
+}
+
+const FOREST_FLAGS: &[&str] = &[
+    "harp_strung",
+    "lisa_latch",
+    "fairy_gold_used",
+    "near_radunzchen",
+    "mantis_silk",
+    "shrink_exit_pending",
+    "basket1_placed",
+    "basket2_placed",
+    "mantis_scene",
+    "maze_cleared",
+    "bit10",
+    "heliana_smiled",
+    "raga_defeated",
+    "poppa_staked",
+    "fiona_latch",
+    "duel_light1",
+    "duel_light2",
+    "race_won",
+    "after_race_scene",
+    "gwen_out",
+    "beam_effect",
+    "target_shot",
+    "horn_solved",
+    "shop_open",
+    "right_formula_read",
+    "wrong_formula_read",
+    "race_quest_given",
+    "level3_intro",
+    "mantises_killed",
+    "raft_at_target",
+];
+
+/// A raft's record (0x2e bytes): snapshot when leaving the level and saving, restored on
+/// entering its level from a save.
+fn raft(l: &mut L, base: usize, name: &str) {
+    let p = name.to_lowercase();
+    l.f(
+        base,
+        Ty::U32,
+        format!("{p}.pos"),
+        format!("{name}: position, bits 0..9 x / 512, 10..19 y / 512, 20..29 z / 512"),
+    );
+    l.f(
+        base + 4,
+        Ty::I32,
+        format!("{p}.rock_phase"),
+        "rocking clock",
+    );
+    l.f(
+        base + 8,
+        Ty::I32,
+        format!("{p}.from_x"),
+        "the current leg's start: x",
+    );
+    l.f(
+        base + 0xc,
+        Ty::I32,
+        format!("{p}.from_z"),
+        "the current leg's start: z",
+    );
+    l.f(
+        base + 0x10,
+        Ty::I32,
+        format!("{p}.to_x"),
+        "its destination: x",
+    );
+    l.f(
+        base + 0x14,
+        Ty::I32,
+        format!("{p}.to_z"),
+        "its destination: z",
+    );
+    l.f(
+        base + 0x18,
+        Ty::I32,
+        format!("{p}.leg_len"),
+        "the leg's length",
+    );
+    l.f(
+        base + 0x1c,
+        Ty::I32,
+        format!("{p}.progress"),
+        "-1 idle, else the distance travelled",
+    );
+    l.f(
+        base + 0x20,
+        Ty::I16,
+        format!("{p}.turning"),
+        "-1 no, 0 turning to turn_heading",
+    );
+    l.f(
+        base + 0x22,
+        Ty::I16,
+        format!("{p}.dip_phase"),
+        "-1 none, 0..0x800 the dip when someone steps on",
+    );
+    l.l(
+        base + 0x24,
+        Ty::U16,
+        format!("{p}.turn_heading"),
+        Label::Angle,
+        "the turn's target heading",
+    );
+    l.f(
+        base + 0x26,
+        Ty::U16,
+        format!("{p}.ease_mode"),
+        "0 or 1, set at each leg's start",
+    );
+    l.f(
+        base + 0x28,
+        Ty::U16,
+        format!("{p}.rider_latch"),
+        "1 while someone is aboard",
+    );
+    l.l(
+        base + 0x2a,
+        Ty::U16,
+        format!("{p}.heading"),
+        Label::Angle,
+        "the raft's heading",
+    );
+    l.f(
+        base + 0x2c,
+        Ty::U16,
+        format!("{p}.activated"),
+        "0 = does nothing until first boarded",
+    );
+}
+
+fn forest() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.shop(13, "LONICERA_TRADE");
+    l.unused(0x41, 3);
+    raft(&mut l, 0x44, "RAFT");
+    l.unused(0x72, 2);
+    raft(&mut l, 0x74, "RAFT2");
+    l.unused(0xa2, 2);
+    for k in 0..5 {
+        let b = 0xa4 + 8 * k;
+        l.f(
+            b,
+            Ty::U32,
+            format!("cable[{k}].pos"),
+            format!("CABLE{}: position, packed as a raft's (level 2)", k + 1),
+        );
+        l.f(
+            b + 4,
+            Ty::U16,
+            format!("cable[{k}].board_timer"),
+            "counts up to 0x200 while someone waits aboard, then it departs",
+        );
+        l.f(
+            b + 6,
+            Ty::U16,
+            format!("cable[{k}].state"),
+            "0 to end B, 1 to end A, 2 parked, waiting, 3 arrived with the rider aboard",
+        );
+    }
+    l.l(0xcc, Ty::U32, "flags", Label::Flags(FOREST_FLAGS), "FOREST's events (the latches, near_radunzchen, poppa_staked, the duel lights, beam_effect, shop_open only while they last; bits 30, 31 unused)");
+    l.bytes(0xd0, &[
+        ("l10_once", "level 10's set-up ran (cleared on every entry)"),
+        ("siniver", "0 not talked to, 1 talked to (QUESTLOG_FINDBUCKETF), 2 Merina got her water, 3 ticket given (QUESTLOG_FREEGWEN), 4 Gwen freed, done"),
+        ("merina", "0 not talked to, 1 asked for water, 2 Q_BUCKET_F handed over"),
+        ("myrka", "0 not talked to, 1 sent to the meadow (QUESTLOG_GOMEADOW), 2 fairy gold made"),
+        ("elebeth", "0 not talked to, 1 wants Q_MANTISSILK and Q_BEESTING (QUESTLOG_REAGENTS), 2 both given"),
+        ("duna", "0 not talked to, 1 seals quest given (FINDSEALS, FINDHERB), 2 the three hearts brought, 3 Q_WEED too, done"),
+        ("teli_talked", "1 = Teli talked to"),
+        ("fendia_talked", "1 = Fendia talked to"),
+        ("jeck", "0 not talked to, 1 passing, 2 riddle asked, 3 solved"),
+        ("corina", "0 not talked to, 1 basket quest given (QUESTLOG_FINDBASKET), 2 both baskets placed"),
+        ("irwen", "0 not talked to, 1 talked to, 2 wants Q_BUCKET_E, 3 bucket swapped for Q_FLOWER_WI and Q_BUCKET_F"),
+        ("aruna", "0 not talked to, 1 wants fork and knife (QUESTLOG_FINDTOOLS), 2 both shown, Q_STRINGS given, 3 harp strung"),
+        ("apydia", "0 not talked to, 1 Q_BEEGLASS given (QUESTLOG_GETBEES), 2 five bees brought"),
+        ("lonicera", "0 not talked to, 1 wants honey, 2 Q_HONEY brought, 3 ray glass offered (needs horpach 5), 4 ray glass given (needs horpach 7); her shop opens from 2"),
+        ("horpach", "0 not talked to, 1 wants the wand, 2 got Q_WAND, 3 asked for flowers, 4 all flowers but no formula, 5 antidote made, 6 duel ready, 7 lost the duel (Q_ZAHNRAD taken)"),
+        ("amber_talked", "1 = Amber talked to: the horn melody puzzle is armed"),
+        ("bombground1", "1 = BOMBGROUND1 (level 6, heart C) blown"),
+        ("bombground2", "1 = BOMBGROUND2 (level 4, heart B) blown"),
+        ("bombground3", "1 = BOMBGROUND3 (level 3, heart A) blown"),
+        ("heliana", "0 not healed, 1 her smile scene started, 2 talked to after it"),
+    ]);
+    l.f(
+        0xe4,
+        Ty::I8,
+        "raft_route",
+        "the level 0x1b raft's route (row of its route table)",
+    );
+    l.f(0xe5, Ty::I8, "raft_step", "the next waypoint of the route");
+    l.f(
+        0xe6,
+        Ty::I8,
+        "raft_target",
+        "chosen route: 0 the start, 1..3 the switches, 4 the exit",
+    );
+    l.bytes(0xe7, &[
+        ("aruna_fork", "not 0 = Q_TUNINGFORK shown to Aruna"),
+        ("aruna_knife", "not 0 = Q_KNIFE shown to Aruna"),
+        ("gwen_freed", "1 = Raga's and Gwen's scene done"),
+        ("fiona_won", "1 = Fiona's game won"),
+        ("sarina", "0 not talked to, 1 asked to clear the maze (QUESTLOG_HELPSARINA), 2 cleared"),
+        ("leona", "0 not talked to, 1 the maze not done, 2 flower given"),
+        ("meriven", "0 not talked to, 1 talked to, 2 wants Q_RAYGLASS_E, 3 told how to use it (QUESTLOG_USEVESSEL), 4 Q_RAYGLASS_F shown"),
+    ]);
+    for i in 0..5 {
+        l.f(
+            0xee + i,
+            Ty::U8,
+            format!("bee_caught[{i}]"),
+            format!("1 = BEE{} gone (level 2; hidden on entry)", i + 1),
+        );
+    }
+    l.bytes(
+        0xf3,
+        &[
+            ("guardian_passed", "1 = past the Guardian with Q_TICKET"),
+            (
+                "duna_herb_seen",
+                "1 = Q_WEED shown to Duna before the seals",
+            ),
+            ("fiona_met", "1 = Fiona talked to"),
+            (
+                "first_l1d",
+                "first arrival in level 0x1d done (it clears the quest log)",
+            ),
+            ("first_l1", "first arrival in level 1 done"),
+            ("first_l1a", "first arrival in level 0x1a done"),
+            ("save_hint", "1 = level 0x1c's save hint fired"),
+            (
+                "irwen_bucket_asked",
+                "1 = Irwen asked for a bucket (QUESTLOG_FINDBUCKET)",
+            ),
+            ("sarina_rewarded", "1 = Sarina's reward paid"),
+            ("kobold_door_open", "1 = the kobold door in level 5 opened"),
+            (
+                "raft_respawn",
+                "1 = the raft's respawn point reached (stops its route's reset)",
+            ),
+        ],
+    );
+    l.f(
+        0xfe,
+        Ty::I16,
+        "trap_rearm",
+        "1/480 s until WD_TRAP is armed again (1440 when it fires)",
+    );
+    l.finish("FOREST", 0x100)
+}
+
+const CANYON_FLAGS: &[&str] = &[
+    "oldone_rescued",
+    "raft_puzzle_solved",
+    "statues_done",
+    "lens_beam_running",
+    "raft1_far",
+    "raft2_far",
+    "raft3_far",
+    "creatures_spawned",
+    "creatures_dead",
+    "lever_drill1_a",
+    "lever_drill1_b",
+    "lever_drill2_a",
+    "lever_drill2_b",
+    "drill_a_driving",
+    "drill_b_driving",
+    "pump_a_running",
+    "pump_b_running",
+    "mana_at_elevator",
+    "pumps_synchronised",
+    "crane_solved",
+    "force_field_destroyed",
+    "talis_scene1",
+    "deathball_defeated",
+    "lever_fitted",
+    "elevator_used",
+    "shop_open",
+    "bwall_blown",
+    "crane_xp_paid",
+];
+
+/// An object's 20-byte snapshot (CANYON's drills): position, movement target, its state.
+fn snapshot20(l: &mut L, base: usize, name: &str) {
+    l.f(
+        base,
+        Ty::U32,
+        format!("{name}.pos"),
+        "position: bits 0..9 x / 512, 10..19 y / 512, 20..29 z / 512 (y is not restored)",
+    );
+    l.f(
+        base + 4,
+        Ty::U32,
+        format!("{name}.target"),
+        "movement target, packed the same way",
+    );
+    for (i, d) in [
+        "object +0x8a",
+        "object +0x8c",
+        "object +0x88",
+        "object +0x8e",
+        "object +0x8c again",
+    ]
+    .iter()
+    .enumerate()
+    {
+        l.f(
+            base + 8 + 2 * i,
+            Ty::U16,
+            format!("{name}.w{i}"),
+            format!("a copy of the {d} (meaning unsure)"),
+        );
+    }
+    l.f(
+        base + 0x12,
+        Ty::U8,
+        format!("{name}.move_state"),
+        "0 idle, 1 turning, 2 ready, 3 driving",
+    );
+    l.unused(base + 0x13, 1);
+}
+
+fn canyon() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.shop(12, "TORLORE_TRADE");
+    l.l(
+        0x3c,
+        Ty::I8,
+        "shop_end",
+        Label::ShopItem,
+        "the shop's end marker (127)",
+    );
+    l.unused(0x3d, 7);
+    l.f(
+        0x44,
+        Ty::I32,
+        "crane_x",
+        "CMINE KRAN's position: x (saved leaving level 9, restored on entry when not 0)",
+    );
+    l.f(0x48, Ty::I32, "crane_y", "the crane's position: y");
+    l.f(0x4c, Ty::I32, "crane_z", "the crane's position: z");
+    l.l(
+        0x50,
+        Ty::U32,
+        "flags",
+        Label::Flags(CANYON_FLAGS),
+        "CANYON's events (lens_beam_running and shop_open while they last; bits 28..31 unused)",
+    );
+    l.l(
+        0x54,
+        Ty::U32,
+        "chests",
+        Label::Flags(&[
+            "bit0",
+            "redcrystal6",
+            "bit2",
+            "bit3",
+            "bit4",
+            "crystal_blue_2",
+            "bit6",
+            "bit7",
+            "bit8",
+            "bit9",
+            "bit10",
+            "bit11",
+            "crystal_yellow_1",
+        ]),
+        "containers opened (restored opened): REDCRYSTAL6, CRYSTAL_BLUE_2, CRYSTAL_YELLOW_1",
+    );
+    l.f(
+        0x58,
+        Ty::U8,
+        "sock_red_1",
+        "1 = CNCRYSTAL_RED put in at E_RED1",
+    );
+    l.f(
+        0x59,
+        Ty::U8,
+        "sock_red_3",
+        "1 = CNCRYSTAL_RED put in at E_RED3",
+    );
+    l.f(
+        0x5a,
+        Ty::U8,
+        "sock_blue_1",
+        "1 = CNCRYSTAL_BLUE put in at E_BLUE1",
+    );
+    l.unused(0x5b, 2);
+    l.f(
+        0x5d,
+        Ty::U8,
+        "sock_blue_4",
+        "1 = CNCRYSTAL_BLUE put in at E_BLUE4",
+    );
+    l.f(
+        0x5e,
+        Ty::U8,
+        "sock_green_1",
+        "1 = CNCRYSTAL_GREEN put in at E_GREEN1",
+    );
+    l.f(
+        0x5f,
+        Ty::U8,
+        "sock_green_2",
+        "1 = CNCRYSTAL_GREEN put in at E_AFTERBABE",
+    );
+    l.unused(0x60, 1);
+    l.f(
+        0x61,
+        Ty::U8,
+        "sock_yellow_2",
+        "1 = CNCRYSTAL_YEL put in at E_YELLOW2",
+    );
+    l.f(
+        0x62,
+        Ty::U8,
+        "sock_yellow_3",
+        "1 = CNCRYSTAL_YEL put in at E_YELLOW3",
+    );
+    l.bytes(
+        0x63,
+        &[
+            (
+                "door1_open",
+                "1 = the first door's trigger fired (SHUTDOOR, NOCOLOR_1 open)",
+            ),
+            (
+                "door2_open",
+                "1 = the second door's trigger fired (NOCOLOR_2 opens)",
+            ),
+            (
+                "lever2",
+                "0 no lever, 1 Q_LEVER fitted (3000 experience), 2 pulled, PLATFORM1 moved",
+            ),
+            ("deadend_rock", "1 = the dead end's earthquake played"),
+            (
+                "torlore_met",
+                "0 = Torlore's first talk next; 1 = talks open his shop",
+            ),
+        ],
+    );
+    l.l(
+        0x68,
+        Ty::U8,
+        "statues",
+        Label::Flags(&["statue1", "statue2", "statue3", "statue4"]),
+        "statues smashed (all four: QUESTLOG_MONSTERS done)",
+    );
+    l.l(
+        0x69,
+        Ty::U8,
+        "lenses_set",
+        Label::Flags(&["red", "green", "blue"]),
+        "lenses placed",
+    );
+    l.f(
+        0x6a,
+        Ty::U8,
+        "lens_turned",
+        "the lens in the beam: 1, 2 or 4 (each use halves it, 0 wraps to 4)",
+    );
+    l.l(
+        0x6b,
+        Ty::U8,
+        "field_broken",
+        Label::Flags(&["red", "green", "blue"]),
+        "force field colours destroyed (all three: QUESTLOG_MINE done, 10000 experience)",
+    );
+    l.f(
+        0x6c,
+        Ty::U8,
+        "lenskeeper",
+        "0 not talked to, 1 wants Q_HORN (QUESTLOG_LENS), 2 horn given, Q_LENS_BLUE received",
+    );
+    for i in 0..4 {
+        l.f(
+            0x6d + i,
+            Ty::U8,
+            format!("raft[{i}]"),
+            format!(
+                "raft {}'s stop: 0 or 1 (its lever toggles it); 2 when all four are solved",
+                i + 1
+            ),
+        );
+    }
+    l.bytes(0x71, &[
+        ("talis_goon", "1 = the mine task given"),
+        ("talis", "0 not met, 1 met (the scorpions come), 2 scorpions dead, 3 rewarded (QUESTLOG_MINE added)"),
+        ("babe_scene", "1 = the cave scene played"),
+        ("l3_cleared", "1 = level 3 cleared"),
+        ("plant_key", "1 = TELEKEYBLK placed: teleporters A1 and A2 on"),
+    ]);
+    l.f(
+        0x76,
+        Ty::I8,
+        "drill_a_step",
+        "drill A's step 0..5 (4 = at its end)",
+    );
+    l.f(
+        0x77,
+        Ty::I8,
+        "drill_b_step",
+        "drill B's step 0..4 (3 = BWALL blown)",
+    );
+    snapshot20(&mut l, 0x78, "drill_a");
+    snapshot20(&mut l, 0x8c, "drill_b");
+    l.f(
+        0xa0,
+        Ty::I8,
+        "crane_dir_x",
+        "the crane's direction along x: +1 or -1",
+    );
+    l.f(
+        0xa1,
+        Ty::I8,
+        "crane_dir_z",
+        "the crane's direction along z: +1 or -1",
+    );
+    for i in 0..20 {
+        l.f(
+            0xa2 + i,
+            Ty::U8,
+            format!("crane_grid[{i}]"),
+            format!(
+                "crane grid cell row {}, column {}: 0 empty, 1..3 CRATE1..3",
+                i / 4,
+                i % 4
+            ),
+        );
+    }
+    l.bytes(
+        0xb6,
+        &[
+            ("crane_load", "the crate on the hook (0 none, 1..3)"),
+            ("hammer_done", "1 = QUESTLOG_HAMMER done"),
+            ("statues_xp", "1 = the statues' experience paid"),
+            (
+                "deathball_hint",
+                "1 = the save hint shown (the deathball waits at its stand)",
+            ),
+        ],
+    );
+    l.unused(0xba, 2);
+    l.finish("CANYON", 0xbc)
+}
+
+fn tower() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.timers(8, "0xdeadbeef", "; ids per level (1 level 2's switch check, 0x100 the library door, 0x101..0x103 level 5 and 6 events, 0x105 the bomb's ticking): the save drops ids 1..0xff");
+    l.l(
+        0x60,
+        Ty::U32,
+        "flags",
+        Label::Flags(&[
+            "librarian_scene",
+            "beam_area5_powered",
+            "battle_running",
+            "talis_fallen",
+            "dragon_shake",
+        ]),
+        "TOWER's events (no other bits are read)",
+    );
+    l.f(
+        0x64,
+        Ty::U16,
+        "heal_fountain",
+        "the healing fountain's charge, written leaving level 1 (never read back)",
+    );
+    l.f(
+        0x66,
+        Ty::U16,
+        "mana_fountain",
+        "the mana fountain's charge (never read back)",
+    );
+    l.f(
+        0x68,
+        Ty::U16,
+        "plasma_charge",
+        "level 6's plasma charge 0..0x3ff (above 0 it shocks the hero)",
+    );
+    l.unused(0x6a, 2);
+    for i in 0..4 {
+        let d = if i < 3 {
+            "2 strong, 1 weak, 0 off; each lever press steps 2, 1, 0"
+        } else {
+            "steps with every press; the crate KISTE2 blocks it"
+        };
+        l.f(
+            0x6c + i,
+            Ty::I8,
+            format!("laser[{i}]"),
+            format!("laser {}: {d}", i + 1),
+        );
+    }
+    for i in 0..5 {
+        l.f(
+            0x70 + i,
+            Ty::U8,
+            format!("block_lower[{i}]"),
+            format!(
+                "1 = block SCHIEBE_{} was low when the ghost scene began (never read)",
+                i + 1
+            ),
+        );
+    }
+    l.bytes(
+        0x75,
+        &[
+            (
+                "bully_stage",
+                "0 not met, 1 crying (QUESTLOG_HELPBULLY), 2 helped",
+            ),
+            (
+                "old_one_stage",
+                "0 the first Old One scene not seen, 1 seen, 2 the second seen (he fights)",
+            ),
+        ],
+    );
+    l.l(0x77, Ty::U8, "qt_switch_mask", Label::Flags(&["qt1", "qt2", "qt3", "qt4", "qt5", "qt6", "qt7", "qt8"]), "switches QT1..8 on (0x52 opens CONFIDOOR8); rebuilt every second, so writing it does nothing");
+    l.f(0x78, Ty::U8, "blocks_solved", "1 = all five blocks up");
+    l.l(
+        0x79,
+        Ty::U8,
+        "ritual",
+        Label::Flags(&["ash", "belladonna", "black_pearl", "bit3", "spellbook_used"]),
+        "the ritual's ingredients placed; spellbook_used: the ritual done (QUESTLOG_GOTOLABOR)",
+    );
+    l.f(
+        0x7a,
+        Ty::I8,
+        "glasses_stage",
+        "0 not started, 1 quest given (QUESTLOG_FINDGLASSES), 2 glasses returned",
+    );
+    l.f(0x7b, Ty::U8, "timers_used", "timer slots in use, 0..8");
+    l.bytes(
+        0x7c,
+        &[
+            (
+                "beam_stage",
+                "0 level 5 never entered, 1 the beam puzzle open, 2 solved (10000 experience)",
+            ),
+            ("lvl6_init", "1 = level 6 set up once"),
+            ("lvl1_visited", "set on entering level 1 (never read)"),
+            (
+                "glasses_tm1talk",
+                "1 = the hero's line on the glasses played",
+            ),
+        ],
+    );
+    l.unused(0x80, 1);
+    l.bytes(
+        0x81,
+        &[
+            (
+                "shortcut_4",
+                "1 = the warps between levels 1 and 4 armed, FOYERDOOR2 open",
+            ),
+            ("shortcut_5", "1 = the warps between levels 1 and 5 armed"),
+            ("shortcut_6", "1 = the warps between levels 1 and 6 armed"),
+            ("save_hint_shown", "1 = the dragon's save hint shown"),
+            (
+                "blocks_rewarded",
+                "1 = the block puzzle's 10000 experience paid",
+            ),
+        ],
+    );
+    l.unused(0x86, 2);
+    l.finish("TOWER", 0x88)
+}
+
+fn vulcano() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.shop(14, "SHACH_TRADERX_TRADE");
+    l.l(
+        0x46,
+        Ty::I8,
+        "shop_end",
+        Label::ShopItem,
+        "the shop's end marker (127)",
+    );
+    l.unused(0x47, 4);
+    l.unused(0x4b, 0x3e);
+    l.l(
+        0x89,
+        Ty::U8,
+        "reflect_mask",
+        Label::Flags(&["reflect_a", "reflect_b", "reflect_c", "reflect_d"]),
+        "mirrors turned",
+    );
+    l.f(
+        0x8a,
+        Ty::I8,
+        "ball_stage",
+        "0 not started, 1..3 ball goals reached (raising PLATFORM3, 2, 1); 3 the riddle done",
+    );
+    l.bytes(0x8b, &[
+        ("shachguard_done", "1 = seven Q_GAEN handed over (QUESTLOG_FIND7GAENS done)"),
+        ("l6_arrival_seen", "1 = the arrival scene played"),
+        ("l6_oldone_seen", "1 = the Old One's scene played (Talis hidden after it)"),
+        ("platform4_state", "0 idle, 1 switch pulled, 2 PLATFORM4 moving"),
+        ("master_talked", "1 = the master talked to (QUESTLOG_GET3COINS)"),
+        ("prayer_stage", "0 not talked to, 2 the coin quest given"),
+        ("fredo_stage", "0 none, 1 within a talk, 2 QUESTLOG_BRINGCRYSTAL, 3 Q_CRYST_BLUE delivered"),
+        ("brother_stage", "0 not talked to, 1 talked to before the master, 2 evidence quest, 3 Q_DOKU handed over, Q_COIN_C received"),
+    ]);
+    l.unused(0x93, 1);
+    l.bytes(
+        0x94,
+        &[
+            ("coins_found", "0..3 coins brought to the master"),
+            ("pinboard_next", "the pinboard's next note 0..3"),
+            (
+                "worker_stage",
+                "0 not met, 1 needs a bomb, 3 bomb done (QUESTLOG_FIXPIPE), 4 pipe fixed",
+            ),
+            ("tntwall_blown", "1 = the TNT wall blown"),
+            (
+                "forkboy_talked",
+                "0 = the fork boy's first line next, 1 = his second",
+            ),
+            ("trader1_scene", "2 = the first trader's guard scene played"),
+            (
+                "shovel_scene_done",
+                "1 = the worker's bomb and shovel scenes done",
+            ),
+            ("master_moved", "1 met, 2 the master replaced"),
+        ],
+    );
+    l.l(
+        0x9c,
+        Ty::U8,
+        "rules_read",
+        Label::Flags(&[
+            "rule1", "rule2", "rule3", "rule4", "rule5", "rule6", "rule7", "rule8",
+        ]),
+        "the rules read",
+    );
+    l.bytes(0x9d, &[
+        ("rules_count", "rules read (5 or more with prayer_stage 2 starts the arrest)"),
+        ("arrested", "1 = the arrest scene started"),
+        ("magnet_turned", "0 the gambler cheats, 1 the magnet turned: he can be beaten"),
+        ("gambler_beaten", "1 = the gambler beaten, Q_COIN_B received"),
+        ("zockerwoman_gone", "1 = her scene played, she is hidden"),
+        ("pipe_fixed", "1 = the pipe fixed with Q_EIMERP"),
+        ("steam_off", "1 = the steam off after the wall's blast (back to 0 in the repair scene; name unsure)"),
+        ("jailguard_posted", "1 = the guard at the jail door"),
+        ("barter_stage", "the H_* barter chain: 0 start, 1 H_MET to H_BUCH, 2 or 3 the book traded on, 4/5 and 7/8 the next trades, 9 RING and PILZCHEN for Q_BALLBLUE (done)"),
+        ("barter_trader", "the trader of the current barter talk 1..4 (scratch)"),
+        ("magnetfield_armed", "1 = the magnetic field armed again once"),
+        ("stomp_noise", "the stamping press's noise on or off"),
+        ("press_scene_seen", "1 = the press scene with Q_EIMER played"),
+        ("grandpa1_done", "1 = grandpa 1's thanks played"),
+        ("riddlelight_shown", "1 = the code shown"),
+        ("lift_intro_seen", "0 = entering adds QUESTLOG_FINDTALIS and RUINSLOC"),
+        ("gear_scene_seen", "1 = the gear's camera scene seen"),
+        ("l2_visited", "1 = restore manabrunnen1_charge on entry"),
+    ]);
+    l.unused(0xaf, 1);
+    l.f(
+        0xb0,
+        Ty::U16,
+        "manabrunnen1_charge",
+        "MANABRUNNEN_1's charge (saved leaving level 2, restored on entry)",
+    );
+    l.bytes(
+        0xb2,
+        &[
+            ("door7_solved", "1 = the switch riddle solved"),
+            ("in_riddle_zone", "1 while the hero is in the riddle's area"),
+            (
+                "switch3_state",
+                "1 = switches 1..3 set, DOOR2 and DOOR3 open",
+            ),
+        ],
+    );
+    l.unused(0xb5, 3);
+    for i in 0..3 {
+        l.l(
+            0xb8 + 4 * i,
+            Ty::I32,
+            format!("wheel[{i}]"),
+            Label::Angle,
+            format!("RAD{}'s turn (restored on entry)", i + 1),
+        );
+    }
+    l.f(
+        0xc4,
+        Ty::I8,
+        "moon_progress",
+        "correct steps of the moon riddle's 16; 17 solved; a mistake resets it",
+    );
+    l.f(
+        0xc5,
+        Ty::U8,
+        "wyrm_fight",
+        "0 not started, 2 in the arena, 1 left it, 99 dead",
+    );
+    l.bytes(
+        0xc6,
+        &[
+            ("wyrm_dead", "1 = the wyrm killed"),
+            ("movingplatform1", "written, never read"),
+            ("wyrm_emerged", "1 = the wyrm's emergence played"),
+        ],
+    );
+    l.f(
+        0xc9,
+        Ty::I8,
+        "symbols_lit",
+        "0..12 symbols stepped on in order",
+    );
+    l.f(
+        0xca,
+        Ty::I8,
+        "wrong_symbol",
+        "0 none, else the wrong symbol's number + 1",
+    );
+    l.bytes(0xcb, &[
+        ("map_stage", "0 not met, 1 failed, 2 all correct, 3 entering symbols, 4 symbols correct, 5 the ruins' place known"),
+        ("starter_seen", "1 = the starter scene played"),
+        ("final_intro_seen", "1 = the final sequence's intro seen"),
+    ]);
+    l.l(
+        0xce,
+        Ty::U8,
+        "chain_mask",
+        Label::Flags(&[
+            "bit0",
+            "schalter1_used",
+            "chain3_lowered",
+            "chain4_lowered",
+            "chain5_lowered",
+        ]),
+        "SCHALTER1 used (DOOR1 open), chains lowered",
+    );
+    l.f(0xcf, Ty::U8, "savehint_shown", "1 = the save hint shown");
+    l.f(
+        0xd0,
+        Ty::U32,
+        "traderx_busy",
+        "bit 0: the trader's talk or shop open (while it lasts)",
+    );
+    l.f(
+        0xd4,
+        Ty::U8,
+        "shachguard_met",
+        "0 the first talk next (adds the quest), 1 met",
+    );
+    l.unused(0xd5, 3);
+    l.finish("VULCANO", 0xd8)
+}
+
+const RUINS_FLAGS: &[&str] = &[
+    "symbols1_aligned",
+    "symbols2_aligned",
+    "symbols3_aligned",
+    "keylocks_a_done",
+    "keylocks_b_done",
+    "keylocks_c_done",
+    "parrot_code_a",
+    "parrot_code_b",
+    "parrot_code_c",
+    "parrot_code_d",
+    "parrot_code_e",
+    "bit11",
+    "bigape_killed",
+    "magicbox_broken",
+    "magickey_risen",
+    "torches_solved",
+    "mstones_destroyed",
+    "weapon_trial",
+    "defence_trial",
+    "tool_trial",
+    "magic_trial",
+    "seal_scroll",
+    "seal_shield",
+    "seal_gear",
+    "seal_sword",
+    "intro_done",
+    "berries_picked",
+    "repair_clock_open",
+    "wall_open_now",
+    "wall_was_opened",
+    "wall_closed_again",
+    "boulder_destroyed",
+];
+
+fn ruins() -> Vec<WField> {
+    let mut l = L(Vec::new());
+    l.timers(5, "0", "; ids per level (trial strip, torch check, platform steps, the bomb's ticking, the fish, the parrot, the lever, the switches' expiry)");
+    for (i, n) in ["weapon", "spell", "tool", "defence"].iter().enumerate() {
+        l.f(0x3c + i, Ty::U8, format!("trial_sel[{i}]"), format!("the hero's selected {n} while a trial took the equipment (restored on the trial's exit)"));
+    }
+    for i in 0..4 {
+        l.f(
+            0x40 + 4 * i,
+            Ty::U32,
+            format!("trial_sel_rest[{i}]"),
+            "the rest of that copy (never read)",
+        );
+    }
+    l.f(
+        0x50,
+        Ty::I32,
+        "lifepool_level",
+        "the life pool's fill, HP << 12 (150 HP full)",
+    );
+    l.f(0x54, Ty::I32, "lifepool_max", "its full fill");
+    l.f(0x58, Ty::I32, "lifepool_pending", "healing still to drain");
+    l.f(0x5c, Ty::U8, "lifepool_refilling", "1 = refilling");
+    l.f(0x5d, Ty::U8, "lifepool_ready", "1 = usable");
+    l.unused(0x5e, 2);
+    for t in 0..4 {
+        let b = 0x60 + 24 * t;
+        let p = format!("turtle[{t}]");
+        l.f(b, Ty::U32, format!("{p}.pos"), format!("TURTLE{}: position, packed (10 bits each of x, y, z in 512 units); restored when turtle 1's is not 0", t + 1));
+        l.f(
+            b + 4,
+            Ty::U32,
+            format!("{p}.waypoint_a"),
+            "a waypoint, packed",
+        );
+        l.f(
+            b + 8,
+            Ty::U32,
+            format!("{p}.waypoint_b"),
+            "another waypoint, packed",
+        );
+        l.f(
+            b + 0xc,
+            Ty::U32,
+            format!("{p}.swim"),
+            "two words of its swimming state (meaning unsure)",
+        );
+        l.f(
+            b + 0x10,
+            Ty::U32,
+            format!("{p}.field_a"),
+            "an object field (meaning unsure)",
+        );
+        l.f(
+            b + 0x14,
+            Ty::U32,
+            format!("{p}.field_b"),
+            "an object field (meaning unsure)",
+        );
+    }
+    l.f(
+        0xc0,
+        Ty::I32,
+        "fish_x",
+        "a thrown R_FISH: x (not 0: it is there again on entry)",
+    );
+    l.f(0xc4, Ty::I32, "fish_y", "the fish: y");
+    l.f(0xc8, Ty::I32, "fish_z", "the fish: z");
+    l.l(
+        0xcc,
+        Ty::U32,
+        "flags",
+        Label::Flags(RUINS_FLAGS),
+        "RUINS's events (one parrot code at a time)",
+    );
+    l.f(
+        0xd0,
+        Ty::U32,
+        "weapon_trial_waves",
+        "the weapon trial's enemies: an alive bit each that moves to a killed bit",
+    );
+    l.f(
+        0xd4,
+        Ty::U32,
+        "tool_trial_holes",
+        "the tool trial's holes filled (bit column + 4 (row - 1)); 0xffff solved",
+    );
+    l.f(0xd8, Ty::U8, "timers_used", "timer slots in use, 0..5");
+    for (i, n) in ["1a", "1b", "2a", "2b", "3a", "3b"].iter().enumerate() {
+        l.f(
+            0xd9 + i,
+            Ty::U8,
+            format!("symbol_{n}"),
+            "a stone's rotation 0..2 (solved: 1a 0 and 1b 0, 2a 0 and 2b 0, 3a 2 and 3b 0)",
+        );
+    }
+    l.f(
+        0xdf,
+        Ty::I8,
+        "mpl_next",
+        "the next of the platforms MPL_1A..1E to step on",
+    );
+    l.f(
+        0xe0,
+        Ty::U8,
+        "mpl_last",
+        "the last correct platform (0xff none)",
+    );
+    l.l(
+        0xe1,
+        Ty::U8,
+        "keylocks_a",
+        Label::Flags(&["a1", "a2", "a3", "a4", "a5", "a6"]),
+        "KEYLOCK_A1..6 filled",
+    );
+    l.l(
+        0xe2,
+        Ty::U8,
+        "keylocks_b",
+        Label::Flags(&["b1", "b2", "b3", "b4"]),
+        "KEYLOCK_B1..4 filled",
+    );
+    l.l(
+        0xe3,
+        Ty::U8,
+        "keylocks_c",
+        Label::Flags(&["c1", "c2"]),
+        "KEYLOCK_C1..2 filled",
+    );
+    l.f(
+        0xe4,
+        Ty::U8,
+        "parrot_seq",
+        "codes C, D, E taught in order: 1, 2, 3 (3 opens DOOR3, QUESTLOG_MASTERDEFENCE)",
+    );
+    l.f(
+        0xe5,
+        Ty::U8,
+        "oldone_stage",
+        "0 not started, 10/20/30/40 waves 1..4 beaten, 50 the finale done",
+    );
+    l.l(
+        0xe6,
+        Ty::U8,
+        "mana_crystals",
+        Label::Flags(CRYSTALS5),
+        "crystals in the machine (0xff fired); reset on entering level 1",
+    );
+    l.unused(0xe7, 1);
+    l.f(
+        0xe8,
+        Ty::U16,
+        "switchd",
+        "SWITCHD01..05 pressed in a timed run (bits 0..4); reset on entry",
+    );
+    l.f(0xea, Ty::U16, "torches", "torches lit (bits 0..11; 0x969 solved); rebuilt from the objects, so writing it does nothing");
+    l.bytes(
+        0xec,
+        &[
+            (
+                "weapon_master_talk",
+                "0 never, 1 trial started, 2 talked to after passing",
+            ),
+            (
+                "magic_master_talk",
+                "0 never, 1 trial started, 2 talked to after passing",
+            ),
+            (
+                "tool_master_talk",
+                "0 never, 1 trial started, 2 talked to after passing",
+            ),
+            (
+                "defence_master_talk",
+                "0 never, 1 trial started, 2 talked to after passing",
+            ),
+            (
+                "boulder_started",
+                "1 = the boulder chase reached the first fight",
+            ),
+            ("temple_chief_talk", "1 = the repair quest given"),
+        ],
+    );
+    l.l(
+        0xf2,
+        Ty::U8,
+        "fires",
+        Label::Flags(&["fire1", "fire2"]),
+        "fires lit (both at the start)",
+    );
+    l.f(
+        0xf3,
+        Ty::U8,
+        "dagomar_done",
+        "1 = the final dialogue played",
+    );
+    l.f(
+        0xf4,
+        Ty::U8,
+        "needpearl_said",
+        "1 = the hero's line about the power pearl said",
+    );
+    l.unused(0xf5, 3);
+    l.finish("RUINS", 0xf8)
+}
+
+const CRYSTALS5: &[&str] = &["green", "yellow", "blue", "red", "white"];

@@ -18,6 +18,11 @@ pub const ITEM_SLOTS: usize = 256;
 /// slot (i8 at +5, -1 = keeps no state) and its LEV name (pointer at +0x14, null = no level).
 const LEVEL_TABLES: u32 = 0x0056_2134;
 const STAGES: [usize; 9] = [0, 13, 23, 10, 29, 20, 20, 8, 11];
+/// The trade screens' names: 12-byte entries, name first; a shop's item type t is entry 33 + t
+/// (spells, weapons, tools, defence, compass and crystals below 0), looked up by name in the
+/// item table.
+const SHOP_NAMES: u32 = 0x0055_bba0;
+pub const SHOP_FIRST: i64 = -33;
 
 #[derive(Debug, Clone, Default)]
 pub struct Names {
@@ -25,6 +30,10 @@ pub struct Names {
     pub items: Vec<String>,
     /// Per world (index 1..=8): its stages' (LEV name, slot), stage 1 first.
     pub stages: Vec<Vec<(Option<String>, i8)>>,
+    /// The shops' item types from [`SHOP_FIRST`] on.
+    pub shop: Vec<String>,
+    /// The quest log's keys: the executable's `QUESTLOG_*` strings without the prefix.
+    pub quests: Vec<String>,
 }
 
 impl Names {
@@ -35,6 +44,20 @@ impl Names {
 
     pub fn item(&self, i: usize) -> Option<&str> {
         self.items.get(i).map(String::as_str)
+    }
+
+    /// The name of shop item type `t`.
+    pub fn shop_item(&self, t: i64) -> Option<&str> {
+        let i = usize::try_from(t - SHOP_FIRST).ok()?;
+        self.shop.get(i).map(String::as_str)
+    }
+
+    /// The shop item type called `name`.
+    pub fn shop_index(&self, name: &str) -> Option<i64> {
+        self.shop
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(name))
+            .map(|i| i as i64 + SHOP_FIRST)
     }
 
     /// The level of `stage` (1-based) of `world`.
@@ -152,5 +175,37 @@ pub fn load(path: &Path) -> Result<Names, String> {
         }
         stages.push(list);
     }
-    Ok(Names { items, stages })
+    let mut shop = Vec::new();
+    for i in 0..128u32 {
+        let name = u32_at(SHOP_NAMES + 12 * i).ok_or("the shop table is out of the image")?;
+        if name == 0 {
+            break;
+        }
+        shop.push(cstr(name).ok_or("a shop name is out of the image")?);
+    }
+    // The quest log's keys: every `QUESTLOG_<KEY>` string of the image.
+    let mut quests: Vec<String> = Vec::new();
+    let prefix = b"QUESTLOG_";
+    let mut at = 0;
+    while let Some(p) = image[at..].windows(prefix.len()).position(|w| w == prefix) {
+        let start = at + p + prefix.len();
+        let len = image[start..]
+            .iter()
+            .position(|&b| !(b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'))
+            .unwrap_or(0);
+        if len > 0 && image.get(start + len) == Some(&0) {
+            let key = String::from_utf8_lossy(&image[start..start + len]).into_owned();
+            if !quests.contains(&key) {
+                quests.push(key);
+            }
+        }
+        at = start;
+    }
+    quests.sort();
+    Ok(Names {
+        items,
+        stages,
+        shop,
+        quests,
+    })
 }

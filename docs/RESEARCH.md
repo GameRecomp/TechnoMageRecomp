@@ -359,10 +359,22 @@ by zero in the stats screen) or above 20 (past the experience table); max HP bel
 rucksack entry past the item table; a selected weapon, spell, tool or defence item that is not owned (the
 loader looks it up without a bound). Checked in the game (2026-11-27): a saved game changed with `tmsave` (gold,
 potions in the rucksack, a sword selected, level 5 with its attributes, HP and mana, a crystal) shows the new
-values in the book, loads, and plays with them. **(open)**: the platform state bytes, the polarity of the lever
-and magic torch bits, the pickups' second bit, the person records' last two bytes, the meaning of most world
-script bytes beyond the code's use (named by the identifiers the scripts use beside them), and whether CANYON's
-`+0x7c..0x9f` and VULCANO's `+0x4b..0x88` are read at all.
+values in the book, loads, and plays with them.
+
+Worked out since (the schema's docs hold the details): a moving platform's four bytes are its flags (0x40
+moving), the waypoint it came from and the one it heads to, and its path with the stop code reached; a lever's
+bit is "pulled", a magic torch's "lit", a pickup's second bit "hidden, not yet revealed"; a trigger's bit
+"used up" (any trigger); a creature record is written for one alive within its activation radius (13 tiles by
+default), the others come back whole; a person's last two bytes are its script state (0 walking the paths, 100
+frozen) and its walking direction. A mask of 0 makes loading start the world fresh. An item count of 255 (but
+gold) never changes: adding and removing leave it. The shops number their items by the trade screen's name
+table (`0x55bba0`, from entry 33), the third byte is the most the merchant buys back to, prices are per pack (10
+ammunition, 5 chalk, else 1) in 5 gold. The world script states are described byte for byte, values and bits
+included (`src/worlds.rs`); CANYON's `+0x78..0x9f` are the two drills' snapshots and RUINS's `+0x60..0xbf` four
+turtles', reached by pointer arithmetic; VULCANO's `+0x4b..0x88` are never touched. The quest log has 77 keys
+(`QUESTLOG_*`; UNCLE17 is never added), which `tmsave` reads from the executable. **(open)**: a platform's
+carry and rider bits, the people's script states beyond 0 and 100 (each character's own), and some snapshot
+words (drills, turtles).
 
 ## Behaviour seen in scripted runs
 

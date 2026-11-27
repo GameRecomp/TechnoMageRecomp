@@ -105,7 +105,8 @@ pub fn check(s: &Save, names: Option<&Names>) -> Vec<Problem> {
     player(&mut c);
     levels(&mut c, names);
     world_state(&mut c);
-    quests(&mut c);
+    quests(&mut c, names);
+    shops(&mut c);
     c.out
 }
 
@@ -438,7 +439,7 @@ fn world_state(c: &mut Ctx) {
     }
 }
 
-fn quests(c: &mut Ctx) {
+fn quests(c: &mut Ctx, names: Option<&Names>) {
     let count = c.int("quest_count");
     if !(0..=16).contains(&count) {
         c.error(format!("quest_count = {count}: the log has 16 entries"));
@@ -458,12 +459,52 @@ fn quests(c: &mut Ctx) {
             } else if keys.contains(&text) {
                 c.warn(format!("quests[{i}]: {text} is in the log twice"));
             }
+            if let Some(n) = names.filter(|n| !n.quests.is_empty()) {
+                if !n.quests.contains(&text) {
+                    c.warn(format!(
+                        "quests[{i}]: {text} is no quest key of the game (it has no text; drawing it may crash)"
+                    ));
+                }
+            }
             keys.push(text);
         } else if key.iter().any(|&b| b != 0) || c.int(&format!("quests[{i}].flags")) != 0 {
             c.warn(format!(
                 "quests[{i}]: past quest_count but not empty (the game ignores it)"
             ));
         }
+    }
+}
+
+/// The current world's shop list (offset 0 of its state, if it has one): types the trade
+/// screen's name table has, an end marker within its entries.
+fn shops(c: &mut Ctx) {
+    let paths: Vec<String> = c
+        .fields
+        .iter()
+        .filter(|f| f.path.starts_with("world.shop[") && f.path.ends_with(".item"))
+        .map(|f| f.path.clone())
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    let mut ended = c
+        .fields
+        .iter()
+        .any(|f| f.path == "world.shop_end" && c.s.get(f) == Value::Int(127));
+    for p in &paths {
+        let t = c.int(p);
+        if t == 127 {
+            ended = true;
+            break;
+        }
+        if !(crate::names::SHOP_FIRST..=71).contains(&t) {
+            c.error(format!(
+                "{p} = {t}: no item type of the trade screen (-33..71; 127 ends the list)"
+            ));
+        }
+    }
+    if !ended {
+        c.warn("world.shop: the list has no end marker (127)".into());
     }
 }
 

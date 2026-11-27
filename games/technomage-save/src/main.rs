@@ -41,6 +41,16 @@ the game's own TechnoMage.exe (--exe, else $RC_GAME_DIR, else orig/technomage/cd
 without it items are shown by number.
 ";
 
+/// `println!` that ends quietly when the reader went away (`tmsave show | head`).
+macro_rules! out {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        if writeln!(std::io::stdout(), $($t)*).is_err() {
+            std::process::exit(0);
+        }
+    }};
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(args) {
@@ -188,7 +198,7 @@ fn write_out(s: &Save, out: Option<&Path>, input: &Path) -> Result<(), String> {
 fn run(args: Vec<String>) -> Result<ExitCode, String> {
     let o = opts(args)?;
     let Some((cmd, rest)) = o.rest.split_first() else {
-        print!("{HELP}");
+        out!("{HELP}");
         return Ok(ExitCode::SUCCESS);
     };
     let need = |n: usize| -> Result<(), String> {
@@ -199,7 +209,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
         }
     };
     match cmd.as_str() {
-        "help" | "--help" | "-h" => print!("{HELP}"),
+        "help" | "--help" | "-h" => out!("{HELP}"),
         "schema" => {
             // The static fields, then each world's state layout.
             let prefix = rest.first().map(String::as_str).unwrap_or("");
@@ -211,7 +221,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
                 all.extend(schema::world_fields(w));
             }
             for f in all.iter().filter(|f| f.path.starts_with(prefix)) {
-                println!(
+                out!(
                     "{:#06x}  {:<8} {:<34} {}",
                     f.offset,
                     f.ty.name(),
@@ -240,7 +250,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
                 {
                     continue;
                 }
-                println!(
+                out!(
                     "{:#06x}  {:<34} {}",
                     f.offset,
                     schema::display_path(f, names.as_ref(), Some(&s)),
@@ -260,9 +270,9 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
                 }
                 for f in chosen {
                     if rest.len() == 2 && chosen_single(sel, f, names.as_ref()) {
-                        println!("{}", show_value(&s, f, names.as_ref()));
+                        out!("{}", show_value(&s, f, names.as_ref()));
                     } else {
-                        println!(
+                        out!(
                             "{} = {}",
                             schema::display_path(f, names.as_ref(), Some(&s)),
                             show_value(&s, f, names.as_ref())
@@ -306,7 +316,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
             let text = json::export(&s);
             match &o.out {
                 Some(p) => std::fs::write(p, text).map_err(|e| format!("{}: {e}", p.display()))?,
-                None => print!("{text}"),
+                None => out!("{text}"),
             }
         }
         "import" => {
@@ -382,7 +392,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
                     .get(off..end)
                     .ok_or("past the end of the saved game")?;
                 for (i, row) in b.chunks(16).enumerate() {
-                    println!("{:#06x}  {}", off + i * 16, technomage_save::hex(row));
+                    out!("{:#06x}  {}", off + i * 16, technomage_save::hex(row));
                 }
             }
         }
@@ -404,7 +414,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
             );
             let d = technomage_save::diff(&fields, &a, &b);
             for (f, _, _) in &d {
-                println!(
+                out!(
                     "{:#06x}  {:<34} {}  ->  {}",
                     f.offset,
                     schema::display_path(f, names.as_ref(), Some(&a)),
@@ -423,10 +433,10 @@ fn run(args: Vec<String>) -> Result<ExitCode, String> {
             let s = Save::read(&save_path(&rest[0])?)?;
             let problems = check::check(&s, load_names(o.exe.as_deref()).as_ref());
             for p in &problems {
-                println!("{p}");
+                out!("{p}");
             }
             if problems.is_empty() {
-                println!("ok");
+                out!("ok");
             }
             if problems.iter().any(|p| p.error) {
                 return Ok(ExitCode::from(1));

@@ -73,6 +73,8 @@ pub enum Label {
     Text,
     /// A torch timer: bit 31 lit, the rest 1/480 s.
     Torch,
+    /// A shop's item type (its own numbering, the trade screen's name table; 127 ends a list).
+    ShopItem,
 }
 
 const CRYSTALS: &[&str] = &["GREEN", "YELLOW", "BLUE", "RED", "WHITE"];
@@ -201,6 +203,10 @@ impl Label {
                 ))
             }
             Label::Text => None,
+            Label::ShopItem => match n {
+                127 => Some("end of list".into()),
+                _ => names.and_then(|nm| nm.shop_item(n)).map(str::to_owned),
+            },
             Label::Torch => Some(format!(
                 "{}, {:.0} s left",
                 if n >> 31 & 1 == 1 { "lit" } else { "out" },
@@ -250,6 +256,12 @@ impl Label {
                 .iter()
                 .position(|w| !w.is_empty() && w.eq_ignore_ascii_case(text))
                 .map(|w| w as i64),
+            Label::ShopItem => {
+                if text.eq_ignore_ascii_case("end") {
+                    return Some(127);
+                }
+                names?.shop_index(text)
+            }
             _ => match text {
                 "true" => Some(1),
                 "false" => Some(0),
@@ -288,24 +300,26 @@ pub const QUESTS: usize = 0x74c4;
 pub const QUEST_COUNT: usize = 0x7604;
 /// The names of the level bitfield's groups, in their order (their sizes are the counts).
 pub const GROUPS: [(&str, &str); 9] = [
-    ("trigger", "trigger box already fired"),
-    ("door", "door open"),
-    ("creature", "creature alive"),
-    (
-        "pickup",
-        "placed item: bit 2i still there, bit 2i+1 its hidden flag (unsure)",
-    ),
-    (
-        "lever",
-        "lever or switch in its start position (polarity unsure)",
-    ),
-    (
-        "magtorch",
-        "magic torch: 1 = state 0/1 (probably unlit; unsure)",
-    ),
+    ("trigger", "trigger box used up: it fires no more (any trigger; 0 lets a one-shot dialogue or event fire again)"),
+    ("door", "door open (opened or shut at once on loading)"),
+    ("creature", "creature alive (0 kills it on loading)"),
+    ("pickup", "placed item, two bits: 2i still there (0 removes it), 2i+1 hidden, not yet revealed by its script or crate"),
+    ("lever", "lever pulled (an odd number of times); what it works is not switched with it on loading"),
+    ("magtorch", "magic torch lit"),
     ("star", "BLINKINGSTAR still there"),
     ("trap", "trap still there"),
     ("web", "spider web intact"),
+];
+
+const PLATFORM_FLAGS: &[&str] = &[
+    "carry1",
+    "carry2",
+    "rider_step",
+    "rider_on",
+    "skip_stop",
+    "through_stops",
+    "moving",
+    "no_path_switch",
 ];
 
 struct B(Vec<Field>);
@@ -352,13 +366,13 @@ pub fn world_fields(world: u8) -> Vec<Field> {
         }];
     }
     layout
-        .iter()
-        .map(|&(off, ty, path, doc)| Field {
-            path: path.to_owned(),
-            offset: WORLD_STATE + off,
-            ty,
-            label: Label::None,
-            doc: format!("{}: {doc}", WORLDS[world as usize]),
+        .into_iter()
+        .map(|w| Field {
+            path: format!("world.{}", w.name),
+            offset: WORLD_STATE + w.off,
+            ty: w.ty,
+            label: w.label,
+            doc: format!("{}: {}", WORLDS[world as usize], w.doc),
             view: false,
         })
         .collect()
@@ -449,7 +463,7 @@ fn static_fields() -> Vec<Field> {
     );
     // Items: a count per item table entry.
     for i in 0..256 {
-        b.f(ITEMS + 4 * i, U32, format!("items[{i}]"), L::None, "count (0..99; GOLDCOIN: gold, no upper limit; weapons, spells, defence, tools: owned when not 0; 255 never changes; entries past the table stay 0)");
+        b.f(ITEMS + 4 * i, U32, format!("items[{i}]"), L::None, "count (0..99; GOLDCOIN: gold, no upper limit; weapons, spells, defence, tools: owned when not 0; 255 (not gold): adding and removing leave it, so it never runs out; entries past the table stay 0)");
     }
     for i in 0..BAG_SLOTS {
         b.f(
@@ -524,23 +538,18 @@ fn static_fields() -> Vec<Field> {
         U32,
         "levels.mask",
         L::Flags(&[]),
-        "bit s: level slot s of the current world holds saved state (bits 22..31 unused)",
+        "bit s: level slot s of the current world holds saved state (bits 22..31 unused); 0: loading starts the whole world fresh (its levels and its script state)",
     );
     for s in 0..SLOT_COUNT {
         let r = SLOTS + s * SLOT_SIZE;
         let p = format!("slots[{s}]");
         for i in 0..16 {
             let q = r + 8 * i;
-            b.f(q, U32, format!("{p}.platform[{i}].pos"), L::None, "moving platform / elevator / raft: packed position (10 bits each of x, y (signed), z, in 512 units)");
-            for k in 0..4 {
-                b.f(
-                    q + 4 + k,
-                    U8,
-                    format!("{p}.platform[{i}].state[{k}]"),
-                    L::None,
-                    "moving platform state byte (meaning unsure)",
-                );
-            }
+            b.f(q, U32, format!("{p}.platform[{i}].pos"), L::None, "moving platform, elevator, raft: packed position (10 bits each of x, y (signed), z, in 512 units; restored snapped to 512)");
+            b.f(q + 4, U8, format!("{p}.platform[{i}].flags"), L::Flags(PLATFORM_FLAGS), "its flags: moving (clear: parked), through_stops (runs through stop code 2), no_path_switch, skip_stop; the carry and rider bits unsure");
+            b.f(q + 5, I8, format!("{p}.platform[{i}].prev"), L::None, "the waypoint it came from, -1..8 (prev <= target: forward); waiting at k: prev k, target k +- 1");
+            b.f(q + 6, U8, format!("{p}.platform[{i}].target"), L::None, "the waypoint it heads to, 0..7 (to send it to k forward: target k, prev k - 1, flags moving)");
+            b.f(q + 7, U8, format!("{p}.platform[{i}].path_stop"), L::None, "low nibble: its path 0..3 (it must exist, or the platform freezes); high nibble: the stop code of the waypoint reached (0 go on, 1 pause, 4 wait for a rider; the others pass within the frame)");
         }
         b.f(
             r + 0x80,
@@ -573,14 +582,14 @@ fn static_fields() -> Vec<Field> {
                 U8,
                 format!("{p}.crate[{i}].a"),
                 L::None,
-                "crate / chest: drag crate: tile x; container: 1 = still there, 0 = gone",
+                "crate or chest (by creation order): a container: 1 = still there, 0 = broken or gone (deleted on loading); a drag crate: its map tile x (put at x * 2048, never 0; the game does not check the tile is free)",
             );
             b.f(
                 r + 0xb6 + 2 * i,
                 U8,
                 format!("{p}.crate[{i}].b"),
                 L::None,
-                "crate / chest: drag crate: tile z",
+                "a drag crate: its map tile z; a container: unused",
             );
         }
         b.f(
@@ -602,7 +611,7 @@ fn static_fields() -> Vec<Field> {
             U32,
             format!("enemies[{i}].pos"),
             L::None,
-            "a creature of the current level: packed position (as return_pos)",
+            "a creature of the current level, alive and within its activation radius when saved (others come back at their place with full hit points): packed position (as return_pos); applied only when loading",
         );
         b.f(
             r + 4,
@@ -646,16 +655,16 @@ fn static_fields() -> Vec<Field> {
         b.f(
             r + 8,
             U8,
-            format!("npcs[{i}].a"),
+            format!("npcs[{i}].script_state"),
             L::None,
-            "state byte (unsure)",
+            "the person's script state: 0 walks the path network, 100 frozen in an animation, other values the character's quest script's own",
         );
         b.f(
             r + 9,
             U8,
-            format!("npcs[{i}].b"),
+            format!("npcs[{i}].path_dir"),
             L::None,
-            "state byte (unsure)",
+            "walking direction along the path: 0 forward, 1 backward",
         );
     }
     b.f(
@@ -816,14 +825,14 @@ fn static_fields() -> Vec<Field> {
         I8,
         "location.entry",
         L::None,
-        "entry point the level was entered by, 0..23",
+        "entry point the level was entered by, 0..23 (loading takes the position from the save and only the entry's camera angle; some scripts read it)",
     );
     b.f(
         0x73bd,
         I8,
         "location.map_variant",
         L::None,
-        "alternative map flag (0 or 1)",
+        "the level's alternative tile layer, 0 or 1 (walk-in triggers in CRYPT_B, HIVE_3_B and TOWER5 set it)",
     );
     b.f(
         0x73be,
@@ -847,7 +856,7 @@ fn static_fields() -> Vec<Field> {
             Bytes(15),
             format!("quests[{i}].key"),
             L::Text,
-            "quest log entry: the quest's key without QUESTLOG_ (zero-padded)",
+            "quest log entry: the quest's key without QUESTLOG_ (zero-padded; one of 15 characters has no terminator); the log is cleared on changing worlds",
         );
         b.f(
             r + 15,
