@@ -113,9 +113,11 @@ const WORLD: [u32; 7] = [
 /// Sets how many tiles around the camera the level's geometry is drawn for (its argument, 12
 /// in the rooms seen; the square's corner shows on a wider screen as floor cut off in steps).
 const SET_TILE_RADIUS: u32 = 0x0040_25a4;
-/// How far widescreen enlarges it at most (to 16: more breaks the level's drawing, its
-/// buffers are made for 16).
-const TILE_RADIUS_WIDER: u32 = 4;
+/// How far widescreen enlarges it at most (to 15): at 16 the last column of a layer of the
+/// level's tiles reaches into the next row (its buffers hold 32 vertices a row, a radius of 16
+/// needs 33), and a semi-transparent tile becomes a thin strip over the whole width; from 17
+/// on the geometry falls apart.
+const TILE_RADIUS_WIDER: u32 = 3;
 /// Functions the widened world functions call that ask whether `SCREEN_W` is 640 (else the
 /// 320-pixel mode: texture scrolling and sprite animation at half the steps, a cape wrong).
 /// Also one that sizes a sprite by `320 / SCREEN_W` (the hero's body; on the wider screen he

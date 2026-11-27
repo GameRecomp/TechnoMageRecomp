@@ -207,9 +207,12 @@ format needs a host service **(open)**.
   covers the whole 640 pixels (bars, fades). The level's geometry is drawn for a square of tiles around the
   camera, its radius set per level (`0x4025a4`, argument 12 in the house, doubled into `0x55f420`, also
   `(r-3)<<11` into `0x97e18c`, the Chebyshev distance from which a tile's corners fade to black over two
-  tiles, `0x4490f5`). Widescreen enlarges the argument by the screen's share, at most by 4: from 17 on the
-  level's geometry falls apart (its buffers are made for 16; from 19 on `(r-3)<<11` also overflows its 16
-  bits). The hard edge on the right in steps (about x 650 to 700 of a 16:9 screen, at every camera angle,
+  tiles, `0x4490f5`). Widescreen enlarges the argument by the screen's share, at most by 3 (to 15): at 16 a
+  layer's last column reaches into the next row (a buffer of 32 vertices a row, 16 needs 33), and a
+  semi-transparent tile showed as a thin brown strip over the whole width (in Dreamertown by the pond, at some
+  positions and camera angles; found by scanning the ordering table for primitives over 150 pixels wide and
+  under 25 high: none at 15 in twelve positions and angles, some at 16); from 17 on the level's geometry falls
+  apart (from 19 on `(r-3)<<11` also overflows its 16 bits). The hard edge on the right in steps (about x 650 to 700 of a 16:9 screen, at every camera angle,
   nothing beyond it in the ordering table) was the clip rectangle instead: set once with the display mode
   (`0x40c0a0` from `0x41b816`: x, y, width, height at `0x14f6ce0`..`0x14f6cec`, 0, 0, 640, 480), the level's
   geometry (`0x4482e0`, a PlayStation-style test of the packed vertices against the packed width and height)
