@@ -62,6 +62,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .systems label { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
 .systems small { color: var(--muted); }
 .systems label.off { opacity: 0.55; cursor: not-allowed; }
+.systems label { align-items: center; }
+.systems .arch {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.systems .arch:disabled { opacity: 0.55; }
 .bar-row { display: flex; gap: 12px; align-items: center; }
 progress { flex: 1; height: 14px; accent-color: var(--accent); }
 .bar-label { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }

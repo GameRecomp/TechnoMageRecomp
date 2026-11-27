@@ -8,7 +8,8 @@
    language (see "Patches" below); since 2026-11-27 also French, Italian and Spanish, the other CDs archived
    there (decision log).
 2. **Platforms: Windows, Linux, Android and the browser (WebAssembly).** macOS is built in CI but not offered
-   (`platforms.json`, as in the sister projects). Android since 2026-11-26 (decision log).
+   (`platforms.json`, as in the sister projects). Android since 2026-11-26, Windows and Linux on ARM64 since
+   2026-11-27 (decision log).
 3. **Rust only.** The recompiler, the runtime, the HLE layer, the platform layer, the converter **and the lifted
    game code** are Rust. No C, no C++, no assembly sources, no C compiler in any build. `tools/audit.sh` refuses C
    sources.
@@ -264,6 +265,11 @@ Binary treatment:
 - [x] The player module's link options (exported function table and stack pointer, 4 GiB memory, 8 MiB stack)
       back in `games/technomage-web/build.rs` (lost on 2026-11-25, the player stopped at its start);
       `tools/build-web` refuses a module without the exports
+- [x] Windows and Linux on ARM64: the target `arm64-windows` (blob id 6), the systems `windows-arm64` and
+      `linux-arm64`, their templates built on ARM64 runners in the Pages and release workflows, a processor
+      selector in the Windows and Linux rows of the converter page; `recomp convert` makes an `arm64-windows`
+      package (checked with a stand-in shell)
+- [ ] Windows and Linux ARM64 builds run on an ARM64 machine (none here)
 - [ ] The page's flow checked in a real browser with a person at the keyboard (sound, input, saving)
 - [ ] Windows build checked on Windows
 - [x] Android shell: the shell as `libtechnomage.so` in Android's NativeActivity (Bevy's
@@ -358,6 +364,7 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 
 | Date | Decision |
 |------|----------|
+| 2026-11-27 | **Windows and Linux on ARM64** (the maintainer's call): templates of their own (`windows-arm64`, `linux-arm64`), each shell built on a GitHub ARM64 runner rather than cross-compiled, chosen on the page with a processor selector in the system's row (guessed from the browser where it says). Windows on ARM64 gets its own blob target (`arm64-windows`, id 6) but the same code as Linux: Cranelift's ARM64 back end with the AAPCS64 convention, which Windows ARM64 shares for the plain integer and pointer calls the code makes; Cranelift never allocates x18, which Windows keeps for the thread's block. The runtime flushes the instruction cache after loading the code there (`FlushInstructionCache`). |
 | 2026-11-27 | **French, Italian and Spanish** (the maintainer's call): the other full CDs archived on archive.org. Like the English CD each has its executable inside SecuROM, so each takes the cover CD's plain 1.04 executable as a supplement; its own `techmage.cfg` sets the language. They are told apart by their tools (`TM_Setup.exe`, `TM_Diagnostic.exe`). The Spanish CD exists only as a tar in two parts holding a 7z (LZMA2) holding an ISO the uploader rebuilt (a NOCD folder added); `rc-media` takes the image out into memory instead of asking for a repack (the "portable" 7z beside it is an installed copy with a cracked executable). Not taken: the warez and magazine collections, the PlayStation version. |
 | 2026-11-27 | **Widescreen as an option, without stretching** (the maintainer's call; the proportions follow the window): the game keeps its 640×480 (its menus, texts, panels and the HUD are laid out in it, the map and the quest log cover it whole), and the HLE makes the screen's surfaces wider by a margin on each side, moving everything the game draws into the middle; only the world is drawn over the margins: the game's functions that put it into the ordering table see the wider screen and its centre, and the table's world buckets are drawn on the whole width (RESEARCH.md, "Widescreen"). So nothing is ever stretched, and a screen the game covers whole gets black bars beside it. Not a larger display mode: that only zooms the camera out, and the game's layout and videos are fixed to 640 pixels. Cut scenes (Bink, 640×368) are shown alone, enlarged to the window with their proportions. The margin changes between frames, so resizing the window works while playing. |
 | 2026-11-26 | **Android after all**, against the first decision (no Android): the shared converter already wrote signed APKs (`rc-convert::apk`) and arm64 Cranelift code, so only the shell was missing. It is the same Rust program as a `cdylib` in Android's own `NativeActivity` (Bevy's `android-native-activity`, `android-activity`): no Java, no SDL, nothing compiled but Rust (the NDK's clang only links). The package's `assets/data/` is unpacked into the app's storage on the first start and again when its `files.txt` changes; the program then finds `data/` as on the desktop. A finger is the mouse (the pointer drawn by the game, no hardware cursor), a second finger the right button, Back is Escape. The libraries are extracted at install (`extractNativeLibs`) and linked for 16 KiB pages. |

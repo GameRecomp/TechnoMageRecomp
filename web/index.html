@@ -25,8 +25,10 @@
     <h2><span class="step">1</span> Your system</h2>
     <fieldset class="systems">
       <legend class="sr-only">System</legend>
-      <label><input type="radio" name="system" value="windows"> Windows <small>64-bit</small></label>
-      <label><input type="radio" name="system" value="linux"> Linux <small>x86-64</small></label>
+      <label><input type="radio" name="system" value="windows"> Windows <small>64-bit</small>
+        <select class="arch" data-system="windows" aria-label="Windows processor"><option value="x86_64">x86-64</option><option value="arm64">ARM64</option></select></label>
+      <label><input type="radio" name="system" value="linux"> Linux <small>64-bit</small>
+        <select class="arch" data-system="linux" aria-label="Linux processor"><option value="x86_64">x86-64</option><option value="arm64">ARM64</option></select></label>
       <label><input type="radio" name="system" value="macos"> macOS <small>Apple silicon and Intel</small></label>
       <label><input type="radio" name="system" value="android"> Android <small>an app (APK), ARM64 and x86-64</small></label>
       <label id="web-choice"><input type="radio" name="system" value="web"> Browser <small>play here, without installing anything</small></label>

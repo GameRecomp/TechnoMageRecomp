@@ -31,7 +31,7 @@ sed -i "s/@VERSION@/$version/" "$site/index.html"
 cp platforms.json "$site/platforms.json"
 on() { python3 -c 'import json, sys; sys.exit(0 if json.load(open("platforms.json")).get(sys.argv[1], True) else 1)' "$1"; }
 if [ -n "$templates" ]; then
-    for s in windows linux macos android; do
+    for s in windows windows-arm64 linux linux-arm64 macos android; do
         if on "$s" && [ -f "$templates/TechnoMage-$s.zip" ]; then
             cp "$templates/TechnoMage-$s.zip" "$site/templates/"
         fi

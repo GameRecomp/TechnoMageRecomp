@@ -50,6 +50,26 @@ function systems() {
   };
 }
 
+/* The processor chosen in a system's row (Windows and Linux have x86-64 and ARM64). */
+function archOf(system) {
+  const s = document.querySelector(`select.arch[data-system=${system}]`);
+  return s ? s.value : 'x86_64';
+}
+
+/* The build a system and its processor name: the template's name (TechnoMage-windows-arm64). */
+function buildOf(system) {
+  return archOf(system) === 'arm64' ? `${system}-arm64` : system;
+}
+
+/* The processor, where the browser tells it (Chromium's client hints, Linux's platform string). */
+async function guessArch() {
+  try {
+    const h = await navigator.userAgentData?.getHighEntropyValues?.(['architecture']);
+    if (h && h.architecture) return /arm/i.test(h.architecture) ? 'arm64' : 'x86_64';
+  } catch (_) { /* not told */ }
+  return /aarch64|arm64|armv8/i.test(`${navigator.platform} ${navigator.userAgent}`) ? 'arm64' : 'x86_64';
+}
+
 function guessSystem() {
   const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent;
   if (/android/i.test(p) || /android/i.test(navigator.userAgent)) return 'android';
@@ -379,8 +399,10 @@ async function start() {
   if (!chosen) return; /* (every system is off on this site) */
   const system = chosen.value;
   const sys = systems()[system];
+  const build = buildOf(system);
   const forGame = game;
-  const outName = sys.file || `${forGame.stem}-${sys.label.replace(/\s/g, '')}.zip`;
+  const arch = build === system ? '' : '-ARM64';
+  const outName = sys.file || `${forGame.stem}-${sys.label.replace(/\s/g, '')}${arch}.zip`;
   $('error').hidden = true;
   $('result').hidden = true;
   webMode = !!sys.web;
@@ -413,8 +435,11 @@ async function start() {
   let template;
   if (!webMode) {
     try {
-      const r = await fetch(`templates/${forGame.stem}-${system}.zip`);
-      if (!r.ok) throw new Error(`the ${sys.label} build of ${forGame.name} is not available on this site (${r.status})`);
+      const r = await fetch(`templates/${forGame.stem}-${build}.zip`);
+      if (!r.ok) {
+        const which = build === system ? sys.label : `${sys.label} ARM64`;
+        throw new Error(`the ${which} build of ${forGame.name} is not available on this site (${r.status})`);
+      }
       template = await r.arrayBuffer();
     } catch (err) {
       await out.abort();
@@ -555,6 +580,8 @@ function applyChoices() {
     input.closest('label').classList.toggle('off', !!why);
     input.closest('label').querySelector('small').textContent = why || NOTES.get(input.value);
     if (why && input.checked) input.checked = false;
+    const arch = input.closest('label').querySelector('select.arch');
+    if (arch) arch.disabled = !!why;
   }
   if (!document.querySelector('input[name=system]:checked')) {
     const first = document.querySelector('input[name=system]:not(:disabled)');
@@ -607,6 +634,20 @@ function showGame() {
 const guessed = document.querySelector(`input[name=system][value=${guessSystem()}]`);
 guessed.checked = true;
 for (const r of document.querySelectorAll('input[name=system]')) r.addEventListener('change', updateNote);
+// Choosing a processor chooses its system too.
+for (const s of document.querySelectorAll('select.arch')) {
+  s.addEventListener('change', () => {
+    const radio = document.querySelector(`input[name=system][value=${s.dataset.system}]`);
+    if (!radio.disabled) radio.checked = true;
+    updateNote();
+  });
+}
+guessArch().then((arch) => {
+  for (const s of document.querySelectorAll('select.arch')) {
+    const option = s.querySelector(`option[value=${arch}]`);
+    if (option && !option.disabled) s.value = arch;
+  }
+});
 $('remove').addEventListener('click', removeStored);
 $('reconvert').addEventListener('click', () => { reconvert = true; updateView(); });
 if (!browserCanPlay()) {
@@ -620,6 +661,12 @@ fetch('platforms.json', { cache: 'no-cache' })
   .then((on) => {
     for (const system of ['windows', 'linux', 'macos', 'android', 'web']) {
       if (on[system] === false) offAlways.set(system, 'disabled on this site for now');
+    }
+    // ARM64 builds of Windows and Linux (windows-arm64, linux-arm64).
+    for (const s of document.querySelectorAll('select.arch')) {
+      const option = s.querySelector('option[value=arm64]');
+      option.disabled = on[`${s.dataset.system}-arm64`] === false;
+      if (option.disabled && s.value === 'arm64') s.value = 'x86_64';
     }
     showGame();
   });

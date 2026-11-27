@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # The converter page on GitHub Pages (tools/build-web): the converter as WebAssembly and the
-# shell templates it fills, one per system (Windows, Linux, Android), built here without lifted
-# code.
+# shell templates it fills, one per system (Windows and Linux on x86-64 and ARM64, Android), built
+# here without lifted code, each on a runner of its own machine.
 name: pages
 on:
   push:
@@ -32,6 +32,12 @@ jobs:
             exe: ""
           - os: windows-latest
             system: windows
+            exe: ".exe"
+          - os: ubuntu-24.04-arm
+            system: linux-arm64
+            exe: ""
+          - os: windows-11-arm
+            system: windows-arm64
             exe: ".exe"
     runs-on: ${{ matrix.os }}
     steps:

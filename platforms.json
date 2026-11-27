@@ -1,6 +1,8 @@
 {
   "windows": true,
+  "windows-arm64": true,
   "linux": true,
+  "linux-arm64": true,
   "macos": false,
   "android": true,
   "web": true

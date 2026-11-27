@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
-# On a version tag: the converter for Linux and Windows (recomp plus the game's shell template for
-# that system) as release assets. The shell is built without lifted code; the converter adds the
+# On a version tag: the converter for Linux and Windows, on x86-64 and ARM64 (recomp plus the game's
+# shell template for that system), as release assets, each built on a runner of its machine. The shell is built without lifted code; the converter adds the
 # user's game, compiled to native code with Cranelift, on the user's machine.
 name: release
 on:
@@ -38,9 +38,19 @@ jobs:
         include:
           - os: ubuntu-latest
             system: linux
+            asset: linux-x86_64
             exe: ""
           - os: windows-latest
             system: windows
+            asset: windows-x86_64
+            exe: ".exe"
+          - os: ubuntu-24.04-arm
+            system: linux-arm64
+            asset: linux-arm64
+            exe: ""
+          - os: windows-11-arm
+            system: windows-arm64
+            asset: windows-arm64
             exe: ".exe"
     runs-on: ${{ matrix.os }}
     steps:
@@ -66,7 +76,11 @@ jobs:
         shell: bash
         run: |
           cd dist
-          7z a ../TechnoMageRecomp-converter-${{ matrix.system }}-x86_64.zip .
+          if command -v 7z > /dev/null; then
+            7z a ../TechnoMageRecomp-converter-${{ matrix.asset }}.zip .
+          else
+            zip -qr ../TechnoMageRecomp-converter-${{ matrix.asset }}.zip .
+          fi
       - uses: softprops/action-gh-release@v2
         with:
-          files: TechnoMageRecomp-converter-${{ matrix.system }}-x86_64.zip
+          files: TechnoMageRecomp-converter-${{ matrix.asset }}.zip
