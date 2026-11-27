@@ -196,9 +196,17 @@ format needs a host service **(open)**.
   the attributes, the coins and the weapon slots are left of the middle (buckets 7, 23, 24, …), the rucksack's
   frame right of it (10, 11), the description below in 25 to 27; nothing crosses the middle. A camera move with
   a cut scene's black bars draws them over 0 to 640 like the depth background. Widescreen keeps the tubes at
-  the left edge, splits the character menu to both edges (the pointer mapped back, `screen_to_game`), and
-  widens what covers the whole 640 pixels (bars, fades). Objects going missing on the right outdoors, and the
-  hero off the middle, were reported in Dreamertown's streets (not reached by scripted runs): **(open)**.
+  the left edge in every state (the pause menu too), splits the character menu to both edges while it is open
+  and for 40 frames after it closes (it slides out while the game is played again; its description, with the
+  key pictures in its text, stays in the middle), maps the pointer back (`screen_to_game`), and widens what
+  covers the whole 640 pixels (bars, fades). The level's geometry is drawn for a square of tiles around the
+  camera, its radius set per level (`0x4025a4`, argument 12 in the house, doubled into `0x55f420`, also
+  `(r-3)<<11` into `0x97e18c`): on a wider screen the square's corner shows on the right as floor cut off in
+  steps (nothing beyond x ≈ 700 reaches the ordering table). Widescreen enlarges the argument by the screen's
+  share, at most by 4 (16: the room complete at 16:9; 20 draws nothing). Many functions also branch on
+  `SCREEN_W == 640` (else the 320-pixel mode's halved steps, e.g. texture scrolling at `0x405f69`); inside the
+  widened world functions they take the 320 path: harmless so far **(open)**. The hero off the middle could not
+  be reproduced (in the middle at 16:9 and 16:10, standing, after walks) **(open)**.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
   change the selected one's value between 0 and its maximum. Enter and Space do nothing there; the press that
   chose the panel in the pause menu is still down for a few frames when it opens. The pause menu's mouse click

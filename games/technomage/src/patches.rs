@@ -106,6 +106,11 @@ const WORLD: [u32; 7] = [
     0x0040_1357,
     0x0040_201d,
 ];
+/// Sets how many tiles around the camera the level's geometry is drawn for (its argument, 12
+/// in the rooms seen; the square's corner shows on a wider screen as floor cut off in steps).
+const SET_TILE_RADIUS: u32 = 0x0040_25a4;
+/// How far widescreen enlarges it at most (more breaks the level's drawing).
+const TILE_RADIUS_WIDER: u32 = 4;
 /// Plays a video (Bink, into the primary surface, centred in 640 × 480); the handle of the one
 /// playing (its width and height first).
 const PLAY_VIDEO: u32 = 0x0053_c8d0;
@@ -943,10 +948,14 @@ fn draw_ot(c: &mut Cpu) {
         call_original(c, DRAW_OT);
         return;
     }
-    SPLIT.store(
-        c.mem().ld32(PAUSE_STATE) == 0x40,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    let open = c.mem().ld32(PAUSE_STATE) == 0x40;
+    SPLIT.store(open, Ordering::Relaxed);
+    let since = if open {
+        0
+    } else {
+        MENU_SINCE.load(Ordering::Relaxed).saturating_add(1)
+    };
+    MENU_SINCE.store(since, Ordering::Relaxed);
     crate::controls::touch_bar(c);
     let m = c.mem();
     crate::controls::note_key_pictures(m, arg(c, 0), rc_hle::ddraw::margin() as i32);
@@ -987,6 +996,20 @@ fn draw_ot(c: &mut Cpu) {
 /// primitives into the ordering table see the wider screen (its size, the projection's centre
 /// moved by the margin), so they cull to it and place the world on its pixels; the ordering
 /// table's world buckets are then drawn on the whole width, the rest moved into the middle.
+/// The tile radius, larger by the wider screen's share (at the level's start: a window
+/// resized later keeps it until the next level).
+fn set_tile_radius(c: &mut Cpu) {
+    let r = arg(c, 0);
+    let ox = rc_hle::ddraw::margin();
+    if ox > 0 && (1..=24).contains(&r) {
+        let wide = (r * (640 + 2 * ox))
+            .div_ceil(640)
+            .min(r + TILE_RADIUS_WIDER);
+        c.mem().st32(c.r[ESP] + 4, wide);
+    }
+    call_original(c, SET_TILE_RADIUS);
+}
+
 fn wide_screen<R>(c: &mut Cpu, f: impl FnOnce(&mut Cpu) -> R) -> R {
     let m = c.mem();
     let ox = rc_hle::ddraw::margin();
@@ -1142,7 +1165,12 @@ fn draw_split(c: &mut Cpu) {
                     set(node + at + 1, (v >> 8) as u8);
                 }
             } else {
-                let shift = ui_shift(m, bucket, (lo + hi) / 2, gw, ox);
+                let top = offsets
+                    .iter()
+                    .map(|&o| i32::from(m.ld16(node + o + 2) as i16))
+                    .min()
+                    .unwrap_or(0);
+                let shift = ui_shift(m, bucket, (lo + hi) / 2, top, gw, ox);
                 for (&o, &x) in offsets.iter().zip(&xs) {
                     let v = (x + shift) as u16;
                     set(node + o, v as u8);
@@ -1171,21 +1199,24 @@ fn rect_width(m: Mem, node: u32, code: u8) -> Option<(u32, i32)> {
     }
 }
 
-/// How far an interface primitive of `bucket` (its middle at `centre`) moves on the wider
-/// screen: into the middle (`ox`), or to an edge. While the game is played (a dialogue too),
-/// the life and mana tubes (buckets 12 to 15) keep to the left edge; in the character menu
-/// what is left of the middle keeps to the left edge and what is right of it to the right
-/// one, its description below (buckets 25 to 27) in the middle (RESEARCH.md, "Widescreen").
-fn ui_shift(m: Mem, bucket: u32, centre: i32, gw: i32, ox: i32) -> i32 {
+/// How far an interface primitive of `bucket` (its middle at `centre`, its top at `top`)
+/// moves on the wider screen: into the middle (`ox`), or to an edge. The life and mana tubes
+/// (buckets 12 to 15) keep to the left edge in every state (a menu, a dialogue). The character
+/// menu's buckets (2 to 11, 16 to 24) above its description (y 340) go to the edge they are
+/// nearer to, while it is open (state 0x40) and while it slides out (the game is played again
+/// then): left of the middle to the left edge, right of it to the right one. Its description
+/// (with the key pictures in its text), a dialogue, the pause menu, the map stay in the middle
+/// (RESEARCH.md, "Widescreen").
+pub(crate) fn ui_shift(m: Mem, bucket: u32, centre: i32, top: i32, gw: i32, ox: i32) -> i32 {
+    if (12..=15).contains(&bucket) {
+        return 0;
+    }
     let state = m.ld32(PAUSE_STATE);
     let flags = m.ld32(MENU_FLAGS);
-    if state & !0x10 == 0x800 && flags == 0 {
-        return if (12..=15).contains(&bucket) { 0 } else { ox };
-    }
-    if state == 0x40 {
-        if (25..=27).contains(&bucket) {
-            return ox;
-        }
+    let closing = MENU_SINCE.load(std::sync::atomic::Ordering::Relaxed) < MENU_CLOSING;
+    let menu = state == 0x40 || (closing && state == 0x800 && flags == 0);
+    let split = matches!(bucket, 2..=11 | 16..=24) && top < 340;
+    if menu && split {
         return if centre < gw / 2 { 0 } else { 2 * ox };
     }
     ox
@@ -1193,6 +1224,11 @@ fn ui_shift(m: Mem, bucket: u32, centre: i32, gw: i32, ox: i32) -> i32 {
 
 /// Whether the interface is split to the edges now (the character menu, `ui_shift`): kept per
 /// frame for the pointer, which input moves between frames.
+/// Frames since the character menu was last open (its state 0x40), and how long it slides
+/// out after it is closed (the game played again meanwhile): its parts keep to the edges.
+static MENU_SINCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+const MENU_CLOSING: u32 = 40;
+
 static SPLIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// How far a point of the interface at the game's `x` is moved on the wider screen.
@@ -1382,6 +1418,7 @@ pub fn register() {
     hook(DRAW_OBJECT, draw_object);
     hook(DRAW_OT, draw_ot);
     hook(CAMERA, camera);
+    hook(SET_TILE_RADIUS, set_tile_radius);
     hook(PLAY_VIDEO, play_video);
     hook(crate::controls::CONFIG_PAGE, crate::controls::config_page);
     hook(

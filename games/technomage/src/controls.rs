@@ -175,7 +175,8 @@ static KEY_PICTURES: Mutex<Vec<KeyPicture>> = Mutex::new(Vec::new());
 type KeyPicture = (i32, i32, u32, u32, u16);
 
 /// Before the frame's ordering table is drawn (its last node): its interface's sprites that
-/// are an action's key picture, noted (moved by the widescreen margin `ox`, as they will be).
+/// are an action's key picture, noted (moved on the wider screen as they will be,
+/// `patches::ui_shift`).
 pub fn note_key_pictures(m: Mem, last: u32, ox: i32) {
     if !rc_hle::dinput::pad_in_use() {
         return;
@@ -205,13 +206,20 @@ pub fn note_key_pictures(m: Mem, last: u32, ox: i32) {
                 | u32::from(m.ld8(node + 0x1a)) << 24;
             if let Some(&(_, action)) = sprites.iter().find(|(k, _)| *k == key) {
                 if found.len() < 64 {
-                    found.push((
-                        i32::from(m.ld16(node + 0x10) as i16) + ox,
+                    let (x, y) = (
+                        i32::from(m.ld16(node + 0x10) as i16),
                         i32::from(m.ld16(node + 0x12) as i16),
+                    );
+                    let (pw, ph) = (
                         u32::from(m.ld16(node + 0x18)),
                         u32::from(m.ld16(node + 0x1a)),
-                        action,
-                    ));
+                    );
+                    let shift = if ox == 0 {
+                        0
+                    } else {
+                        crate::patches::ui_shift(m, bucket, x + pw as i32 / 2, y, 640, ox)
+                    };
+                    found.push((x + shift, y, pw, ph, action));
                 }
             }
         }
@@ -318,7 +326,7 @@ pub fn touch_bar(c: &mut Cpu) {
         if let Touch::Game(name) = what {
             if let Some(rec) = sprite_record(c, name) {
                 let (sw, sh) = (i32::from(m.ld8(rec + 9)), i32::from(m.ld8(rec + 10)));
-                draw_record(m, rec, x + ox + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 2);
+                draw_record(m, rec, x + ox + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 1);
             }
         }
         places.push([(x + 2 * ox) as f32, y as f32, SIZE as f32, SIZE as f32]);

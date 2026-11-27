@@ -193,6 +193,7 @@ hooks = [
   0x4021da, # widescreen: which objects are on the wider screen
   0x401357,
   0x40201d,
+  0x4025a4, # widescreen: the level's tile radius (more tiles drawn beside)
   0x53c8d0, # widescreen: a video played (only its picture shown)
   0x401140, # the input page each frame: its tabs (keyboard and mouse, gamepad, touch)
   0x538790, # the joystick's button table set: the PlayStation version's set-up in front
