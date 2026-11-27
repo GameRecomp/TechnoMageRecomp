@@ -5,7 +5,8 @@
 1. **TechnoMage runs natively** from its original executable: *TechnoMage: Return of Eternity* /
    *TechnoMage – Die Rückkehr der Ewigkeit* (Sunflowers, 2000/2001), in **German and English**, the two releases
    archived on archive.org (see [TARGETS.md](TARGETS.md)), each at the **newest official patch level** of its
-   language (see "Patches" below).
+   language (see "Patches" below); since 2026-11-27 also French, Italian and Spanish, the other CDs archived
+   there (decision log).
 2. **Platforms: Windows, Linux, Android and the browser (WebAssembly).** macOS is built in CI but not offered
    (`platforms.json`, as in the sister projects). Android since 2026-11-26 (decision log).
 3. **Rust only.** The recompiler, the runtime, the HLE layer, the platform layer, the converter **and the lifted
@@ -109,6 +110,8 @@ Status: ✅ done · 🔶 in progress · ⬜ not started
 - [x] The archive.org URLs fixed: `SF2004-03/2004-03.BIN`, and `TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf`
       (archive.org serves the member of the RAR directly: no RAR reader)
 - [x] The English release measured and pinned (the `.mdf`, its executable and tools)
+- [x] French (`technomage_pc-fr`), Italian (`tecnomage`) and Spanish (`Videogame_hgftssa`) CDs measured and
+      pinned: the media, their tools (which tell them apart); the cover CD's executable as their supplement
 - [x] Patches: 1.02 and 1.04 (German only) identified; the cover CD is 1.04 already, no English patch (below)
 - [ ] `recomp identify` recognises the media, the patch and every binary
 - [ ] Icon (`tools/icons/technomage.svg`, our own drawing)
@@ -142,7 +145,9 @@ Binary treatment:
       `orig/technomage/<variant>/cd/` with the disc's label in `cd/volume-label.txt`, for the virtual CD drive
 - [x] `rc-unpack`: UPX 1.07 Win32/PE (NRV2D, the call-trick filter `0x26`, imports rebuilt from the packer's
       table, relocations restored), `recomp unpack`; byte-identical to `upx -d` 4.2.4 for the German executable
-- [ ] `recomp download technomage de|en` from the fixed archive.org URLs (curl), size and SHA-256 checked
+- [ ] `recomp download technomage de|en|fr|it|es` from the fixed archive.org URLs (curl), size and SHA-256 checked
+- [x] `rc-media` `packed`: a CD image packed for archiving (a file in parts, a tar, a 7z with LZMA2 or LZMA), as
+      the Spanish CD is (a tar in two parts holding a 7z holding the ISO); the image is taken out into memory
 - [ ] Ignored tests `orig_extract` for every medium in `orig/`
 
 ### M2 – Find the code
@@ -234,6 +239,8 @@ Binary treatment:
 - [x] Leaving through the main menu writes `TechnoMage.ini`; the next start reads it; the save book opens
 - [x] English through the converter (the German CD's executable as supplement) runs to the first room in the
       browser player
+- [x] French, Italian and Spanish start natively (the cover CD's executable, their `techmage.cfg`) and run to the
+      first room with dialogue in their language
 - [ ] All eight worlds played through by hand; saving and loading a game; a one-hour soak
 
 ### M8 – Converter and platforms
@@ -252,6 +259,11 @@ Binary treatment:
       browser's storage, reads in blocks; runs to the first room in Node (software) and headless Firefox (WebGL2);
       the page's whole flow (worker → OPFS → `play.html`) scripted in headless Firefox (`tools/web-test/flow.html`)
 - [x] Windows: the shell and `recomp` check for `x86_64-pc-windows-msvc` (cross, without linking)
+- [x] French, Italian and Spanish on the converter page (flags); a medium in parts is downloaded part by part
+      and joined; the Spanish flow (tar parts → 7z → ISO → game) scripted in headless Firefox
+- [x] The player module's link options (exported function table and stack pointer, 4 GiB memory, 8 MiB stack)
+      back in `games/technomage-web/build.rs` (lost on 2026-11-25, the player stopped at its start);
+      `tools/build-web` refuses a module without the exports
 - [ ] The page's flow checked in a real browser with a person at the keyboard (sound, input, saving)
 - [ ] Windows build checked on Windows
 - [x] Android shell: the shell as `libtechnomage.so` in Android's NativeActivity (Bevy's
@@ -346,6 +358,7 @@ Tracked with answers in [RESEARCH.md](RESEARCH.md):
 
 | Date | Decision |
 |------|----------|
+| 2026-11-27 | **French, Italian and Spanish** (the maintainer's call): the other full CDs archived on archive.org. Like the English CD each has its executable inside SecuROM, so each takes the cover CD's plain 1.04 executable as a supplement; its own `techmage.cfg` sets the language. They are told apart by their tools (`TM_Setup.exe`, `TM_Diagnostic.exe`). The Spanish CD exists only as a tar in two parts holding a 7z (LZMA2) holding an ISO the uploader rebuilt (a NOCD folder added); `rc-media` takes the image out into memory instead of asking for a repack (the "portable" 7z beside it is an installed copy with a cracked executable). Not taken: the warez and magazine collections, the PlayStation version. |
 | 2026-11-27 | **Widescreen as an option, without stretching** (the maintainer's call; the proportions follow the window): the game keeps its 640×480 (its menus, texts, panels and the HUD are laid out in it, the map and the quest log cover it whole), and the HLE makes the screen's surfaces wider by a margin on each side, moving everything the game draws into the middle; only the world is drawn over the margins: the game's functions that put it into the ordering table see the wider screen and its centre, and the table's world buckets are drawn on the whole width (RESEARCH.md, "Widescreen"). So nothing is ever stretched, and a screen the game covers whole gets black bars beside it. Not a larger display mode: that only zooms the camera out, and the game's layout and videos are fixed to 640 pixels. Cut scenes (Bink, 640×368) are shown alone, enlarged to the window with their proportions. The margin changes between frames, so resizing the window works while playing. |
 | 2026-11-26 | **Android after all**, against the first decision (no Android): the shared converter already wrote signed APKs (`rc-convert::apk`) and arm64 Cranelift code, so only the shell was missing. It is the same Rust program as a `cdylib` in Android's own `NativeActivity` (Bevy's `android-native-activity`, `android-activity`): no Java, no SDL, nothing compiled but Rust (the NDK's clang only links). The package's `assets/data/` is unpacked into the app's storage on the first start and again when its `files.txt` changes; the program then finds `data/` as on the desktop. A finger is the mouse (the pointer drawn by the game, no hardware cursor), a second finger the right button, Back is Escape. The libraries are extracted at install (`extractNativeLibs`) and linked for 16 KiB pages. |
 | 2026-11-22 | The project follows TropicoRecomp, CulturesRecomp, HoMM4Recomp and SackedRecomp: MIT license, the Rust recompiler crates, the manifest, the converter with CLI and browser page. Platforms: Windows, Linux, browser; macOS built in CI, not offered; no Android. |

@@ -142,24 +142,43 @@ function languageOf(f) {
   return game.languages.find((l) => l.size === f.size) || null;
 }
 
-/* The files chosen or dropped: the medium and its supplements, told apart by their sizes (a .cue
- * only lists a CD image's tracks and is skipped). When two languages share a file (the English
- * release needs the German CD), the medium is the one whose supplements are there too. */
+/* What a language needs beside its medium: the medium's further parts, then the supplements. */
+function besides(lang) {
+  return [...(lang.parts || []), ...(lang.supplements || [])];
+}
+
+/* A medium and its further parts as one file (the converter reads them joined). */
+function joined(first, parts) {
+  return parts.length ? new File([first, ...parts], first.name) : first;
+}
+
+/* The files chosen or dropped: the medium, its parts and its supplements, told apart by their
+ * sizes (a .cue only lists a CD image's tracks and is skipped). When languages share a file (the
+ * English, French, Italian and Spanish releases need the German CD), the medium is the one whose
+ * other files are there too. */
 function setFiles(list) {
   const all = [...(list || [])].filter((f) => !/\.cue$/i.test(f.name));
   const media = all.filter((f) => languageOf(f));
-  const complete = (m) => (languageOf(m).supplements || []).every((s) => all.some((f) => f !== m && f.size === s.size));
-  file = media.find(complete) || media.find((m) => languageOf(m).code === 'en') || media[0] || null;
+  const complete = (m) => besides(languageOf(m)).every((s) => all.some((f) => f !== m && f.size === s.size));
+  const first = media.find(complete) || media.find((m) => languageOf(m).code !== 'de') || media[0] || null;
+  const chosen = [];
   extras = [];
   const missing = [];
-  if (file) {
-    for (const s of languageOf(file).supplements || []) {
-      const f = all.find((x) => x !== file && x.size === s.size);
-      if (f) extras.push(f);
-      else missing.push(s.file);
+  if (first) {
+    const lang = languageOf(first);
+    const parts = [];
+    for (const s of besides(lang)) {
+      const f = all.find((x) => x !== first && x.size === s.size);
+      if (!f) missing.push(s.file);
+      else if ((lang.parts || []).includes(s)) parts.push(f);
+      else extras.push(f);
+      if (f) chosen.push(f);
     }
+    file = joined(first, parts);
+  } else {
+    file = null;
   }
-  const names = [file, ...extras].filter(Boolean).map((f) => `${f.name} (${mib(f.size)})`);
+  const names = [first, ...chosen].filter(Boolean).map((f) => `${f.name} (${mib(f.size)})`);
   let note = names.length ? names.join(' + ') : (all.length ? 'Not one of the archived files' : 'No file chosen');
   if (missing.length) note += ` — choose ${missing.join(' and ')} too (all at once)`;
   $('file-name').textContent = note;
@@ -212,7 +231,7 @@ async function fetchRelease(lang) {
   $('result').hidden = true;
   for (const b of document.querySelectorAll('#languages button')) b.disabled = true;
   downloading = new AbortController();
-  const items = [lang, ...(lang.supplements || [])];
+  const items = [lang, ...besides(lang)];
   let current = lang;
   try {
     const files = [];
@@ -221,8 +240,9 @@ async function fetchRelease(lang) {
       const shown = items.length > 1 ? `${lang.title} (${k + 1} of ${items.length}, ${item.file})` : lang.title;
       files.push(await download(item, shown, downloading.signal));
     }
-    file = files[0];
-    extras = files.slice(1);
+    const nparts = (lang.parts || []).length;
+    file = joined(files[0], files.slice(1, 1 + nparts));
+    extras = files.slice(1 + nparts);
     $('file-name').textContent = files.map((f) => `${f.name} (${mib(f.size)})`).join(' + ');
     $('start').disabled = false;
     // Converting for the browser starts at once. A zip asks where to save it, which a browser
@@ -251,7 +271,7 @@ function showLanguages() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'language';
-    const total = [lang, ...(lang.supplements || [])].reduce((n, i) => n + i.size, 0);
+    const total = [lang, ...besides(lang)].reduce((n, i) => n + i.size, 0);
     b.title = `${lang.title} (${lang.label}), ${mib(total)} from archive.org`;
     const img = document.createElement('img');
     img.src = `flags/${lang.flag || lang.code}.svg`;
@@ -265,7 +285,7 @@ function showLanguages() {
   }
   $('installer').textContent = game.languages.map((l) => l.file).join(' or ');
   $('needs').textContent = game.languages
-    .map((l) => `${l.label}: ${(l.supplements || []).map((s) => s.file).join(', ') || 'nothing'}`).join('; ');
+    .map((l) => `${l.label}: ${besides(l).map((s) => s.file).join(', ') || 'nothing'}`).join('; ');
 }
 
 function buildStageList() {

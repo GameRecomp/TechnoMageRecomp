@@ -85,6 +85,77 @@ files = [
   { path = "TechnoMage.exe", size = 574976, sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a" },
 ]
 
+# French, Italian and Spanish: CDs like the English one (InstallShield 5, Mov/, Mus/ and Spc/ in
+# their language), each with its own executable inside SecuROM. The German cover CD's plain 1.04
+# executable runs their data: techmage.cfg on each CD sets the language (FRA 2, ITA 3, SPA 4).
+[[variant]]
+id = "cd-fr"
+store = "cd"
+language = "fr"
+content = ["base"]
+cd_dirs = ["Mov", "Mus", "Spc"]
+notes = """French CD (Technomage – En quête de l'éternité, mastered 2001-05-02), as archived on archive.org \
+(item technomage_pc-fr): a cooked ISO 9660 image. InstallShield 5 setup; techmage.cfg: LANGUAGE = 2."""
+media = [
+  { file = "TECHNOMAGE.ISO", kind = "iso", size = 732323840, sha256 = "69d3d23341cab17970654f72b2d50d6a5ac30ce5ec91e0016c140df866d438df", url = "https://archive.org/download/technomage_pc-fr/TECHNOMAGE.ISO" },
+]
+
+[[variant.supplement]]
+notes = "The German SCREENFUN 03/2004 cover CD: only TechnoMage.exe is taken from its InstallShield cabinet."
+media = [
+  { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
+]
+files = [
+  { path = "TechnoMage.exe", size = 574976, sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a" },
+]
+
+[[variant]]
+id = "cd-it"
+store = "cd"
+language = "it"
+content = ["base"]
+cd_dirs = ["Mov", "Mus", "Spc"]
+notes = """Italian CD (TechnoMage – Ritorno dell'eternità, mastered 2001-05-02), as archived on archive.org \
+(item tecnomage): a CloneCD image whose tecnomage.img is one raw MODE1/2352 track (the .ccd, .cue and .sub \
+beside it are not needed). InstallShield 5 setup; techmage.cfg: LANGUAGE = 3."""
+media = [
+  { file = "tecnomage.img", kind = "iso", size = 834701280, sha256 = "0e7bf89c76917e16abeb42ba2802bf9b844266b746068b29df708019e8133e98", url = "https://archive.org/download/tecnomage/tecnomage.img" },
+]
+
+[[variant.supplement]]
+notes = "The German SCREENFUN 03/2004 cover CD: only TechnoMage.exe is taken from its InstallShield cabinet."
+media = [
+  { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
+]
+files = [
+  { path = "TechnoMage.exe", size = 574976, sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a" },
+]
+
+[[variant]]
+id = "cd-es"
+store = "cd"
+language = "es"
+content = ["base"]
+cd_dirs = ["Mov", "Mus", "Spc"]
+notes = """Spanish CD (TechnoMage – El retorno de la Eternidad), as archived on archive.org (item \
+Videogame_hgftssa): a tar in two parts holding a 7z archive (LZMA2) that holds the CD as a cooked ISO \
+(TechnoMage-El retorno de la Eternidad.iso, 729 899 008 bytes, rebuilt 2023-05-17 with a NOCD folder added by \
+the uploader; the game's files are the CD's). The image is taken out into memory (rc-media's packed reader). \
+InstallShield 5 setup; techmage.cfg: LANGUAGE = 4."""
+media = [
+  { file = "TechnoMage_PC_CD_2000_ES.tar.001", kind = "packed", size = 367001600, sha256 = "a6d4f801d0203b6a93f5b4314da7f7b3caff3e4d1a5444443d31396dc6320da3", url = "https://archive.org/download/Videogame_hgftssa/TechnoMage_PC_CD_2000_ES.tar.001" },
+  { file = "TechnoMage_PC_CD_2000_ES.tar.002", kind = "part", size = 286791680, sha256 = "2a1816fc0ee8844cbf28815feb763bf2c3c7dffe6f862e9abf6d7a0cbe9d475d", url = "https://archive.org/download/Videogame_hgftssa/TechnoMage_PC_CD_2000_ES.tar.002" },
+]
+
+[[variant.supplement]]
+notes = "The German SCREENFUN 03/2004 cover CD: only TechnoMage.exe is taken from its InstallShield cabinet."
+media = [
+  { file = "2004-03.BIN", kind = "iso", size = 845217072, sha256 = "c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7", url = "https://archive.org/download/SF2004-03/2004-03.BIN" },
+]
+files = [
+  { path = "TechnoMage.exe", size = 574976, sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a" },
+]
+
 # --- executables -------------------------------------------------------------
 
 [[binary]]
@@ -97,7 +168,7 @@ sha256 = "6f2521de92e4fb88fb1b22130154f32566a63a560884061b4e7e3b703a9d5f0a"
 # The image rc-unpack restores (what upx -d writes): PE32, MSVC 6, base 0x400000, with .reloc.
 unpacked_size = 1863680
 unpacked_sha256 = "a1201ab89542093b3ca312840fc44c216d62cdb6146e3ca3b29925ceac68ba1a"
-variants = ["cd-de", "cd-en"]
+variants = ["cd-de", "cd-en", "cd-fr", "cd-it", "cd-es"]
 
 # The game project's changes (games/technomage/src/patches.rs): "Configure graphics" and "Show
 # information" in the pause menu, the mouse pointer as a hardware cursor, widescreen.
@@ -131,7 +202,7 @@ role = "library"
 treatment = "lift"
 size = 261120
 sha256 = "545f402be018bc905c03305322072e194d77b1a5ec20b62c34cdbc4c81c961fa"
-variants = ["cd-de", "cd-en"]
+variants = ["cd-de", "cd-en", "cd-fr", "cd-it", "cd-es"]
 
 [[binary]]
 name = "Mss32.dll"
@@ -139,7 +210,7 @@ role = "library"
 treatment = "hle"
 size = 349184
 sha256 = "24c0a90dbff552102c09f671853e7247cf20de6e845254d5db625de961e4ae94"
-variants = ["cd-de", "cd-en"]
+variants = ["cd-de", "cd-en", "cd-fr", "cd-it", "cd-es"]
 
 [[binary]]
 name = "TM_Setup.exe"
@@ -184,3 +255,57 @@ treatment = "ignore"
 size = 85504
 sha256 = "1c09c0162ad39a4218496a57b2c08595cd0f2313b1ad6732a570912a9d3d3165"
 variants = ["cd-en"]
+
+# --- French (the CD's own Technomage.EXE, 885 379 bytes, is inside SecuROM as the English one; its tools tell the CD apart) ---
+
+[[binary]]
+name = "TM_Setup.exe"
+role = "tool"
+treatment = "ignore"
+size = 246272
+sha256 = "1c3efcd3ebfa4219274452f3166d39b860dabc17efd6967aa5c1d5eff161c070"
+variants = ["cd-fr"]
+
+[[binary]]
+name = "TM_Diagnostic.exe"
+role = "tool"
+treatment = "ignore"
+size = 86016
+sha256 = "58cc3aa262b2dee5b764c3105bb585fdf1f09299c7d7606021a42ae601bc6162"
+variants = ["cd-fr"]
+
+# --- Italian (the CD's own Technomage.EXE, 885 379 bytes, is inside SecuROM as the English one; its tools tell the CD apart) ---
+
+[[binary]]
+name = "TM_Setup.exe"
+role = "tool"
+treatment = "ignore"
+size = 244224
+sha256 = "058c1a2f37b025d5b7fa0b49b2e344ab1b33fab585e561e3cb3aa1f27d2c18d7"
+variants = ["cd-it"]
+
+[[binary]]
+name = "TM_Diagnostic.exe"
+role = "tool"
+treatment = "ignore"
+size = 86016
+sha256 = "0dbb71be1a1e050a46c1f4d8ba3e64bcec8820bba640831164285296e68153d4"
+variants = ["cd-it"]
+
+# --- Spanish (the CD's own Technomage.EXE, 885 379 bytes, is inside SecuROM as the English one; its tools tell the CD apart) ---
+
+[[binary]]
+name = "TM_Setup.exe"
+role = "tool"
+treatment = "ignore"
+size = 245760
+sha256 = "57c30c83c2023f91a2dafb04f07f7ff5967799cb6b08869e48b144490cf71b9e"
+variants = ["cd-es"]
+
+[[binary]]
+name = "TM_Diagnostic.exe"
+role = "tool"
+treatment = "ignore"
+size = 85504
+sha256 = "77c58c12473f6f87be9414fa668576c227427da58c6ceddcb06da97d40961a4b"
+variants = ["cd-es"]

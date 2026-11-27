@@ -83,6 +83,8 @@ function checkGame(plan, game) {
 }
 
 async function convertForBrowser(file, read, extra, progress, game) {
+  // Reading the CD: for a packed one (Spanish) this takes its image out, a minute or two.
+  progress('identify', 0, 1);
   const plan = JSON.parse(plan_web(file.size, read, extra));
   checkGame(plan, game);
   const root = await navigator.storage.getDirectory();

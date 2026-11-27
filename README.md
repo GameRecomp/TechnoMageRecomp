@@ -4,8 +4,8 @@
 
 **Play *TechnoMage: Return of Eternity* (*TechnoMage – Die Rückkehr der Ewigkeit*) natively on Windows,
 Linux and Android, or right in your browser.** The game by Sunflowers is abandonware and archived on archive.org; the
-converter downloads the release in the language you choose (German or English) and builds the game from it, on
-your machine.
+converter downloads the release in the language you choose (German, English, French, Italian or Spanish) and builds
+the game from it, on your machine.
 
 TechnoMageRecomp is an unofficial project that rebuilds the game as a native program for today's systems: no
 emulator, no Wine. The game's own code is translated ahead of time ("static recompilation") into Rust and runs on a
@@ -22,23 +22,25 @@ fifth project on the toolchain of [TropicoRecomp](https://github.com/GameRecomp/
 
 | Game | Languages |
 |------|-----------|
-| TechnoMage | German (SCREENFUN 03/2004 full version), English (European release) |
+| TechnoMage | German (SCREENFUN 03/2004 full version), English (European release), French, Italian, Spanish |
 
 Each is pinned by its checksum ([docs/TARGETS.md](docs/TARGETS.md)).
 
 ## State
 
-Early: the intro, the menus and the beginning of a new game in German or English run on Linux and in the browser,
+Early: the intro, the menus and the beginning of a new game in German, English, French, Italian and Spanish run on
+Linux and in the browser,
 Direct3D on the GPU (WebGL2 in the browser). Not played through yet; Windows builds are made but not played by
 hand. See [docs/RELEASE-NOTES.md](docs/RELEASE-NOTES.md) and [docs/PLAN.md](docs/PLAN.md).
 
 ## Playing
 
 1. Download the converter for your system from the releases.
-2. Run `recomp download --dest media technomage de` (or `en`): it fetches the release from archive.org and
-   checks it.
-3. Run `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`): it writes a zip with
-   the game ready to run. Unpack it and start `technomage`.
+2. Run `recomp download --dest media technomage de` (or `en`, `fr`, `it`, `es`): it fetches the release from
+   archive.org and checks it.
+3. Run `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`, French:
+   `media/TECHNOMAGE.ISO`, Italian: `media/tecnomage.img`, Spanish: `media/TechnoMage_PC_CD_2000_ES.tar.001`): it
+   writes a zip with the game ready to run. Unpack it and start `technomage`.
 
 Or play in the browser: on the [converter page](https://gamerecomp.github.io/TechnoMageRecomp/), choose
 "Browser" and a language; the game is stored in the browser and runs on its page (a current Chrome, Edge or

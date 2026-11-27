@@ -17,6 +17,11 @@ cargo run -p rc-cli --release -- download --dest orig technomage de   # archive.
 cargo run -p rc-cli --release -- extract orig/2004-03.BIN               # → orig/technomage/cd-de/
 ```
 
+The other languages the same way (`en`, `fr`, `it`, `es`); `extract` takes their medium (`TECHNOMAGE.mdf`,
+`TECHNOMAGE.ISO`, `tecnomage.img`, `TechnoMage_PC_CD_2000_ES.tar.001` with its `.002` beside it) and the cover CD
+beside it for the executable. The Spanish CD is a 7z inside a tar in two parts: its image is unpacked into memory
+first (about a minute).
+
 ## Build and run
 
 ```sh

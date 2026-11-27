@@ -40,6 +40,17 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
   `LANGUAGE = 1` (the English CD ships that file) selects English (`ENG`, `GER` and the texts of `Txt/Eng`). Run
   with the English CD's files and the cover CD's `TechnoMage.exe`, a new game starts in English with English
   dialogue (checked 2026-11-23). So the English variant takes its executable from the cover CD (a supplement).
+- **French, Italian and Spanish run the same way** (checked 2026-11-27): their CDs were mastered like the English
+  one (InstallShield 5, `DATA.TAG`, `Txt/<lang>`, `Spc/` in the language; French and Italian 2001-05-02), each
+  `Technomage.EXE` is 885 379 bytes of UPX inside SecuROM, and each ships `TECHMAGE.CFG` with `LANGUAGE = 2`
+  (`FRA`), `3` (`ITA`) or `4` (`SPA`). With the cover CD's executable a new game starts in the language with its
+  dialogue. Their `TM_Setup.exe` and `TM_Diagnostic.exe` differ per language, which is how the converter tells
+  them apart (their `binkw32.dll` and `Mss32.dll` are the German ones).
+- **The Spanish CD is packed**: a tar split into two parts holding a single 7z (LZMA2 with a 16 MiB dictionary,
+  one solid folder of five files, the header LZMA-compressed), which holds the ISO. archive.org's "view contents"
+  does not open the tar parts, so the image cannot be fetched on its own; the 7z must be decoded from its start
+  up to the end of the ISO (731 MB of output, about 40 s natively). `rc-media`'s `packed` reader joins the
+  parts, finds the 7z in the tar and the largest CD image in the 7z, and keeps that window of the output.
 - Other settings `TECHMAGE.CFG` knows: `SCREENSHOTS`, `HIGH-PRIORITY`, `GSM-SCALE`, `ZBUFFER`, `WINDOWED`,
   `RECORD-PATH`, `LO-RES`, `MOVIE-PATH`, `GORE`, `MOVIES`, `PROFILER`, `STAGE`, `LEVEL`, `SOUND`.
 
@@ -67,9 +78,9 @@ worlds: Dreamertown, Steamertown, The Hive, the fairy forest, the Canyon, the To
   two more CD images. Patch 1.04's `HBoss.SBK` matches the German cabinet's MD5, but the patch is a RAR SFX (RAR
   2.0 method, solid), from which archive.org serves no single files: **decided** to take `HBoss.SBK` from 1.00
   (decision log). The sound bank of the Hive's boss is therefore 1.00's in the German build.
-- Other TechnoMage items on archive.org (search 2026-11-23): `technomage` (German, `TECHNOMAGE.zip` holding
-  the same 1.00 image as a `.bin`), `tecnomage` (Italian), `technomage_pc-fr` (French), `Videogame_hgftssa`
-  (Spanish), `TechnoMageRoE` (an English repack `Technomage_Setup.exe`, 520 MB, packed with Petite: contents
+- Other TechnoMage items on archive.org (search 2026-11-23, again 2026-11-27): `technomage` (German,
+  `TECHNOMAGE.zip` holding the same 1.00 image as a `.bin`), `tecnomage` (Italian), `technomage_pc-fr` (French),
+  `Videogame_hgftssa` (Spanish) — the three now variants (TARGETS.md) —, `TechnoMageRoE` (an English repack `Technomage_Setup.exe`, 520 MB, packed with Petite: contents
   **(open)**, and the German patch 1.04), `isbn_9785699398751` (Russian), `24_20240222` (soundtrack MP3s), the
   PlayStation version, magazine CDs with demos (PC Action 03, 05, 06/2001, Game On! 06/2001), and the scene
   and patch collections.

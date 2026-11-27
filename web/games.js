@@ -7,7 +7,13 @@
 // /cors/ path, which sends CORS headers (/download/ does not) but ignores Range: files come whole,
 // so they are streamed, never held in memory. A file inside an archive on archive.org is served on
 // its own (`<item>/<archive>/<member>`, the "view contents" link), so nothing is unpacked here.
+// `parts` are the further parts of a medium split into files (`.002`, …): downloaded after it
+// and joined to it.
 const IA = 'https://archive.org/cors/';
+
+/* The German cover CD, whose plain executable runs the CDs whose own one is inside SecuROM. */
+const COVER_EXE = { file: '2004-03.BIN', size: 845217072, url: `${IA}SF2004-03/2004-03.BIN`,
+  sha256: 'c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7' };
 
 export const GAMES = {
   technomage: {
@@ -41,6 +47,27 @@ export const GAMES = {
           { file: '2004-03.BIN', size: 845217072, url: `${IA}SF2004-03/2004-03.BIN`,
             sha256: 'c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7' },
         ] },
+      // French, Italian and Spanish: like the English CD, with the cover CD's executable.
+      { code: 'fr', label: 'Français', title: 'Technomage – En quête de l\'éternité', file: 'TECHNOMAGE.ISO',
+        url: `${IA}technomage_pc-fr/TECHNOMAGE.ISO`, size: 732323840,
+        sha256: '69d3d23341cab17970654f72b2d50d6a5ac30ce5ec91e0016c140df866d438df',
+        supplements: [COVER_EXE] },
+      { code: 'it', label: 'Italiano', title: 'TechnoMage – Ritorno dell\'eternità', file: 'tecnomage.img',
+        url: `${IA}tecnomage/tecnomage.img`, size: 834701280,
+        sha256: '0e7bf89c76917e16abeb42ba2802bf9b844266b746068b29df708019e8133e98',
+        supplements: [COVER_EXE] },
+      // A tar in two parts holding a 7z that holds the CD image: the page joins the parts, the
+      // converter takes the image out.
+      { code: 'es', label: 'Español', title: 'TechnoMage – El retorno de la Eternidad',
+        file: 'TechnoMage_PC_CD_2000_ES.tar.001',
+        url: `${IA}Videogame_hgftssa/TechnoMage_PC_CD_2000_ES.tar.001`, size: 367001600,
+        sha256: 'a6d4f801d0203b6a93f5b4314da7f7b3caff3e4d1a5444443d31396dc6320da3',
+        parts: [
+          { file: 'TechnoMage_PC_CD_2000_ES.tar.002', size: 286791680,
+            url: `${IA}Videogame_hgftssa/TechnoMage_PC_CD_2000_ES.tar.002`,
+            sha256: '2a1816fc0ee8844cbf28815feb763bf2c3c7dffe6f862e9abf6d7a0cbe9d475d' },
+        ],
+        supplements: [COVER_EXE] },
     ],
   },
 };

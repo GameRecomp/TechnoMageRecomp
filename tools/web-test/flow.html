@@ -19,7 +19,10 @@ const lang = GAMES.technomage.languages.find((l) => l.code === (params.get('lang
 const get = async (name) => new File([await (await fetch(`/orig/${name}`)).blob()], name);
 if (!params.has('noconvert')) {
   log(`fetching ${lang.file} and ${(lang.supplements || []).length} supplements`);
-  const file = await get(lang.file);
+  const first = await get(lang.file);
+  const parts = [];
+  for (const p of lang.parts || []) parts.push(await get(p.file));
+  const file = parts.length ? new File([first, ...parts], first.name) : first;
   const extras = [];
   for (const s of lang.supplements || []) extras.push(await get(s.file));
   const t0 = performance.now();

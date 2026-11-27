@@ -10,11 +10,17 @@ from the fixed URLs below.
 |---------|---------|------------------|------|------|---------|---------|
 | `cd-de` | SCREENFUN 03/2004 cover CD (German full version), volume `TECHNOMAGE`, 2004-01-29 | [`SF2004-03`](https://archive.org/details/SF2004-03) | `2004-03.BIN` (raw MODE2/2352) | 845 217 072 | `c9db7f91ae3d7755b88f9921c0904ee9f335463c4dde700c779454bd918e8ed7` | **1.04** |
 | `cd-en` | European English CD, volume `TECHNOMAGE`, 2001-05-03 | [`TechnoMage_Return_of_Eternity_Europe`](https://archive.org/details/TechnoMage_Return_of_Eternity_Europe) | `TECHNOMAGE.mdf` inside `Disc.rar` (raw MODE1/2352, Alcohol) | 840 680 064 | `178a16bf56c4a2b65298be6202c25d8e0bf355b76018a7ab0d45da75e5786450` | after 1.04 (linked 2001-04-25) |
+| `cd-fr` | French CD (*En quête de l'éternité*), volume `TECHNOMAGE`, 2001-05-02 | [`technomage_pc-fr`](https://archive.org/details/technomage_pc-fr) | `TECHNOMAGE.ISO` (cooked) | 732 323 840 | `69d3d23341cab17970654f72b2d50d6a5ac30ce5ec91e0016c140df866d438df` | runs on the cover CD's 1.04 |
+| `cd-it` | Italian CD (*Ritorno dell'eternità*), volume `TECHNOMAGE`, 2001-05-02 | [`tecnomage`](https://archive.org/details/tecnomage) | `tecnomage.img` (CloneCD, raw MODE1/2352) | 834 701 280 | `0e7bf89c76917e16abeb42ba2802bf9b844266b746068b29df708019e8133e98` | runs on the cover CD's 1.04 |
+| `cd-es` | Spanish CD (*El retorno de la Eternidad*), volume `TECHNOMAGE` (image rebuilt 2023-05-17) | [`Videogame_hgftssa`](https://archive.org/details/Videogame_hgftssa) | `TechnoMage_PC_CD_2000_ES.tar.001` + `.002`: a tar holding a 7z (LZMA2) holding the ISO | 367 001 600 + 286 791 680 | `a6d4f801d0203b6a93f5b4314da7f7b3caff3e4d1a5444443d31396dc6320da3`, `2a1816fc0ee8844cbf28815feb763bf2c3c7dffe6f862e9abf6d7a0cbe9d475d` | runs on the cover CD's 1.04 |
 
 Download URLs (fixed; the page uses `/cors/` instead of `/download/`):
 
 - `https://archive.org/download/SF2004-03/2004-03.BIN`
 - `https://archive.org/download/TechnoMage_Return_of_Eternity_Europe/Disc.rar/TECHNOMAGE.mdf`
+- `https://archive.org/download/technomage_pc-fr/TECHNOMAGE.ISO`
+- `https://archive.org/download/tecnomage/tecnomage.img`
+- `https://archive.org/download/Videogame_hgftssa/TechnoMage_PC_CD_2000_ES.tar.001` and `….tar.002`
 
 The `.cue` (`2004-03.CUE`, `MODE2/2352`) and the `.mds` are not needed.
 
@@ -22,6 +28,20 @@ The `.cue` (`2004-03.CUE`, `MODE2/2352`) and the `.mds` are not needed.
 
 The executable: the German cover CD's `TechnoMage.exe` (1.04, no copy protection), taken from `2004-03.BIN`
 (the same file as `cd-de`'s medium). The English CD's own executable is the same game inside SecuROM.
+
+### Supplement of `cd-fr`, `cd-it`, `cd-es`
+
+As for `cd-en`: the cover CD's `TechnoMage.exe`. Each CD's own `Technomage.EXE` (885 379 bytes) is inside SecuROM
+like the English one; each ships `techmage.cfg` with its language (`LANGUAGE = 2`, `3`, `4`).
+
+The Spanish medium is the two parts of one tar (joined, 653 791 744 bytes) whose only file is
+`TechnoMage_PC_CD_2000_ES.7z` (653 791 698 bytes; one LZMA2 folder, header LZMA-compressed). It holds the CD as
+`TechnoMage_PC_CD_2000_ES/TechnoMage-El retorno de la Eternidad.iso` (729 899 008 bytes, cooked; SHA-256
+`429440fb115ad157eb7669fd861bf53606bced35f19a730089bd0d0e55c853ad`), two pictures, `Nocd.7z` and
+`FIX_W10/DDrawCompat-v0.3.2.zip`. The ISO was rebuilt by the uploader with a `NOCD/` folder (a cracked
+executable); the game's files are the CD's (InstallShield's MD5s match). `rc-media`'s `packed` reader takes the ISO
+out into memory; nothing else in the archive is read. The item's `TechnoMage_ES_Portable.7z` is an installed copy
+with a cracked executable and is not used.
 
 ### Supplement of `cd-de`
 
@@ -70,10 +90,18 @@ time). The patch 1.04 is kept as a **reference** (it identifies the German build
 | `binkw32.dll`, `Mss32.dll` | `cd-en` | | as `cd-de` | the same files |
 | `TM_Setup.exe` | `cd-en` | 246 784 | `ac104d700e33392150c2b2eb1101d0e620ab9328b27a9bf58adc4cb598b7eca9` | skipped |
 | `TM_Diagnostic.exe` | `cd-en` | 85 504 | `1c09c0162ad39a4218496a57b2c08595cd0f2313b1ad6732a570912a9d3d3165` | skipped |
+| `TechnoMage.exe`, `binkw32.dll`, `Mss32.dll` | `cd-fr`, `cd-it`, `cd-es` | | as `cd-en` | the cover CD's executable (supplement), the CDs' own DLLs |
+| `TM_Setup.exe` | `cd-fr` | 246 272 | `1c3efcd3ebfa4219274452f3166d39b860dabc17efd6967aa5c1d5eff161c070` | skipped; tells the CD apart |
+| `TM_Diagnostic.exe` | `cd-fr` | 86 016 | `58cc3aa262b2dee5b764c3105bb585fdf1f09299c7d7606021a42ae601bc6162` | skipped |
+| `TM_Setup.exe` | `cd-it` | 244 224 | `058c1a2f37b025d5b7fa0b49b2e344ab1b33fab585e561e3cb3aa1f27d2c18d7` | skipped; tells the CD apart |
+| `TM_Diagnostic.exe` | `cd-it` | 86 016 | `0dbb71be1a1e050a46c1f4d8ba3e64bcec8820bba640831164285296e68153d4` | skipped |
+| `TM_Setup.exe` | `cd-es` | 245 760 | `57c30c83c2023f91a2dafb04f07f7ff5967799cb6b08869e48b144490cf71b9e` | skipped; tells the CD apart |
+| `TM_Diagnostic.exe` | `cd-es` | 85 504 | `77c58c12473f6f87be9414fa668576c227427da58c6ceddcb06da97d40961a4b` | skipped |
 
 ## Not targeted
 
 - German retail CD 1.00 (2000-11-07, SecuROM 4.10, redump 7367) and its patches: the cover CD is the same game at
   1.04 without SecuROM.
-- Other languages on archive.org (Italian `tecnomage`, French `technomage_pc-fr`, Spanish `Videogame_hgftssa`),
-  the repack `TechnoMageRoE/Technomage_Setup.exe`: not requested; they can be added by hash later.
+- The repack `TechnoMageRoE/Technomage_Setup.exe` and the Spanish `TechnoMage_ES_Portable.7z` (installed copies
+  with changed executables). No Dutch release is archived on archive.org (searched 2026-11-27), although the
+  executable knows Dutch (`NL`). The warez and magazine collections that hold the game, the PlayStation version.

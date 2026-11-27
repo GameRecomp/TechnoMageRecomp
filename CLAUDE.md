@@ -10,7 +10,8 @@ projects there is **no C anywhere** (not even for lifted code) and **no SDL**. S
 ## State (2026-11-24)
 
 M0–M4 done; M5–M8 nearly (docs/PLAN.md). The game boots natively (Bevy window, Direct3D on wgpu) and in the
-browser (`technomage-web` + `web/player.js`, JSPI, WebGL2), German and English, intro to the first rooms; the
+browser (`technomage-web` + `web/player.js`, JSPI, WebGL2), German, English, French, Italian and Spanish, intro to
+the first rooms; the
 converter (CLI and page) builds packages from the archive.org media. Open: playing through by hand, saving and
 loading, sound by ear, Windows by hand, the v0.1 tag (draft notes in `docs/RELEASE-NOTES.md`).
 
@@ -29,7 +30,8 @@ under `target/`.
 ## Facts that matter
 
 - Inputs (git-ignored, in `orig/`): the archive.org media listed in `docs/TARGETS.md`, abandonware; the converter
-  downloads them itself. German: SCREENFUN 03/2004 cover CD (`2004-03.BIN`, raw MODE2/2352, InstallShield 7).
+  downloads them itself. Five languages: German, English, French, Italian, Spanish; all but German run on the
+  German cover CD's executable (a supplement) with their own `techmage.cfg`. German: SCREENFUN 03/2004 cover CD (`2004-03.BIN`, raw MODE2/2352, InstallShield 7).
   English: `TECHNOMAGE.mdf` (raw MODE1/2352, InstallShield 5), served by archive.org straight out of its
   `Disc.rar` (no RAR reader). German is version 1.04 (the last patch) without SecuROM: no patch applied.
 - `TechnoMage.exe` is **UPX 1.07** packed; restored: MSVC 6, static CRT, base `0x400000`, `.text` 1.32 MiB plus a
