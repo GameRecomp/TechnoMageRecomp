@@ -40,6 +40,14 @@ pub use rc_runtime as runtime;
 
 use rc_runtime::cpu::Cpu;
 
+static CURSOR_MAP: std::sync::OnceLock<fn(i32) -> i32> = std::sync::OnceLock::new();
+
+/// Where a point of the screen (its x, margins included) is in the game's pixels, when a game
+/// patch moves parts of the interface on a wider screen (otherwise: one margin to the left).
+pub fn set_cursor_map(f: fn(i32) -> i32) {
+    let _ = CURSOR_MAP.set(f);
+}
+
 /// Host input into DirectInput's state and the window's messages.
 fn on_input(i: rc_platform::Input) {
     use rc_platform::Input;
@@ -84,8 +92,12 @@ fn on_input(i: rc_platform::Input) {
         Input::TouchButtons { held } => dinput::touch_buttons(held),
         Input::Cursor { x, y } => {
             // Widescreen: the game's screen is the middle of the frame; on a margin the pointer
-            // is left or right of it (the message's coordinates are signed).
-            let x = x - ddraw::margin() as i32;
+            // is left or right of it (the message's coordinates are signed). A game patch that
+            // moves parts of its interface to the edges says where its pixels are.
+            let x = match CURSOR_MAP.get() {
+                Some(f) => f(x),
+                None => x - ddraw::margin() as i32,
+            };
             let lp = ((y as u32) << 16) | (x as u32 & 0xffff);
             user32::post_input(user32::Msg {
                 hwnd: HWND,
@@ -232,6 +244,27 @@ fn scripted_input(frame: u64) {
         let Some((f, what)) = item.split_once(':') else {
             continue;
         };
+        // `a-b:key`: the key held from frame a to frame b.
+        if let Some((a, b)) = f.split_once('-') {
+            let (a, b) = (a.parse::<u64>().unwrap_or(0), b.parse::<u64>().unwrap_or(0));
+            if frame == a || frame == b {
+                if let Some((scan, vk)) = scripted_key(what) {
+                    let down = frame == a;
+                    dinput::key(scan, down);
+                    user32::post_input(user32::Msg {
+                        hwnd: 0x10010,
+                        msg: if down {
+                            user32::WM_KEYDOWN
+                        } else {
+                            user32::WM_KEYUP
+                        },
+                        wparam: vk,
+                        lparam: u32::from(scan) << 16 | if down { 1 } else { 0xc000_0001 },
+                    });
+                }
+            }
+            continue;
+        }
         if f.parse::<u64>().ok() != Some(frame) {
             continue;
         }
@@ -299,23 +332,8 @@ fn scripted_input(frame: u64) {
             rel.push((frame + 2, 0, lp));
             continue;
         }
-        let (scan, vk) = match what {
-            "esc" => (0x01, 0x1b),
-            "enter" => (0x1c, 0x0d),
-            "space" => (0x39, 0x20),
-            "ctrl" => (0x1d, 0x11),
-            "z" => (0x2c, 0x5a),
-            "x" => (0x2d, 0x58),
-            "up" => (0xc8, 0x26),
-            "down" => (0xd0, 0x28),
-            "left" => (0xcb, 0x25),
-            "right" => (0xcd, 0x27),
-            "m" => (0x32, 0x4d),
-            "i" => (0x17, 0x49),
-            "tab" => (0x0f, 0x09),
-            "f11" => (0x57, 0x7a),
-            "f12" => (0x58, 0x7b),
-            _ => continue,
+        let Some((scan, vk)) = scripted_key(what) else {
+            continue;
         };
         dinput::key(scan, true);
         user32::post_input(user32::Msg {
@@ -326,6 +344,31 @@ fn scripted_input(frame: u64) {
         });
         rel.push((frame + 2, scan, vk));
     }
+}
+
+/// A scripted key's DirectInput scan code and virtual key.
+fn scripted_key(what: &str) -> Option<(u8, u32)> {
+    Some(match what {
+        "esc" => (0x01, 0x1b),
+        "enter" => (0x1c, 0x0d),
+        "space" => (0x39, 0x20),
+        "ctrl" => (0x1d, 0x11),
+        "z" => (0x2c, 0x5a),
+        "x" => (0x2d, 0x58),
+        "up" => (0xc8, 0x26),
+        "down" => (0xd0, 0x28),
+        "left" => (0xcb, 0x25),
+        "right" => (0xcd, 0x27),
+        "m" => (0x32, 0x4d),
+        "i" => (0x17, 0x49),
+        "tab" => (0x0f, 0x09),
+        "f11" => (0x57, 0x7a),
+        "f12" => (0x58, 0x7b),
+        "alt" => (0x38, 0x12),
+        "s" => (0x1f, 0x53),
+        "q" => (0x10, 0x51),
+        _ => return None,
+    })
 }
 
 /// Where a guest thread may give way to another (`Sleep`, waits, the message loop).
