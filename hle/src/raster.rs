@@ -487,6 +487,47 @@ fn decoded(
     d
 }
 
+/// The texture enlarged four times ("smooth textures", `upscale`), cached as `decoded`; the
+/// texture as it is when it is too large to be enlarged (at most 2048 texels a side after).
+#[cfg(feature = "gpu")]
+fn smoothed(
+    m: Mem,
+    obj: u32,
+    version: u32,
+    info: &SurfaceInfo,
+    key: Option<(u32, u32)>,
+) -> Option<std::sync::Arc<Decoded>> {
+    type Cache = std::collections::HashMap<(u32, u32, bool), std::sync::Arc<Decoded>>;
+    static SMOOTHED: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    let d = decoded(m, obj, version, info, key);
+    if d.w > 512 || d.h > 512 {
+        return None;
+    }
+    let k = (obj, version, key.is_some());
+    if let Some(s) = SMOOTHED
+        .lock()
+        .expect("smoothed")
+        .as_ref()
+        .and_then(|c| c.get(&k))
+    {
+        return Some(s.clone());
+    }
+    let texels = crate::upscale::scale4x(&d.texels, d.w as usize, d.h as usize);
+    let s = std::sync::Arc::new(Decoded {
+        w: 4 * d.w,
+        h: 4 * d.h,
+        texels: std::sync::Arc::new(texels),
+        keyed: d.keyed,
+    });
+    let mut cache = SMOOTHED.lock().expect("smoothed");
+    let map = cache.get_or_insert_with(Default::default);
+    if map.len() > 1024 {
+        map.clear();
+    }
+    map.insert(k, s.clone());
+    Some(s)
+}
+
 struct Texture {
     d: std::sync::Arc<Decoded>,
     bilinear: bool,
@@ -1126,7 +1167,14 @@ pub fn gpu_draw(
                     None
                 };
                 let version = ddraw::version_of(m, obj).max(version);
-                let d = decoded(m, obj, version, &info, key);
+                // Smoothed, a texture of its own on the GPU (the version's top bit).
+                let (d, version) = match rc_platform::render::smooth_textures()
+                    .then(|| smoothed(m, obj, version, &info, key))
+                    .flatten()
+                {
+                    Some(d) => (d, version | 1 << 31),
+                    None => (decoded(m, obj, version, &info, key), version),
+                };
                 *slot = Some(gpu::Texture {
                     key: (obj, version, key.is_some()),
                     width: d.w,

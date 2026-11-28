@@ -360,6 +360,16 @@ pub mod render {
 
     static ANTIALIAS: AtomicBool = AtomicBool::new(false);
     static SHOW_FPS: AtomicBool = AtomicBool::new(false);
+    static SMOOTH_TEXTURES: AtomicBool = AtomicBool::new(false);
+
+    /// Textures enlarged and smoothed before the GPU draws them (an edge-directed scaler).
+    pub fn set_smooth_textures(on: bool) {
+        SMOOTH_TEXTURES.store(on, Ordering::Relaxed);
+    }
+
+    pub fn smooth_textures() -> bool {
+        SMOOTH_TEXTURES.load(Ordering::Relaxed)
+    }
 
     /// Antialiasing: the GPU renderer draws with several samples per pixel (multisampling).
     pub fn set_antialias(on: bool) {

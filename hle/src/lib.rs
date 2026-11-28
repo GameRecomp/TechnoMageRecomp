@@ -34,6 +34,7 @@ pub mod mss32;
 pub mod profile;
 pub mod raster;
 pub mod small;
+pub mod upscale;
 pub mod user32;
 
 pub use rc_platform as platform;

@@ -147,6 +147,8 @@ const KEY_NATIVE: &str = "RC_NATIVE";
 const KEY_WIDESCREEN: &str = "RC_WIDESCREEN";
 const KEY_ANTIALIAS: &str = "RC_ANTIALIAS";
 const KEY_SHOW_FPS: &str = "RC_SHOW_FPS";
+const KEY_REFINE: &str = "RC_REFINE";
+const KEY_SMOOTH_TEXTURES: &str = "RC_SMOOTH_TEX";
 const KEY_VERSION: &str = "RC_VERSION";
 const KEY_BUILT: &str = "RC_BUILT";
 const KEY_COMMIT: &str = "RC_COMMIT";
@@ -234,6 +236,28 @@ const TEXTS: &[(&str, [&str; 6])] = &[
         ],
     ),
     (
+        KEY_REFINE,
+        [
+            "Grafik verfeinern",
+            "Refine graphics",
+            "Affiner les graphismes",
+            "Affina la grafica",
+            "Refinar gráficos",
+            "Graphics verfijnen",
+        ],
+    ),
+    (
+        KEY_SMOOTH_TEXTURES,
+        [
+            "Texturen glätten",
+            "Smooth textures",
+            "Lisser les textures",
+            "Ammorbidisci le texture",
+            "Suavizar texturas",
+            "Texturen gladmaken",
+        ],
+    ),
+    (
         KEY_VERSION,
         [
             "Version", "Version", "Version", "Versione", "Versión", "Versie",
@@ -304,11 +328,16 @@ fn platform() -> String {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Page {
     Graphics,
+    Refine,
     Info,
 }
 
 /// Our pause-menu entries from `OUR_INDEX` on: their text and the page they open.
-const OURS: [(&str, Page); 2] = [(KEY_GRAPHICS, Page::Graphics), (KEY_INFO, Page::Info)];
+const OURS: [(&str, Page); 3] = [
+    (KEY_GRAPHICS, Page::Graphics),
+    (KEY_REFINE, Page::Refine),
+    (KEY_INFO, Page::Info),
+];
 const OUR_COUNT: u32 = OURS.len() as u32;
 
 /// The lines of a page: the key of the label and the value.
@@ -318,6 +347,7 @@ fn rows(m: Mem, page: Page) -> Vec<(&'static str, String)> {
             let (w, h) = rc_hle::d3d::screen_render_size();
             vec![(KEY_RESOLUTION, format!("{w} x {h}"))]
         }
+        Page::Refine => Vec::new(),
         Page::Info => {
             let lang = m.ld32(LANGUAGE) as usize;
             vec![
@@ -371,7 +401,7 @@ struct Blocks {
 }
 
 const STR_KEYS: u32 = 0;
-const STR_KEYS_SIZE: u32 = 256;
+const STR_KEYS_SIZE: u32 = 512;
 const STR_TEXTS: u32 = STR_KEYS + STR_KEYS_SIZE;
 const STR_TEXT_SIZE: u32 = 64;
 const STR_VALUES: u32 = STR_TEXTS + STR_TEXT_SIZE * TEXTS.len() as u32;
@@ -603,31 +633,29 @@ fn show_page(c: &mut Cpu, page: Page) {
     // Laid out as the first volume line; not selectable, no slider (drawn in options_entry).
     let e = OPTIONS_TABLE;
     let like = m.ld32(e + 4);
-    m.write(
-        e,
-        &[0u8; (1 + SWITCHES.len()) * OPTIONS_ENTRY_SIZE as usize],
-    );
-    m.st32(e, key_addr(b, rows(m, page)[0].0));
-    m.st32(e + 4, like);
-    m.st16(e + 8, (-60i16) as u16);
-    m.st16(e + 0xc, 2);
-    m.st16(e + 0x20, 0xffff);
+    let top = i32::from(m.ld16(e + 6) as i16);
+    m.write(e, &[0u8; OPTIONS_BYTES - OPTIONS_ENTRY_SIZE as usize]);
+    if let Some((key, _)) = rows(m, page).first() {
+        m.st32(e, key_addr(b, key));
+        m.st32(e + 4, like);
+        m.st16(e + 8, (-60i16) as u16);
+        m.st16(e + 0xc, 2);
+        m.st16(e + 0x20, 0xffff);
+    }
     let mut selected = e;
     CHECKBOX_QUIET.store(
         rc_platform::frame_number() + 15,
         std::sync::atomic::Ordering::Relaxed,
     );
-    if page == Page::Graphics {
-        // The switches below: selectable, a value of 0 or 1 that the panel's own left and right
-        // keys change.
-        for (i, sw) in SWITCHES.iter().enumerate() {
-            let k = switch_entry(i);
+    if !switches(page).is_empty() {
+        // The switches (below the line): selectable, a value of 0 or 1 that the panel's own left
+        // and right keys change.
+        let first = first_switch(page);
+        for (i, sw) in switches(page).iter().enumerate() {
+            let k = switch_entry(page, i);
             m.st32(k, key_addr(b, sw.key));
             m.st32(k + 4, like);
-            m.st16(
-                k + 6,
-                (i32::from(m.ld16(e + 6) as i16) + ROW_STEP * (i as i32 + 1)) as u16,
-            );
+            m.st16(k + 6, (top + ROW_STEP * (i as i32 + first as i32)) as u16);
             m.st16(k + 8, (-60i16) as u16);
             m.st16(k + 0xc, 2);
             m.st16(k + 0xe, 1);
@@ -635,7 +663,7 @@ fn show_page(c: &mut Cpu, page: Page) {
             m.st16(k + 0x12, 1);
             m.st16(k + 0x20, 0xffff);
         }
-        selected = switch_entry(0);
+        selected = switch_entry(page, 0);
     }
     let title_key = OURS
         .iter()
@@ -691,7 +719,7 @@ struct Switch {
 
 /// The graphics page's switches, the options panel's entries from the second on (the table
 /// has room for five entries and the end).
-const SWITCHES: [Switch; 4] = [
+const GRAPHICS: [Switch; 4] = [
     Switch {
         key: KEY_NATIVE,
         name: "native_resolution",
@@ -718,17 +746,54 @@ const SWITCHES: [Switch; 4] = [
     },
 ];
 
-// Our page's entries and the end fit the table.
-const _: () = assert!((2 + SWITCHES.len()) * OPTIONS_ENTRY_SIZE as usize <= OPTIONS_BYTES);
+/// The refining page's switches (no line above them).
+const REFINE: [Switch; 1] = [Switch {
+    key: KEY_SMOOTH_TEXTURES,
+    name: "smooth_textures",
+    get: rc_platform::render::smooth_textures,
+    set: rc_platform::render::set_smooth_textures,
+}];
 
-/// The options entry of switch `i`.
-fn switch_entry(i: usize) -> u32 {
-    OPTIONS_TABLE + OPTIONS_ENTRY_SIZE * (1 + i as u32)
+// Our pages' entries and the end fit the table.
+const _: () = assert!((2 + GRAPHICS.len()) * OPTIONS_ENTRY_SIZE as usize <= OPTIONS_BYTES);
+const _: () = assert!(GRAPHICS.len() <= SWITCHES_MAX && REFINE.len() <= SWITCHES_MAX);
+const _: () = assert!((1 + REFINE.len()) * OPTIONS_ENTRY_SIZE as usize <= OPTIONS_BYTES);
+
+/// The most switches a page has.
+const SWITCHES_MAX: usize = 5;
+
+/// A page's switches.
+fn switches(page: Page) -> &'static [Switch] {
+    match page {
+        Page::Graphics => &GRAPHICS,
+        Page::Refine => &REFINE,
+        Page::Info => &[],
+    }
+}
+
+/// Every switch, for the settings file.
+fn all_switches() -> impl Iterator<Item = &'static Switch> {
+    GRAPHICS.iter().chain(REFINE.iter())
+}
+
+/// Whether a page has lines of text (`rows`; the first entry draws them).
+fn has_lines(page: Page) -> bool {
+    page != Page::Refine
+}
+
+/// The entry a page's switches begin at (after its lines, if it has them).
+fn first_switch(page: Page) -> u32 {
+    u32::from(has_lines(page))
+}
+
+/// The options entry of switch `i` of `page`.
+fn switch_entry(page: Page, i: usize) -> u32 {
+    OPTIONS_TABLE + OPTIONS_ENTRY_SIZE * (first_switch(page) + i as u32)
 }
 
 /// The switch an options entry is, if it is one.
-fn switch_at(e: u32) -> Option<usize> {
-    (0..SWITCHES.len()).find(|&i| switch_entry(i) == e)
+fn switch_at(page: Page, e: u32) -> Option<usize> {
+    (0..switches(page).len()).find(|&i| switch_entry(page, i) == e)
 }
 
 /// The first frame the switch takes input again (a moment after each turn and after the page
@@ -778,7 +843,7 @@ fn options_entry(c: &mut Cpu) {
     let e = arg(c, 0);
     let page = showing();
     match page {
-        Some(page) if e == OPTIONS_TABLE => {
+        Some(page) if e == OPTIONS_TABLE && has_lines(page) => {
             let m = c.mem();
             let (label_x, value_x, top) = entry_place(m, e);
             let h = m.ld32(SCREEN_H) as i32;
@@ -796,29 +861,29 @@ fn options_entry(c: &mut Cpu) {
             }
             ret_cdecl(c, c.r[EAX]);
         }
-        Some(Page::Graphics) if switch_at(e).is_some() => {
+        Some(page) if switch_at(page, e).is_some() => {
             // The game's own drawing of a non-slider entry: the highlight when selected, the
             // selection by the mouse.
             call_original(c, OPTIONS_ENTRY);
-            checkbox(c, switch_at(e).expect("a switch"));
+            checkbox(c, page, switch_at(page, e).expect("a switch"));
         }
         _ => call_original(c, OPTIONS_ENTRY),
     }
 }
 
-/// Switch `i` of the graphics page: its value from the panel's left and right keys, Enter or
+/// Switch `i` of a page: its value from the panel's left and right keys, Enter or
 /// Space while it is selected, or a click on its line; the setting kept. Shown with the game's
 /// own words for on and off (its font has no box or brackets).
-fn checkbox(c: &mut Cpu, i: usize) {
+fn checkbox(c: &mut Cpu, page: Page, i: usize) {
     use std::sync::atomic::{AtomicU8, Ordering};
     /// Per switch, the left button, Enter and Space as last seen (bits 0, 1, 2), to act on
     /// presses only.
-    static HELD: [AtomicU8; SWITCHES.len()] = [const { AtomicU8::new(0) }; SWITCHES.len()];
+    static HELD: [AtomicU8; SWITCHES_MAX] = [const { AtomicU8::new(0) }; SWITCHES_MAX];
     const DIK_RETURN: u8 = 0x1c;
     const DIK_SPACE: u8 = 0x39;
     let m = c.mem();
-    let sw = &SWITCHES[i];
-    let k = switch_entry(i);
+    let sw = &switches(page)[i];
+    let k = switch_entry(page, i);
     let place = entry_place(m, k);
     let h = m.ld32(SCREEN_H) as i32;
     // The mouse position as the platform has it (the game's own follows a frame later).
@@ -868,7 +933,7 @@ fn load_settings() {
     let text = settings_path().and_then(|p| rc_runtime::host::read_to_string(&p));
     for line in text.unwrap_or_default().lines() {
         if let Some((k, v)) = line.split_once('=') {
-            if let Some(sw) = SWITCHES.iter().find(|sw| sw.name == k.trim()) {
+            if let Some(sw) = all_switches().find(|sw| sw.name == k.trim()) {
                 (sw.set)(v.trim() == "1");
             } else if k.trim() == crate::controls::SETTING {
                 crate::controls::set_setting(v.trim());
@@ -884,8 +949,7 @@ pub(crate) fn save_settings() {
     if let Some(dir) = p.parent() {
         rc_runtime::host::create_dir_all(dir);
     }
-    let mut text: String = SWITCHES
-        .iter()
+    let mut text: String = all_switches()
         .map(|sw| format!("{}={}\n", sw.name, u8::from((sw.get)())))
         .collect();
     text += &format!(
@@ -1596,9 +1660,10 @@ mod tests {
     fn entries_around_ours() {
         assert_eq!(entry(2), Entry::Game(2));
         assert_eq!(entry(OUR_INDEX), Entry::Ours(Page::Graphics));
-        assert_eq!(entry(OUR_INDEX + 1), Entry::Ours(Page::Info));
-        assert_eq!(entry(OUR_INDEX + 2), Entry::Game(3));
-        assert_eq!(our_index(3), OUR_INDEX + 2);
+        assert_eq!(entry(OUR_INDEX + 1), Entry::Ours(Page::Refine));
+        assert_eq!(entry(OUR_INDEX + 2), Entry::Ours(Page::Info));
+        assert_eq!(entry(OUR_INDEX + 3), Entry::Game(3));
+        assert_eq!(our_index(3), OUR_INDEX + 3);
         assert_eq!(our_index(2), 2);
     }
 }
