@@ -265,23 +265,36 @@ function gameFs(game, user, onSaved) {
 let game = null;
 let player = null;
 
-/* The game's pointer as the canvas's cursor: as big as in the scaled picture (nearest
- * neighbour), at most 128 pixels (what browsers take), or none while the game shows none. */
-function setPointer(canvas, rgba, w, h, hx, hy) {
-  if (!rgba) { canvas.style.cursor = 'none'; return; }
-  const fit = canvas.clientWidth / canvas.width || 1;
-  const s = Math.max(1, Math.min(fit, 128 / Math.max(w, h)));
-  const src = document.createElement('canvas');
-  src.width = w; src.height = h;
-  src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
-  const out = document.createElement('canvas');
-  out.width = Math.max(1, Math.round(w * s)); out.height = Math.max(1, Math.round(h * s));
-  const g = out.getContext('2d');
-  g.imageSmoothingEnabled = false;
-  g.drawImage(src, 0, 0, out.width, out.height);
-  const x = Math.min(out.width - 1, Math.floor(hx * s));
-  const y = Math.min(out.height - 1, Math.floor(hy * s));
-  canvas.style.cursor = `url(${out.toDataURL('image/png')}) ${x} ${y}, auto`;
+/* The game's pointer as the canvas's cursor: as big as in the scaled picture (an enlarged
+ * image's pixels are a part of the frame's; nearest neighbour when enlarged), at most 128 pixels
+ * (what browsers take), or none while the game shows none. Its images repeat as it sways: each
+ * is made into a cursor once (a PNG, which is slow) and kept by its key. */
+const pointers = new Map();
+let pointerShown = '';
+function setPointer(canvas, rgba, w, h, hx, hy, scaleMilli = 1000, key = 0) {
+  if (!rgba) { canvas.style.cursor = 'none'; pointerShown = ''; return; }
+  // The image's pixels per CSS pixel: per frame pixel (`scaleMilli`), the frame as shown.
+  const scale = Math.max(0.001, scaleMilli / 1000);
+  const fit = (canvas.clientWidth / canvas.width || 1) / scale;
+  const s = Math.min(fit, 128 / Math.max(w, h));
+  const id = `${key}:${w}x${h}:${s.toFixed(3)}`;
+  let css = pointers.get(id);
+  if (!css) {
+    const src = document.createElement('canvas');
+    src.width = w; src.height = h;
+    src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(w * s)); out.height = Math.max(1, Math.round(h * s));
+    const g = out.getContext('2d');
+    g.imageSmoothingEnabled = s < 1;
+    g.drawImage(src, 0, 0, out.width, out.height);
+    const x = Math.min(out.width - 1, Math.floor(hx * s));
+    const y = Math.min(out.height - 1, Math.floor(hy * s));
+    css = `url(${out.toDataURL('image/png')}) ${x} ${y}, auto`;
+    if (pointers.size >= 256) pointers.clear();
+    pointers.set(id, css);
+  }
+  if (css !== pointerShown) { canvas.style.cursor = css; pointerShown = css; }
 }
 
 function layout() {
@@ -478,7 +491,11 @@ async function start() {
       },
     });
     hookInput(canvas);
-    const output = () => player.output(window.innerWidth, window.innerHeight);
+    // In device pixels: native resolution draws as many as the screen shows.
+    const output = () => {
+      const r = window.devicePixelRatio || 1;
+      player.output(Math.round(window.innerWidth * r), Math.round(window.innerHeight * r));
+    };
     window.addEventListener('resize', output);
     output();
     $('overlay').hidden = true;

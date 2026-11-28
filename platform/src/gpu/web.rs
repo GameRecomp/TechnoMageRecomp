@@ -30,15 +30,26 @@ use std::collections::HashMap;
 unsafe extern "C" {
     /// Whether the page can render with WebGL2 (1) or not (0).
     fn gl_init() -> i32;
+    /// WebGL's largest texture side.
+    fn gl_max_texture() -> u32;
     /// Texture `id`: `width * height` RGBA8 texels at `ptr`.
     fn gl_texture(id: u32, width: u32, height: u32, ptr: *const u8);
     fn gl_texture_drop(id: u32);
     /// Render the commands (`len` words at `cmd`) over the target's pixels at `rgba`
     /// (`width * height` RGBA8) and leave the result there.
     fn gl_render(cmd: *const u32, len: usize, rgba: *mut u8, width: u32, height: u32);
-    /// Render the commands on the target kept (`width × height`), over the pixels at `rgba` if
-    /// it is not null; nothing is read back.
-    fn gl_draw(cmd: *const u32, len: usize, rgba: *const u8, width: u32, height: u32);
+    /// Render the commands on the target kept (`width × height`; the positions in the game's
+    /// screen, `view_w × view_h`), over the pixels at `rgba` if it is not null; nothing is read
+    /// back.
+    fn gl_draw(
+        cmd: *const u32,
+        len: usize,
+        rgba: *const u8,
+        width: u32,
+        height: u32,
+        view_w: u32,
+        view_h: u32,
+    );
     /// Pass `pass` (0 edges, 1 quantize, 2 margins, 3 reduce) over the target in place, with
     /// the 16 uniforms at `u`.
     fn gl_pass(pass: u32, u: *const u32);
@@ -89,6 +100,8 @@ impl Renderer {
         if soft || unsafe { gl_init() } != 1 {
             return None;
         }
+        // SAFETY: a plain call.
+        crate::render::set_max_texture(unsafe { gl_max_texture() });
         Some(Renderer {
             textures: HashMap::new(),
             next: 1,
@@ -255,7 +268,17 @@ impl Renderer {
         self.encode(commands);
         let bg = background.map_or(std::ptr::null(), <[u8]>::as_ptr);
         // SAFETY: the words and the pixels (`size` RGBA8 if given) are valid for the call.
-        unsafe { gl_draw(self.words.as_ptr(), self.words.len(), bg, size.0, size.1) };
+        unsafe {
+            gl_draw(
+                self.words.as_ptr(),
+                self.words.len(),
+                bg,
+                size.0,
+                size.1,
+                view.0,
+                view.1,
+            )
+        };
         self.target = Some(size);
         if size == (guest.width, guest.height) {
             if guest.bits.iter().any(|&b| b != 8 && b != 0) {

@@ -289,6 +289,11 @@ mod batch {
 
     /// Whether render targets stay on the GPU (`RC_GPU_RESIDENT=0` reads every batch back, as
     /// before, to compare).
+    /// Whether targets stay on the GPU (`RC_GPU_RESIDENT`, on unless 0).
+    pub fn resident() -> bool {
+        resident_on()
+    }
+
     fn resident_on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| rc_runtime::host::env("RC_GPU_RESIDENT").is_none_or(|v| v != "0"))
@@ -528,7 +533,10 @@ mod shadow {
     /// platform says, others as they are.
     pub fn render_size(info: &SurfaceInfo) -> (u32, u32) {
         let (w, h) = crate::ddraw::screen_size();
-        if cfg!(target_family = "wasm") || (info.width, info.height) != (w, h) {
+        // In a browser only on the GPU's own target (the read-back path draws at the game's size).
+        if (cfg!(target_family = "wasm") && !super::batch::resident())
+            || (info.width, info.height) != (w, h)
+        {
             return (info.width, info.height);
         }
         rc_platform::render::size_for(w, h)
@@ -707,11 +715,12 @@ mod shadow {
 }
 
 /// The size the screen is rendered at: the display mode, or larger with native resolution when
-/// a GPU renders (natively; the software renderer and the browser draw at the game's size).
+/// a GPU renders (the software renderer draws at the game's size, and so does the browser
+/// without its target on the GPU, `RC_GPU_RESIDENT=0`).
 pub fn screen_render_size() -> (u32, u32) {
     let (w, h) = ddraw::screen_size();
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
-    if batch::available() {
+    #[cfg(feature = "gpu")]
+    if batch::available() && (!cfg!(target_family = "wasm") || batch::resident()) {
         return rc_platform::render::size_for(w, h);
     }
     (w, h)

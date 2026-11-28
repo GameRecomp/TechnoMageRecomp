@@ -3,7 +3,8 @@
 <!-- The browser player without the converter's storage: the game over HTTP (serve.py), settings
      from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM;
      hashes=1 posts a hash of each frame at the end, a line a frame; cfg=a;b the settings file's
-     lines; runtime=path of the runtime module in the checkout). -->
+     lines; runtime=path of the runtime module in the checkout; output=WxH the size the picture
+     is shown in). -->
 <meta charset="utf-8"><canvas id="c" width="640" height="480"></canvas>
 <script type="module">
 import { run } from '/player.js';
@@ -91,8 +92,8 @@ function shown(read, w, h) {
   }
   if (shots.includes(frames)) {
     const rgba = read();
-    const out = new Uint8Array(w * h * 3 + 15);
     const head = new TextEncoder().encode(`P6\n${w} ${h}\n255\n`);
+    const out = new Uint8Array(head.length + w * h * 3);
     out.set(head);
     for (let i = 0; i < w * h; i += 1) { out[head.length + 3 * i] = rgba[4 * i]; out[head.length + 3 * i + 1] = rgba[4 * i + 1]; out[head.length + 3 * i + 2] = rgba[4 * i + 2]; }
     post(`/shot${frames}.ppm`, out.subarray(0, head.length + w * h * 3));
@@ -109,6 +110,8 @@ const player = await run({
   frame: () => new Promise((r) => setTimeout(r, 0)),
   exit: async (c) => { await postHashes(); log(`exit ${c} after ${frames} frames (${onGpu} drawn on the GPU), ${((performance.now() - t0) / 1000).toFixed(0)} s`); },
 });
+// output=WxH: the size the page shows the picture in (native resolution follows it).
+if (params.get('output')) player.output(...params.get('output').split('x').map(Number));
 log('running');
 const code = await player.start();
 log(`returned ${code}`);

@@ -46,14 +46,42 @@ mod web {
         fn present_js(ptr: *const u8, width: u32, height: u32);
         /// A frame drawn on the player's WebGL canvas (`width × height`).
         fn present_gl_js(width: u32, height: u32);
-        /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot, or none (`ptr` 0).
-        fn cursor_js(ptr: *const u8, width: u32, height: u32, hot_x: u32, hot_y: u32);
+        /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot, how many of its
+        /// pixels make one of the frame's (thousandths: the image may be enlarged, the frame
+        /// drawn larger than the game's screen) and a key that is the same for the same image
+        /// (the page keeps what it made of one), or none (`ptr` 0).
+        fn cursor_js(
+            ptr: *const u8,
+            width: u32,
+            height: u32,
+            hot_x: u32,
+            hot_y: u32,
+            scale_milli: u32,
+            key: u32,
+        );
     }
 
     /// What the page was last told of the cursor: its generation and whether one is shown.
     static CURSOR: std::sync::Mutex<(u64, bool)> = std::sync::Mutex::new((0, false));
 
+    /// The last frame's size and the game's screen it shows: the page gives positions in the
+    /// frame's pixels (larger with native resolution), the game takes them in its own.
+    static SHOWN: std::sync::Mutex<((u32, u32), (u32, u32))> =
+        std::sync::Mutex::new(((0, 0), (0, 0)));
+
+    fn to_game(x: i32, y: i32) -> (i32, i32) {
+        let ((w, h), (gw, gh)) = *SHOWN.lock().expect("shown");
+        if w == 0 || h == 0 || (w, h) == (gw, gh) {
+            return (x, y);
+        }
+        (
+            (i64::from(x) * i64::from(gw) / i64::from(w)) as i32,
+            (i64::from(y) * i64::from(gh) / i64::from(h)) as i32,
+        )
+    }
+
     fn present(f: &rc_platform::Frame) {
+        *SHOWN.lock().expect("shown") = ((f.width, f.height), f.game);
         if f.gpu.is_some() {
             // SAFETY: a plain call.
             unsafe { present_gl_js(f.width, f.height) }
@@ -69,11 +97,27 @@ mod web {
         *told = (generation, pointer.is_some());
         match pointer {
             // SAFETY: the image is valid for the call.
-            Some(c) => unsafe {
-                cursor_js(c.rgba.as_ptr(), c.width, c.height, c.hotspot.0, c.hotspot.1)
-            },
+            Some(c) => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                c.hash(&mut h);
+                let key = h.finish();
+                // SAFETY: the image is valid for the call.
+                unsafe {
+                    cursor_js(
+                        c.rgba.as_ptr(),
+                        c.width,
+                        c.height,
+                        c.hotspot.0,
+                        c.hotspot.1,
+                        (u64::from(c.scale.max(1)) * 1000 * u64::from(f.game.0.max(1))
+                            / u64::from(f.width.max(1))) as u32,
+                        (key ^ key >> 32) as u32,
+                    )
+                }
+            }
             // SAFETY: a null image asks for none.
-            None => unsafe { cursor_js(std::ptr::null(), 0, 0, 0, 0) },
+            None => unsafe { cursor_js(std::ptr::null(), 0, 0, 0, 0, 1000, 0) },
         }
     }
 
@@ -212,7 +256,8 @@ mod web {
         rc_platform::input(Input::Wheel { dz });
     }
 
-    /// The size the page shows the picture in (CSS pixels): widescreen takes its proportions.
+    /// The size the page shows the picture in (device pixels): widescreen takes its proportions,
+    /// native resolution its size.
     #[no_mangle]
     pub extern "C" fn rc_output(width: u32, height: u32) {
         rc_platform::render::set_output(width, height);
@@ -220,6 +265,7 @@ mod web {
 
     #[no_mangle]
     pub extern "C" fn rc_cursor(x: i32, y: i32) {
+        let (x, y) = to_game(x, y);
         rc_platform::input(Input::Cursor { x, y });
     }
 

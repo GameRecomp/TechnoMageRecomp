@@ -460,7 +460,7 @@ export function createGL(memory) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, flags & 4 ? gl.CLAMP_TO_EDGE : gl.REPEAT);
   }
 
-  function drawCommands(cmd, len, rgba, w, h) {
+  function drawCommands(cmd, len, rgba, w, h, vw = w, vh = h) {
     const buf = memory().buffer;
     const words = new Uint32Array(buf, cmd, len);
     const floats = new Float32Array(buf, cmd, len);
@@ -474,7 +474,8 @@ export function createGL(memory) {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(buf, rgba, w * h * 4));
     }
     gl.useProgram(prog);
-    gl.uniform2f(loc.u_view, w, h);
+    // Positions are in the game's screen pixels (`vw × vh`), the target may be larger.
+    gl.uniform2f(loc.u_view, vw, vh);
     gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
     const depthFn = DEPTH();
     let p = 0;
@@ -538,6 +539,7 @@ export function createGL(memory) {
 
   const imports = {
     gl_init: () => (gl ? 1 : init()),
+    gl_max_texture: () => (gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : 2048),
     gl_texture(id, w, h, ptr) {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0);
@@ -555,7 +557,7 @@ export function createGL(memory) {
       drawCommands(cmd, len, rgba, w, h);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(memory().buffer, rgba, w * h * 4));
     },
-    gl_draw: (cmd, len, rgba, w, h) => drawCommands(cmd, len, rgba, w, h),
+    gl_draw: (cmd, len, rgba, w, h, vw, vh) => drawCommands(cmd, len, rgba, w, h, vw, vh),
     gl_pass(n, u) {
       const [w, h] = size;
       scratch = picture(scratch, w, h);
