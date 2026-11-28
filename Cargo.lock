@@ -4298,6 +4298,7 @@ dependencies = [
  "blake3",
  "bytemuck",
  "jni 0.21.1",
+ "libloading",
  "pollster",
  "wgpu",
 ]

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 [package]
 name = "rc-platform"
-description = "The host below the HLE layer: window and input (winit), rendering (wgpu), audio (cpal), and a null backend for tests"
+description = "The host below the HLE layer: window and input (winit), rendering (wgpu), audio (PulseAudio, else cpal), and a null backend for tests"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +14,7 @@ default = []
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 # The game's backend: a Bevy window with the frames, input and audio.
 # (wgpu and pollster: it picks the window's graphics backend before Bevy starts.)
-bevy = ["dep:bevy", "dep:blake3", "dep:wgpu", "dep:pollster"]
+bevy = ["dep:bevy", "dep:blake3", "dep:wgpu", "dep:pollster", "dep:libloading"]
 
 [dependencies]
 bytemuck = { version = "1", optional = true, features = ["derive"] }
@@ -58,6 +58,10 @@ undocumented_unsafe_blocks = "warn"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 wgpu = { version = "30.0.2", optional = true }
 pollster = { version = "0.4", optional = true }
+
+# Linux: PulseAudio (and PipeWire's server for its clients) loaded at run time (`pulse`).
+[target.'cfg(all(target_os = "linux", not(target_os = "android")))'.dependencies]
+libloading = { version = "0.8", optional = true }
 
 # Android (tools/build-android): Bevy in a NativeActivity (no Java), the app's assets through the
 # NDK.

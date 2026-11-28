@@ -99,9 +99,19 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
             std::process::exit(0);
         })
         .expect("the guest thread");
+    // On Linux the sound goes straight to PulseAudio (or PipeWire's server for its clients) where
+    // there is one: Bevy's audio speaks only ALSA there (`pulse`), and is left out then.
+    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    let pulse = crate::pulse::start(title);
+    #[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+    let pulse = false;
+    let mut plugins = DefaultPlugins.build();
+    if pulse {
+        plugins = plugins.disable::<bevy::audio::AudioPlugin>();
+    }
     let mut app = App::new();
     app.add_plugins(
-        DefaultPlugins
+        plugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: title.to_string(),
@@ -126,7 +136,6 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
                 ..default()
             }),
     )
-    .add_audio_source::<GameAudio>()
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(bevy::render::error_handler::RenderErrorHandler(
         render_error,
@@ -147,6 +156,9 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
             hardware_cursor,
         ),
     );
+    if !pulse {
+        app.add_audio_source::<GameAudio>();
+    }
     #[cfg(target_os = "android")]
     app.add_systems(Update, refocused);
     {
@@ -320,7 +332,7 @@ fn new_image(w: u32, h: u32) -> Image {
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut sources: ResMut<Assets<GameAudio>>,
+    sources: Option<ResMut<Assets<GameAudio>>>,
 ) {
     commands.spawn(Camera2d);
     let image = images.add(new_image(640, 480));
@@ -339,8 +351,11 @@ fn setup(
         on_gpu: false,
         game: (640, 480),
     });
-    let src = sources.add(GameAudio);
-    commands.spawn(AudioPlayer(src));
+    // Through Bevy unless the sound has a way of its own (`pulse`).
+    if let Some(mut sources) = sources {
+        let src = sources.add(GameAudio);
+        commands.spawn(AudioPlayer(src));
+    }
 }
 
 fn show_frame(

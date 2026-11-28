@@ -20,6 +20,8 @@ pub mod bevy_app;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 pub mod overlay;
+#[cfg(all(feature = "bevy", target_os = "linux", not(target_os = "android")))]
+mod pulse;
 
 /// Input from the host, in the terms the HLE layer needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
