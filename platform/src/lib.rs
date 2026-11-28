@@ -96,16 +96,28 @@ pub mod touch {
 /// a quarter of a second after the game last set it, so a game that stops asking stops it.
 pub mod rumble {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     static STRENGTH: AtomicU32 = AtomicU32::new(0);
     static SET_AT: AtomicU64 = AtomicU64::new(0);
     const LAPSE_MS: u64 = 250;
 
+    #[cfg(not(target_family = "wasm"))]
     fn now_ms() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64)
+    }
+
+    /// The page's clock (`std` has none in a browser).
+    #[cfg(target_family = "wasm")]
+    fn now_ms() -> u64 {
+        #[link(wasm_import_module = "rc_js")]
+        unsafe extern "C" {
+            fn now_ms() -> f64;
+        }
+        // SAFETY: a plain call.
+        unsafe { now_ms() as u64 }
     }
 
     /// The game's force (0 to 1).
