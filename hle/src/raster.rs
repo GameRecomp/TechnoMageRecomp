@@ -1088,11 +1088,8 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
     }
 }
 
-/// Mark the triangles that map their texture (`width` × `height` texels, coordinates of set 0)
-/// one texel to one screen pixel along the axes, 2D drawn with Direct3D (`Vertex::exact`);
-/// whether there are any.
-#[cfg(feature = "gpu")]
 /// Whether a triangle shows its texture one texel to one screen pixel, axis-aligned.
+#[cfg(feature = "gpu")]
 fn texel_for_pixel(t: &[rc_platform::gpu::Vertex; 3], width: f32, height: f32) -> bool {
     let near = |a: f32, b: f32| (a - b).abs() < 0.02;
     let [a, b, c] = t;
@@ -1112,6 +1109,10 @@ fn texel_for_pixel(t: &[rc_platform::gpu::Vertex; 3], width: f32, height: f32) -
         && near(vx * height, 0.0)
 }
 
+/// Mark the triangles that map their texture (`width` × `height` texels, coordinates of set 0)
+/// one texel to one screen pixel along the axes, 2D drawn with Direct3D (`Vertex::exact`);
+/// whether there are any.
+#[cfg(feature = "gpu")]
 fn mark_texel_for_pixel(tris: &mut [rc_platform::gpu::Vertex], width: f32, height: f32) -> bool {
     let mut any = false;
     for t in tris.as_chunks_mut::<3>().0 {
