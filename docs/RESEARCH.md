@@ -187,7 +187,11 @@ format needs a host service **(open)**.
   functions that put the world's primitives into the ordering table: the level's geometry (`0x40148d`, most of
   them), objects and effects (`0x401ff0`, `0x4025ef`, `0x401721`); then the camera (`0x4010b9`: the projection's
   centre `0x14fc7a0`/`0x14fc7a4` is half the screen size less the camera's shake); `0x4021da`, `0x401357`,
-  `0x40201d` read the screen size to tell which objects are on it and add no primitives. They cull against the
+  `0x40201d` read the screen size to tell which objects are on it and add no primitives. Two more, called between
+  them without the screen size (`0x401f6e` before the camera, `0x4022f2` after it), project points of the world
+  with the projection's centre and chain primitives by depth (a water's bubbles and ripples seen a margin to the
+  left until they were widened too; which effects exactly is **(open)**); `0x4022b6` after them draws texts into
+  the interface's buckets and stays as it is. They cull against the
   screen size `0xf5b320`; the camera's distance is 416 at a width of 640 and 512 at any other (`0x40fac0`, into
   `0x5913b4`), which is why a larger display mode zooms out. The ordering table's draw (`0x530e60`) drops a
   primitive wholly beyond the screen size as well. The primitives are PlayStation GPU packets after an 8-byte

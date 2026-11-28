@@ -193,6 +193,8 @@ hooks = [
   0x4021da, # widescreen: which objects are on the wider screen
   0x401357,
   0x40201d,
+  0x401f6e, # widescreen: two more of the world's (projected points chained by depth: a
+  0x4022f2, #   water's bubbles and ripples among them)
   0x4025a4, # widescreen: the level's tile radius (more tiles drawn beside)
   0x401654, # widescreen: texture scrolling (asks SCREEN_W == 640)
   0x402135, # widescreen: an object's sprite animation (asks SCREEN_W == 640)

@@ -101,7 +101,7 @@ const CLIP_W: u32 = 0x014f_6ce8;
 /// into the ordering table (the level's geometry first: projected, culled to the screen,
 /// `SCREEN_W`), and functions that tell which objects are on the screen.
 const CAMERA: u32 = 0x0040_10b9;
-const WORLD: [u32; 7] = [
+const WORLD: [u32; 9] = [
     0x0040_148d, // the level's geometry
     0x0040_1ff0, // objects, effects
     0x0040_25ef,
@@ -109,6 +109,10 @@ const WORLD: [u32; 7] = [
     0x0040_21da, // which objects are on the screen
     0x0040_1357,
     0x0040_201d,
+    // Two more that project points of the world and chain primitives by depth (a water's
+    // bubbles and ripples among them): on the narrower screen they lay a margin to the left.
+    0x0040_1f6e,
+    0x0040_22f2,
 ];
 /// Sets how many tiles around the camera the level's geometry is drawn for (its argument, 12
 /// in the rooms seen; the square's corner shows on a wider screen as floor cut off in steps).
@@ -1297,7 +1301,17 @@ macro_rules! world_fns {
         const WORLD_FNS: [fn(&mut Cpu); WORLD.len()] = [$($name),*];
     };
 }
-world_fns!(w0 = 0, w1 = 1, w2 = 2, w3 = 3, w4 = 4, w5 = 5, w6 = 6);
+world_fns!(
+    w0 = 0,
+    w1 = 1,
+    w2 = 2,
+    w3 = 3,
+    w4 = 4,
+    w5 = 5,
+    w6 = 6,
+    w7 = 7,
+    w8 = 8
+);
 
 /// The offsets of a primitive's screen positions (x, then y: two i16), by its command byte
 /// (`+0xf`). The primitives are PlayStation GPU packets after an 8-byte link: a colour and the
