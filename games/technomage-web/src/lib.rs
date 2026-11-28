@@ -46,10 +46,9 @@ mod web {
         fn present_js(ptr: *const u8, width: u32, height: u32);
         /// A frame drawn on the player's WebGL canvas (`width × height`).
         fn present_gl_js(width: u32, height: u32);
-        /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot, how many of its
-        /// pixels make one of the frame's (thousandths: the image may be enlarged, the frame
-        /// drawn larger than the game's screen) and a key that is the same for the same image
-        /// (the page keeps what it made of one), or none (`ptr` 0).
+        /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot and how many of
+        /// its pixels make one of the frame's (thousandths: the image may be enlarged, the frame
+        /// drawn larger than the game's screen), or none (`ptr` 0).
         fn cursor_js(
             ptr: *const u8,
             width: u32,
@@ -57,7 +56,6 @@ mod web {
             hot_x: u32,
             hot_y: u32,
             scale_milli: u32,
-            key: u32,
         );
     }
 
@@ -96,12 +94,7 @@ mod web {
         }
         *told = (generation, pointer.is_some());
         match pointer {
-            // SAFETY: the image is valid for the call.
             Some(c) => {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                c.hash(&mut h);
-                let key = h.finish();
                 // SAFETY: the image is valid for the call.
                 unsafe {
                     cursor_js(
@@ -112,12 +105,11 @@ mod web {
                         c.hotspot.1,
                         (u64::from(c.scale.max(1)) * 1000 * u64::from(f.game.0.max(1))
                             / u64::from(f.width.max(1))) as u32,
-                        (key ^ key >> 32) as u32,
                     )
                 }
             }
             // SAFETY: a null image asks for none.
-            None => unsafe { cursor_js(std::ptr::null(), 0, 0, 0, 0, 1000, 0) },
+            None => unsafe { cursor_js(std::ptr::null(), 0, 0, 0, 0, 1000) },
         }
     }
 

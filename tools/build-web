@@ -28,6 +28,12 @@ cp tools/icons/technomage.svg "$site/"
 cp -r web/flags "$site/flags"
 version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 sed -i "s/@VERSION@/$version/" "$site/index.html"
+# Every module, worker and the player's runtime by this build's version: a browser keeps files
+# a while (GitHub Pages: 10 minutes, each on its own), and after a deploy it would mix old and
+# new ones (a page that does not know what the runtime gives it).
+v=${version//[^A-Za-z0-9._-]/_}
+perl -pi -e "s{(from\s+'\./[\w.-]+\.js)'}{\$1?v=$v'}g; s{(new URL\('\./[\w.-]+\.js)'}{\$1?v=$v'}g; s{(src=\"[\w.-]+\.js)\"}{\$1?v=$v\"}g; s{('player/technomage\.wasm)'}{\$1?v=$v'}g" \
+    "$site"/*.html "$site"/*.js
 cp platforms.json "$site/platforms.json"
 on() { python3 -c 'import json, sys; sys.exit(0 if json.load(open("platforms.json")).get(sys.argv[1], True) else 1)' "$1"; }
 if [ -n "$templates" ]; then

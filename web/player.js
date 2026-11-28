@@ -25,10 +25,10 @@
  *   presentCanvas(canvas, width, height, read): optional; a frame drawn on the GPU, on `canvas`
  *     (WebGL, to be drawn from during the call); `read()` gives its pixels (RGBA8). Without it
  *     such frames come to `present`, read back.
- *   pointer(rgba, width, height, hotX, hotY, scaleMilli, key): optional; the game's mouse pointer
- *     as the cursor (RGBA with straight alpha, valid during the call; null: none now; its pixels
- *     per frame pixel in thousandths; `key` is the same for the same image). With it the game
- *     does not draw its pointer into the frames.
+ *   pointer(rgba, width, height, hotX, hotY, scaleMilli): optional; the game's mouse pointer as
+ *     the cursor (RGBA with straight alpha, valid during the call; null: none now; its pixels
+ *     per frame pixel in thousandths). With it the game does not draw its pointer into the
+ *     frames.
  *   frame(): a promise that resolves when the game may go on after a frame
  *   env: { RC_…: value }
  *   log(text), exit(code)
@@ -129,8 +129,8 @@ export async function run({ runtime, code, fs, present, presentCanvas, pointer, 
         if (presentCanvas) presentCanvas(gl.canvas(), w, h, read);
         else present(read(), w, h);
       },
-      cursor_js: (p, w, h, hx, hy, scaleMilli, key) => {
-        if (pointer) pointer(p ? u8().subarray(p, p + w * h * 4) : null, w, h, hx, hy, scaleMilli, key);
+      cursor_js: (p, w, h, hx, hy, scaleMilli) => {
+        if (pointer) pointer(p ? u8().subarray(p, p + w * h * 4) : null, w, h, hx, hy, scaleMilli);
       },
       thread_new: (id, top) => { threads.set(id, { started: false, sp: 0, wake: null, top }); },
       thread_switch: new WebAssembly.Suspending((to) => {

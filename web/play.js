@@ -265,36 +265,44 @@ function gameFs(game, user, onSaved) {
 let game = null;
 let player = null;
 
-/* The game's pointer as the canvas's cursor: as big as in the scaled picture (an enlarged
- * image's pixels are a part of the frame's; nearest neighbour when enlarged), at most 128 pixels
- * (what browsers take), or none while the game shows none. Its images repeat as it sways: each
- * is made into a cursor once (a PNG, which is slow) and kept by its key. */
-const pointers = new Map();
-let pointerShown = '';
-function setPointer(canvas, rgba, w, h, hx, hy, scaleMilli = 1000, key = 0) {
-  if (!rgba) { canvas.style.cursor = 'none'; pointerShown = ''; return; }
-  // The image's pixels per CSS pixel: per frame pixel (`scaleMilli`), the frame as shown.
-  const scale = Math.max(0.001, scaleMilli / 1000);
-  const fit = (canvas.clientWidth / canvas.width || 1) / scale;
-  const s = Math.min(fit, 128 / Math.max(w, h));
-  const id = `${key}:${w}x${h}:${s.toFixed(3)}`;
-  let css = pointers.get(id);
-  if (!css) {
-    const src = document.createElement('canvas');
-    src.width = w; src.height = h;
-    src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
-    const out = document.createElement('canvas');
-    out.width = Math.max(1, Math.round(w * s)); out.height = Math.max(1, Math.round(h * s));
-    const g = out.getContext('2d');
-    g.imageSmoothingEnabled = s < 1;
-    g.drawImage(src, 0, 0, out.width, out.height);
-    const x = Math.min(out.width - 1, Math.floor(hx * s));
-    const y = Math.min(out.height - 1, Math.floor(hy * s));
-    css = `url(${out.toDataURL('image/png')}) ${x} ${y}, auto`;
-    if (pointers.size >= 256) pointers.clear();
-    pointers.set(id, css);
+/* The game's pointer: a small canvas of its own over the picture that follows the mouse (the
+ * system's cursor hidden), as big as in the scaled picture (an enlarged image's pixels are a part
+ * of the frame's), or none while the game shows none. The game draws its pointer anew every
+ * frame as it sways and turns: written into that canvas it costs next to nothing, where a cursor
+ * made of it (a PNG every frame) cost much of a frame. */
+const pointer = { el: null, ctx: null, hx: 0, hy: 0, x: -1e4, y: -1e4, over: true, shown: false };
+function pointerPlace() {
+  const p = pointer;
+  if (!p.el) return;
+  p.el.style.transform = `translate(${p.x - p.hx}px, ${p.y - p.hy}px)`;
+}
+function setPointer(canvas, rgba, w, h, hx, hy, scaleMilli = 1000) {
+  const p = pointer;
+  canvas.style.cursor = 'none';
+  if (!p.el) {
+    p.el = document.createElement('canvas');
+    p.el.style.cssText = 'position: fixed; left: 0; top: 0; pointer-events: none; z-index: 5';
+    p.ctx = p.el.getContext('2d');
+    document.body.appendChild(p.el);
+    const at = (e) => { p.x = e.clientX; p.y = e.clientY; pointerPlace(); };
+    canvas.addEventListener('pointermove', at);
+    canvas.addEventListener('pointerdown', at);
+    canvas.addEventListener('pointerenter', (e) => { p.over = true; at(e); p.el.hidden = !p.shown; });
+    canvas.addEventListener('pointerleave', () => { p.over = false; p.el.hidden = true; });
   }
-  if (css !== pointerShown) { canvas.style.cursor = css; pointerShown = css; }
+  p.shown = !!rgba;
+  p.el.hidden = !rgba || !p.over;
+  if (!rgba) return;
+  // The image's pixels per CSS pixel: per frame pixel (`scaleMilli`), the frame as shown.
+  const s = (canvas.clientWidth / canvas.width || 1) / Math.max(0.001, scaleMilli / 1000);
+  if (p.el.width !== w || p.el.height !== h) { p.el.width = w; p.el.height = h; }
+  p.ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+  p.el.style.width = `${w * s}px`;
+  p.el.style.height = `${h * s}px`;
+  p.el.style.imageRendering = s >= 1 ? 'pixelated' : 'auto';
+  p.hx = hx * s;
+  p.hy = hy * s;
+  pointerPlace();
 }
 
 function layout() {
@@ -480,7 +488,7 @@ async function start() {
         if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; layout(); image = null; }
         ctx.drawImage(src, 0, 0);
       },
-      pointer: (rgba, w, h, hx, hy) => setPointer(canvas, rgba, w, h, hx, hy),
+      pointer: (rgba, w, h, hx, hy, scaleMilli) => setPointer(canvas, rgba, w, h, hx, hy, scaleMilli),
       frame: () => new Promise((res) => requestAnimationFrame(() => { pollPads(); res(); })),
       log: (t) => console.log(t),
       exit: (code) => {
