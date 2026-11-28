@@ -247,3 +247,107 @@ pub enum Command {
     /// Clear the depth buffer to a value (Direct3D's `Clear` with the z-buffer flag).
     ClearDepth(f32),
 }
+
+/// Rims around `tris`, `d` screen pixels wide. The games place their vertices on whole screen
+/// pixels, so meshes that meet do not quite: at the screen's size the gaps between them hit a
+/// pixel centre now and then (black lines between a level's tiles where the background is black,
+/// as widescreen draws it), drawn larger they are lines through which what lies behind shows. A rim continues its triangle (depth, texture coordinates and colours
+/// along their planes, within the triangle's own ranges) and is drawn with its depth pushed
+/// back: it fills a gap, but loses against any surface drawn there itself.
+pub(crate) fn rims(tris: &[Vertex], d: f32) -> Vec<Vertex> {
+    let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
+    let sub = |a: [f32; 2], b: [f32; 2]| [a[0] - b[0], a[1] - b[1]];
+    let mut out = Vec::new();
+    'tri: for t in tris.as_chunks::<3>().0 {
+        if t.iter().any(|v| v.exact != 0.0) {
+            continue;
+        }
+        let p = t.map(|v| [v.pos[0], v.pos[1]]);
+        let area = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+        if area.abs() < 1e-3 {
+            continue;
+        }
+        // The edge's normal facing away from the third corner.
+        let normal = |from: [f32; 2], to: [f32; 2], other: [f32; 2]| {
+            let e = sub(to, from);
+            let len = (e[0] * e[0] + e[1] * e[1]).sqrt();
+            let n = [e[1] / len, -e[0] / len];
+            let o = sub(other, from);
+            if n[0] * o[0] + n[1] * o[1] > 0.0 {
+                [-n[0], -n[1]]
+            } else {
+                n
+            }
+        };
+        let mut grown = [t[0]; 3];
+        for i in 0..3 {
+            let (j, k) = ((i + 1) % 3, (i + 2) % 3);
+            let n1 = normal(p[i], p[j], p[k]);
+            let n2 = normal(p[k], p[i], p[j]);
+            let dot = n1[0] * n2[0] + n1[1] * n2[1];
+            // Where the two moved edges meet, at most two rim widths out.
+            let mut o = if dot > -0.99 {
+                let f = d / (1.0 + dot);
+                [(n1[0] + n2[0]) * f, (n1[1] + n2[1]) * f]
+            } else {
+                [0.0, 0.0]
+            };
+            let len = (o[0] * o[0] + o[1] * o[1]).sqrt();
+            if len > 2.0 * d || len == 0.0 {
+                let a = sub(p[i], p[j]);
+                let b = sub(p[i], p[k]);
+                let la = (a[0] * a[0] + a[1] * a[1]).sqrt();
+                let lb = (b[0] * b[0] + b[1] * b[1]).sqrt();
+                let dir = [a[0] / la + b[0] / lb, a[1] / la + b[1] / lb];
+                let ld = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
+                if ld < 1e-6 {
+                    continue 'tri;
+                }
+                o = [dir[0] / ld * 2.0 * d, dir[1] / ld * 2.0 * d];
+            }
+            let q = [p[i][0] + o[0], p[i][1] + o[1]];
+            // The point's weights of the three corners (screen space, may be negative).
+            let la = cross(sub(p[1], q), sub(p[2], q)) / area;
+            let lb = cross(sub(p[2], q), sub(p[0], q)) / area;
+            let l = [la, lb, 1.0 - la - lb];
+            let rhw: f32 = (0..3).map(|c| l[c] * t[c].pos[3]).sum();
+            let least = t.iter().map(|v| v.pos[3]).fold(f32::INFINITY, f32::min);
+            if rhw.is_nan() || rhw <= 0.5 * least {
+                continue 'tri;
+            }
+            // An attribute along the triangle (perspective-correct), within its corners' range.
+            let along = |get: &dyn Fn(&Vertex) -> f32| {
+                let v: f32 = (0..3).map(|c| l[c] * t[c].pos[3] * get(&t[c])).sum::<f32>() / rhw;
+                let lo = t.iter().map(get).fold(f32::INFINITY, f32::min);
+                let hi = t.iter().map(get).fold(f32::NEG_INFINITY, f32::max);
+                v.clamp(lo, hi)
+            };
+            let mut v = t[i];
+            v.pos = [
+                q[0],
+                q[1],
+                (0..3)
+                    .map(|c| l[c] * t[c].pos[2])
+                    .sum::<f32>()
+                    .clamp(0.0, 1.0),
+                rhw,
+            ];
+            for c in 0..4 {
+                v.diffuse[c] = along(&|v: &Vertex| v.diffuse[c]);
+                v.specular[c] = along(&|v: &Vertex| v.specular[c]);
+            }
+            for c in 0..2 {
+                v.uv0[c] = along(&|v: &Vertex| v.uv0[c]);
+                v.uv1[c] = along(&|v: &Vertex| v.uv1[c]);
+            }
+            v.eye = along(&|v: &Vertex| v.eye);
+            grown[i] = v;
+        }
+        // A band along each edge, from the triangle to its grown edge.
+        for i in 0..3 {
+            let j = (i + 1) % 3;
+            out.extend([t[i], t[j], grown[j], t[i], grown[j], grown[i]]);
+        }
+    }
+    out
+}

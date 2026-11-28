@@ -551,6 +551,16 @@ export function createGL(memory) {
         gl.depthMask(false);
       }
       if (n) gl.drawArrays(gl.TRIANGLES, 0, n);
+      // Its rims (opaque 3D): the gaps between meshes closed, losing against any surface there.
+      const m = words[p++];
+      if (m) {
+        gl.bufferData(gl.ARRAY_BUFFER, floats.subarray(p, p + 20 * m), gl.STREAM_DRAW);
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(2, 16);
+        gl.drawArrays(gl.TRIANGLES, 0, m);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+      }
+      p += 20 * m;
     }
   }
 

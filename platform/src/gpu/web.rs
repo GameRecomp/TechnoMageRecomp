@@ -21,6 +21,7 @@
 //! | 2 | blend source and destination factors (0: off) |
 //! | 2 | depth function (0: no test), write |
 //! | 7 | fog mode (0 off, 1 vertex, 2 linear table), colour (4 f32), start, end (f32) |
+//! | 1 + 20 m | rim vertex count `m` and the rims ([`super::rims`], opaque 3D: drawn after the draw with its depth pushed back) |
 
 use super::guest::{overlay_uniforms, strip, uniforms};
 use super::{Command, Draw, GpuPicture, Guest, OverlayImage, Texture, Vertex};
@@ -197,6 +198,14 @@ impl Renderer {
                 w.extend_from_slice(&[f(s), f(e)]);
             }
         }
+        // Opaque 3D gets rims that close the gaps between meshes, as natively.
+        let rims = if d.blend.is_none() && d.depth.is_some_and(|(_, write)| write) {
+            super::rims(&d.vertices, 0.5)
+        } else {
+            Vec::new()
+        };
+        w.push(rims.len() as u32);
+        w.extend_from_slice(bytemuck::cast_slice::<Vertex, u32>(&rims));
     }
 
     /// The commands as words.
