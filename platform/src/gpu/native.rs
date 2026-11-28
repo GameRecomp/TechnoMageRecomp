@@ -2,6 +2,10 @@
 //! The renderer on wgpu: a device of its own, one WGSL shader for every draw.
 
 use super::{Command, Draw, Texture, Vertex};
+
+#[path = "resident.rs"]
+mod resident;
+pub use resident::{read, Guest};
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
@@ -252,6 +256,8 @@ pub struct Renderer {
     blit: Option<wgpu::RenderPipeline>,
     /// The buffer results are read back through, kept while its size fits.
     readback: Option<(u64, wgpu::Buffer)>,
+    /// The target kept on the GPU (see `resident`).
+    resident: Option<resident::Resident>,
 }
 
 impl Renderer {
@@ -259,6 +265,14 @@ impl Renderer {
     pub fn new(soft: bool) -> Option<Renderer> {
         if soft {
             return None;
+        }
+        if let Some(s) = super::shared() {
+            eprintln!("[gpu] the renderer draws on the window's GPU");
+            return Some(Self::with_device(
+                &s.adapter,
+                s.device.clone(),
+                s.queue.clone(),
+            ));
         }
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -268,6 +282,24 @@ impl Renderer {
             ..Default::default()
         }))
         .ok()?;
+        // The least limits every GPU offers, but textures as large as this one takes: a render
+        // target at native resolution is as wide as the window (wider than 2048 on a large or
+        // widescreen display).
+        let limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("technomage renderer"),
+            required_features: wgpu::Features::empty(),
+            required_limits: limits,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: wgpu::Trace::Off,
+        }))
+        .ok()?;
+        Some(Self::with_device(&adapter, device, queue))
+    }
+
+    /// The renderer on `device` (its own, or the window's).
+    fn with_device(adapter: &wgpu::Adapter, device: wgpu::Device, queue: wgpu::Queue) -> Renderer {
         let msaa = [
             wgpu::TextureFormat::Rgba8Unorm,
             wgpu::TextureFormat::Depth32Float,
@@ -279,20 +311,8 @@ impl Renderer {
                 .flags
                 .sample_count_supported(MSAA)
         });
-        // The least limits every GPU offers, but textures as large as this one takes: a render
-        // target at native resolution is as wide as the window (wider than 2048 on a large or
-        // widescreen display).
-        let limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
-        crate::render::set_max_texture(limits.max_texture_dimension_2d);
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("technomage renderer"),
-            required_features: wgpu::Features::empty(),
-            required_limits: limits,
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-        }))
-        .ok()?;
+        crate::render::set_max_texture(device.limits().max_texture_dimension_2d);
+        super::set_device_of_frames(&device, &queue);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fixed function"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -369,11 +389,12 @@ impl Renderer {
                 count: None,
             }],
         });
-        Some(Renderer {
+        Renderer {
             msaa,
             blit_layout,
             blit: None,
             readback: None,
+            resident: None,
             device,
             queue,
             shader,
@@ -386,7 +407,7 @@ impl Renderer {
             white,
             target: None,
             frame: 0,
-        })
+        }
     }
 
     fn pipeline(&mut self, key: PipelineKey) -> &wgpu::RenderPipeline {
@@ -590,6 +611,27 @@ impl Renderer {
         rgba: &[u8],
         commands: &[Command],
     ) -> Vec<u8> {
+        let mut out = self
+            .render_inner(width, height, view, Some(rgba), commands, true)
+            .unwrap_or_else(|| rgba.to_vec());
+        let started = std::time::Instant::now();
+        fill_edges(&mut out, (width, height), view);
+        super::LAST_RENDER.lock().expect("render times")[3] = started.elapsed().as_nanos() as u64;
+        out
+    }
+
+    /// Draw `commands` into the target (`width` × `height`, showing a screen of `view`): over
+    /// `background` uploaded first, or over what the target holds; the result read back when
+    /// `read` asks (else it stays on the GPU: `None`).
+    pub(crate) fn render_inner(
+        &mut self,
+        width: u32,
+        height: u32,
+        view: (u32, u32),
+        background: Option<&[u8]>,
+        commands: &[Command],
+        read: bool,
+    ) -> Option<Vec<u8>> {
         let started = std::time::Instant::now();
         self.frame += 1;
         let samples = if self.msaa && crate::render::antialias() {
@@ -654,25 +696,27 @@ impl Renderer {
             let t = self.target.as_ref().expect("target");
             (t.color.clone(), t.depth.clone(), t.msaa.clone())
         };
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &color,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+        if let Some(rgba) = background {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &color,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
         let msaa_view = msaa
@@ -918,6 +962,13 @@ impl Renderer {
             }
             i = run_end + 1;
         }
+        if !read {
+            let prepared = started.elapsed();
+            self.queue.submit([enc.finish()]);
+            *super::LAST_RENDER.lock().expect("render times") =
+                [prepared.as_nanos() as u64, 0, 0, 0];
+            return None;
+        }
         // Read the result back, rows padded to 256 bytes.
         let row = (4 * width).div_ceil(256) * 256;
         let size = u64::from(row * height);
@@ -962,9 +1013,9 @@ impl Renderer {
         });
         let waited = started.elapsed();
         let Ok(data) = slice.get_mapped_range() else {
-            return rgba.to_vec();
+            return None;
         };
-        let mut result = if row == 4 * width {
+        let result = if row == 4 * width {
             data[..(row * height) as usize].to_vec()
         } else {
             let mut result = Vec::with_capacity((4 * width * height) as usize);
@@ -978,15 +1029,13 @@ impl Renderer {
         drop(data);
         out.unmap();
         let unpacked = started.elapsed();
-        fill_edges(&mut result, (width, height), view);
-        let all = started.elapsed();
         *super::LAST_RENDER.lock().expect("render times") = [
             prepared.as_nanos() as u64,
             (waited - prepared).as_nanos() as u64,
             (unpacked - waited).as_nanos() as u64,
-            (all - unpacked).as_nanos() as u64,
+            0,
         ];
-        result
+        Some(result)
     }
 }
 

@@ -32,6 +32,8 @@ struct Screen {
     shown: u64,
     /// The frame's pixels, and the game's screen it shows (input and cursor coordinates).
     size: (u32, u32),
+    /// Whether the image is one the GPU's frames are copied into.
+    on_gpu: bool,
     game: (u32, u32),
 }
 
@@ -87,6 +89,8 @@ impl Decodable for GameAudio {
 /// Run the window on this thread and `guest` on another; returns never (the window closing
 /// ends the process).
 pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
+    // The renderer draws on the window's GPU (handed over once Bevy has it).
+    crate::gpu::expect_shared();
     std::thread::Builder::new()
         .name("guest-main".into())
         .stack_size(64 << 20)
@@ -140,6 +144,17 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
             hardware_cursor,
         ),
     );
+    {
+        use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
+        let render = app.sub_app_mut(RenderApp);
+        render.add_systems(RenderStartup, share_gpu);
+        render.add_systems(
+            Render,
+            copy_gpu_frame
+                .in_set(RenderSystems::PrepareResources)
+                .after(RenderSystems::PrepareAssets),
+        );
+    }
     // Without a mouse (Android) the game draws its pointer itself, where the finger is.
     crate::cursor::set_enabled(!cfg!(target_os = "android"));
     app.run();
@@ -166,6 +181,108 @@ fn window_backends() -> Backends {
     } else {
         Backends::PRIMARY
     }
+}
+
+/// The window's GPU to the renderer (see `gpu::share`).
+fn share_gpu(
+    device: Res<bevy::render::renderer::RenderDevice>,
+    queue: Res<bevy::render::renderer::RenderQueue>,
+    adapter: Res<bevy::render::renderer::RenderAdapter>,
+) {
+    crate::gpu::share(crate::gpu::Shared {
+        device: device.wgpu_device().clone(),
+        queue: (**queue).clone(),
+        adapter: (**adapter).clone(),
+    });
+}
+
+/// The screen's image (its asset id) and the GPU frame to show in it: set by `show_frame`,
+/// copied by `copy_gpu_frame` in the render world.
+static GPU_FRAME: std::sync::Mutex<Option<(AssetId<Image>, crate::gpu::GpuPicture, u64)>> =
+    std::sync::Mutex::new(None);
+
+/// The renderer's frame into the screen's image, on the GPU.
+fn copy_gpu_frame(
+    images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    queue: Res<bevy::render::renderer::RenderQueue>,
+    device: Res<bevy::render::renderer::RenderDevice>,
+    mut copied: Local<u64>,
+) {
+    let Some((id, pic, n)) = GPU_FRAME.lock().expect("gpu frame").clone() else {
+        return;
+    };
+    if n == *copied {
+        return;
+    }
+    let Some(img) = images.get(id) else {
+        return;
+    };
+    let (iw, ih) = (img.texture.width(), img.texture.height());
+    if (iw, ih) != (pic.width, pic.height) {
+        return;
+    }
+    *copied = n;
+    let mut enc = device
+        .wgpu_device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("game frame"),
+        });
+    enc.copy_texture_to_texture(
+        pic.texture.as_image_copy(),
+        img.texture.as_image_copy(),
+        wgpu::Extent3d {
+            width: pic.width,
+            height: pic.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit([enc.finish()]);
+}
+
+/// `RC_WINDOW_SHOT=frame:file.ppm`: once that frame has been shown, the window's picture as
+/// Bevy rendered it (what is on screen, unlike `RC_SCREENSHOT`, which is the game's frame).
+fn window_shot(commands: &mut Commands, number: u64, done: &mut bool) {
+    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+    if *done {
+        return;
+    }
+    let Some((frame, path)) = std::env::var("RC_WINDOW_SHOT")
+        .ok()
+        .and_then(|v| {
+            v.split_once(':')
+                .map(|(f, p)| (f.parse::<u64>().ok(), p.to_string()))
+        })
+        .and_then(|(f, p)| Some((f?, p)))
+    else {
+        return;
+    };
+    if number < frame {
+        return;
+    }
+    *done = true;
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(move |shot: On<ScreenshotCaptured>| {
+            let img = &shot.image;
+            let (w, h) = (img.width(), img.height());
+            let Some(data) = img.data.as_ref() else {
+                return;
+            };
+            let bgra = matches!(
+                img.texture_descriptor.format,
+                TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb
+            );
+            let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();
+            for p in data.as_chunks::<4>().0 {
+                if bgra {
+                    out.extend_from_slice(&[p[2], p[1], p[0]]);
+                } else {
+                    out.extend_from_slice(&p[..3]);
+                }
+            }
+            let _ = std::fs::write(&path, out);
+            eprintln!("window shot in {path}");
+        });
 }
 
 fn new_image(w: u32, h: u32) -> Image {
@@ -203,6 +320,7 @@ fn setup(
         sprite,
         shown: 0,
         size: (640, 480),
+        on_gpu: false,
         game: (640, 480),
     });
     let src = sources.add(GameAudio);
@@ -210,25 +328,43 @@ fn setup(
 }
 
 fn show_frame(
+    mut commands: Commands,
     mut screen: ResMut<Screen>,
     mut images: ResMut<Assets<Image>>,
     mut sprites: Query<&mut Sprite>,
     windows: Query<&Window>,
+    mut shot: Local<bool>,
 ) {
     let f = crate::latest_frame();
+    window_shot(&mut commands, f.number, &mut shot);
     if f.number != screen.shown && f.width > 0 {
         screen.shown = f.number;
         screen.game = f.game;
-        if (f.width, f.height) != screen.size {
-            // A new image for a new size (the sprite does not show one resized in place).
+        let on_gpu = f.gpu.is_some();
+        if (f.width, f.height, on_gpu) != (screen.size.0, screen.size.1, screen.on_gpu) {
+            // A new image for a new size (the sprite does not show one resized in place); one
+            // the GPU's frames are copied into has no pixels of its own.
             screen.size = (f.width, f.height);
-            screen.image = images.add(new_image(f.width, f.height));
+            screen.on_gpu = on_gpu;
+            let mut img = new_image(f.width, f.height);
+            if on_gpu {
+                img.data = None;
+            }
+            screen.image = images.add(img);
             if let Ok(mut s) = sprites.get_mut(screen.sprite) {
                 s.image = screen.image.clone();
             }
         }
-        if let Some(mut img) = images.get_mut(&screen.image) {
-            img.data = Some(f.rgba);
+        match f.gpu {
+            Some(pic) => {
+                *GPU_FRAME.lock().expect("gpu frame") = Some((screen.image.id(), pic, f.number));
+            }
+            None => {
+                *GPU_FRAME.lock().expect("gpu frame") = None;
+                if let Some(mut img) = images.get_mut(&screen.image) {
+                    img.data = Some(f.rgba);
+                }
+            }
         }
     }
     let Ok(win) = windows.single() else {

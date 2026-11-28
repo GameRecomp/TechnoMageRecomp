@@ -19,6 +19,7 @@ pub mod android;
 pub mod bevy_app;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod overlay;
 
 /// Input from the host, in the terms the HLE layer needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -460,7 +461,11 @@ pub mod fps {
     /// The text into the top right corner of a `width` × `height` RGBA8 picture: white on a
     /// dark box, a glyph pixel as large as the picture is tall in multiples of 240.
     pub fn draw_text(rgba: &mut [u8], width: u32, height: u32, text: &str) {
-        let px = (height / 240).max(1) as usize;
+        draw_text_px(rgba, width, height, text, (height / 240).max(1) as usize);
+    }
+
+    /// [`draw_text`] with glyph pixels `px` large.
+    fn draw_text_px(rgba: &mut [u8], width: u32, height: u32, text: &str, px: usize) {
         let (w, h) = (width as usize, height as usize);
         if rgba.len() < 4 * w * h {
             return;
@@ -508,14 +513,40 @@ pub mod fps {
             draw_text(rgba, width, height, &format!("{:.0} FPS", get()));
         }
     }
+
+    /// The frame rate as a picture over a `width` × `height` frame (the GPU's), if shown.
+    pub fn overlay_image(width: u32, height: u32) -> Option<crate::overlay::OverlayImage> {
+        if !crate::render::show_fps() {
+            return None;
+        }
+        let text = format!("{:.0} FPS", get());
+        let px = (height / 240).max(1) as usize;
+        let (bw, bh) = ((4 * text.len() + 3) * px, 9 * px);
+        let x = width as i32 - bw as i32;
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            ("fps", &text, px).hash(&mut h);
+            h.finish()
+        };
+        Some(crate::overlay::OverlayImage::make(
+            key,
+            (x, 0),
+            (bw as u32, bh as u32),
+            None,
+            |rgba, w, h| draw_text_px(rgba, w, h, &text, px),
+        ))
+    }
 }
 
-/// A finished frame: RGBA8, `width * height * 4` bytes.
+/// A finished frame: RGBA8, `width * height * 4` bytes; or on the GPU (`gpu`, `rgba` empty).
 #[derive(Debug, Clone, Default)]
 pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    pub gpu: Option<gpu::GpuPicture>,
     /// Frames submitted so far, this one included.
     pub number: u64,
     /// The game's screen size (the frame may be rendered larger: [`render`]); input and the
@@ -527,6 +558,8 @@ static FRAME: Mutex<Frame> = Mutex::new(Frame {
     width: 0,
     height: 0,
     rgba: Vec::new(),
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    gpu: None,
     number: 0,
     game: (0, 0),
 });
@@ -553,6 +586,10 @@ pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, mut rgba: 
     f.height = height;
     f.game = game;
     f.rgba = rgba;
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    {
+        f.gpu = None;
+    }
     f.number += 1;
     let n = f.number;
     if let Some(p) = PRESENT.get() {
@@ -574,9 +611,10 @@ fn hash_if_asked(n: u64) {
         return;
     };
     let f = latest_frame();
+    let rgba = pixels(&f);
     // FNV-1a over the pixels, 8 bytes at a time.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for c in f.rgba.as_chunks::<8>().0 {
+    for c in rgba.as_chunks::<8>().0 {
         h ^= u64::from_le_bytes(*c);
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
@@ -587,6 +625,35 @@ fn hash_if_asked(n: u64) {
     if let Some(o) = out.as_mut() {
         let _ = writeln!(o, "{n} {}x{} {h:016x}", f.width, f.height);
     }
+}
+
+/// Hand over a finished frame drawn on the GPU (the renderer's, on the window's device): shown
+/// without its pixels leaving the GPU (read back only for a screenshot).
+#[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+pub fn submit_gpu_frame(picture: gpu::GpuPicture) {
+    let mut f = FRAME.lock().expect("frame");
+    f.width = picture.width;
+    f.height = picture.height;
+    f.game = picture.game;
+    f.rgba = Vec::new();
+    f.gpu = Some(picture);
+    f.number += 1;
+    let n = f.number;
+    drop(f);
+    NEW_FRAME.notify_all();
+    screenshot_if_asked(n);
+    hash_if_asked(n);
+}
+
+/// The pixels of a frame (RGBA8): read back from the GPU if it is there.
+fn pixels(f: &Frame) -> std::borrow::Cow<'_, [u8]> {
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    if let Some(p) = &f.gpu {
+        if let Some(s) = gpu::device_of_frames() {
+            return std::borrow::Cow::Owned(gpu::read(&s.0, &s.1, &p.texture));
+        }
+    }
+    std::borrow::Cow::Borrowed(&f.rgba)
 }
 
 /// How many frames were submitted.
@@ -612,8 +679,9 @@ fn screenshot_if_asked(n: u64) {
         return;
     }
     let f = latest_frame();
+    let rgba = pixels(&f);
     let mut out = format!("P6\n{} {}\n255\n", f.width, f.height).into_bytes();
-    for px in f.rgba.as_chunks::<4>().0 {
+    for px in rgba.as_chunks::<4>().0 {
         out.extend_from_slice(&px[..3]);
     }
     if let Err(e) = std::fs::write(&path, out) {

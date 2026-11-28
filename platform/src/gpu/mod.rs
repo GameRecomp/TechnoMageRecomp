@@ -4,11 +4,13 @@
 //! (web/gl.js, which reads the batch as `web.rs` writes it).
 //!
 //! The HLE layer does the vertex work (transform and lighting) and hands a batch of screen-space
-//! triangles per render target, each draw with its textures and state. This renders the batch on
-//! top of the target's current pixels (uploaded from guest memory) and returns the result as
-//! RGBA8, which the HLE layer writes back into guest memory: the guest's surfaces stay the one
-//! truth, so the game's own 2D work on them (`Lock`, `Blt`) mixes with the 3D as on Windows.
-//! The depth buffer lives on the GPU across batches of a frame.
+//! triangles per render target, each draw with its textures and state. Natively the target stays
+//! on the GPU (`resident`): batches are drawn over what it holds, the frame shown is made there
+//! and handed to the window as a texture, and only when the game touches the surface (`Lock`,
+//! `Blt`) its pixels go into guest memory, exactly as a read-back would have written them, so
+//! the game's own 2D work mixes with the 3D as on Windows. In the browser (and with
+//! `RC_GPU_RESIDENT=0`) each batch is rendered over the target's pixels uploaded from guest
+//! memory and read back. The depth buffer lives on the GPU across batches of a frame.
 //!
 //! One shader serves every draw (the stages, alpha test and fog are uniforms); a pipeline per
 //! blend and depth setting (natively). Without a usable GPU [`Renderer::new`] returns `None` and
@@ -23,11 +25,80 @@ pub static LAST_RENDER: std::sync::Mutex<[u64; 4]> = std::sync::Mutex::new([0; 4
 #[cfg(not(target_family = "wasm"))]
 mod native;
 #[cfg(not(target_family = "wasm"))]
-pub use native::Renderer;
+pub use native::{read, Guest, Renderer};
 #[cfg(target_family = "wasm")]
 mod web;
 #[cfg(target_family = "wasm")]
 pub use web::Renderer;
+
+/// The GPU the window draws with (Bevy's device), shared with the renderer so the frame it draws
+/// is shown without leaving the GPU.
+#[cfg(not(target_family = "wasm"))]
+pub struct Shared {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub adapter: wgpu::Adapter,
+}
+
+#[cfg(not(target_family = "wasm"))]
+static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
+#[cfg(not(target_family = "wasm"))]
+static EXPECT_SHARED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A window will share its GPU (`share`): the renderer waits for it.
+#[cfg(not(target_family = "wasm"))]
+pub fn expect_shared() {
+    EXPECT_SHARED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The window's GPU, once it has one.
+#[cfg(not(target_family = "wasm"))]
+pub fn share(s: Shared) {
+    let _ = SHARED.set(s);
+}
+
+/// The window's GPU: waited for (a few seconds at most) when a window is to give one.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn shared() -> Option<&'static Shared> {
+    if !EXPECT_SHARED.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    for _ in 0..500 {
+        if let Some(s) = SHARED.get() {
+            return Some(s);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    None
+}
+
+/// The device and queue frames on the GPU were drawn with (to read one back).
+#[cfg(not(target_family = "wasm"))]
+static FRAMES_DEVICE: std::sync::OnceLock<(wgpu::Device, wgpu::Queue)> = std::sync::OnceLock::new();
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn set_device_of_frames(device: &wgpu::Device, queue: &wgpu::Queue) {
+    let _ = FRAMES_DEVICE.set((device.clone(), queue.clone()));
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn device_of_frames() -> Option<&'static (wgpu::Device, wgpu::Queue)> {
+    FRAMES_DEVICE.get()
+}
+
+/// A frame on the GPU: the texture the window shows (RGBA8; copied into an sRGB one) and the
+/// device that drew it, to read it back when asked (screenshots).
+#[cfg(not(target_family = "wasm"))]
+#[derive(Debug, Clone)]
+pub struct GpuPicture {
+    pub texture: wgpu::Texture,
+    pub width: u32,
+    pub height: u32,
+    /// The game's screen it shows.
+    pub game: (u32, u32),
+}
+
+pub use crate::overlay::OverlayImage;
 
 /// A vertex in screen space (Direct3D's pre-transformed form).
 #[repr(C)]
