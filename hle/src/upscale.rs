@@ -6,6 +6,10 @@
 //! were. Opaque colours are blended at such corners; where a texel is transparent (a colour key's
 //! zero, or little alpha) the corner takes the neighbour's texel whole, so outlines get smoother
 //! without fringes and a keyed texel stays exactly zero.
+//!
+//! After the second 2× the picture is sharpened once (`sharpen`): the blends the scaler made
+//! soften every slope, and a contrast adaptive pass in the manner of AMD's RCAS (FidelityFX FSR
+//! 1, MIT) gives the edges back their bite without ringing past the colours around them.
 
 type Px = [u8; 4];
 
@@ -100,10 +104,78 @@ fn corner(e: Px, p: impl Fn(isize, isize) -> Px) -> Px {
     ]
 }
 
-/// `width × height` texels enlarged four times in each direction (twice 2×).
+/// `width × height` texels enlarged four times in each direction (twice 2×), then sharpened.
 pub fn scale4x(src: &[Px], width: usize, height: usize) -> Vec<Px> {
     let twice = scale2x(src, width, height);
-    scale2x(&twice, 2 * width, 2 * height)
+    let four = scale2x(&twice, 2 * width, 2 * height);
+    sharpen(&four, 4 * width, 4 * height, SHARPNESS)
+}
+
+/// How strongly `scale4x` sharpens, as a share of the strongest the pass allows.
+const SHARPNESS: f32 = 0.6;
+
+/// The most negative weight a neighbour may get (RCAS's limit: past it the curve is badly
+/// conditioned).
+const LOBE_LIMIT: f32 = 0.25 - 1.0 / 16.0;
+
+/// `width × height` texels sharpened: each opaque texel moves away from the mean of its four
+/// direct neighbours, `(e + w·(b + d + f + h)) / (1 + 4w)` with a negative `w`. The weight comes
+/// from the neighbours' least and greatest value of each channel: as large as it can be without
+/// taking any channel below 0 or above 1 if the texel itself were at that extreme, so flat areas
+/// and soft gradients get the whole `strength` (0 to 1) and hard contrasts less. Transparent
+/// texels stay exactly as they are; a transparent neighbour counts as the texel itself, so no
+/// colour comes in from behind a colour key. Alpha is kept.
+pub fn sharpen(src: &[Px], width: usize, height: usize, strength: f32) -> Vec<Px> {
+    let mut out = src.to_vec();
+    if width == 0 || height == 0 || strength <= 0.0 {
+        return out;
+    }
+    let rgb = |p: Px| [p[0], p[1], p[2]].map(|c| f32::from(c) / 255.0);
+    for y in 0..height {
+        for x in 0..width {
+            let e = src[y * width + x];
+            if clear(e) {
+                continue;
+            }
+            let centre = rgb(e);
+            let n = [
+                (x, y.saturating_sub(1)),
+                (x.saturating_sub(1), y),
+                ((x + 1).min(width - 1), y),
+                (x, (y + 1).min(height - 1)),
+            ]
+            .map(|(nx, ny)| {
+                let p = src[ny * width + nx];
+                if clear(p) {
+                    centre
+                } else {
+                    rgb(p)
+                }
+            });
+            // The weight each channel allows; the gentlest of them is taken for all three so
+            // that the hue stays.
+            let mut weight = f32::NEG_INFINITY;
+            for c in 0..3 {
+                let lo = n.iter().map(|q| q[c]).fold(1.0f32, f32::min);
+                let hi = n.iter().map(|q| q[c]).fold(0.0f32, f32::max);
+                // Down to 0 from the darkest side, up to 1 from the brightest.
+                let to_black = -lo / (4.0 * hi + 1e-6);
+                let to_white = (1.0 - hi) / (4.0 * lo - 4.0 - 1e-6);
+                weight = weight.max(to_black.max(to_white));
+            }
+            let w = weight.clamp(-LOBE_LIMIT, 0.0) * strength;
+            if w == 0.0 {
+                continue;
+            }
+            let p = &mut out[y * width + x];
+            for c in 0..3 {
+                let around: f32 = n.iter().map(|q| q[c]).sum();
+                let v = (centre[c] + w * around) / (1.0 + 4.0 * w);
+                p[c] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -137,5 +209,32 @@ mod tests {
         // And the step's corners changed: more than the blocky picture's count of A.
         let blocky = src.iter().filter(|&&p| p == A).count() * 16;
         assert_ne!(out.iter().filter(|&&p| p == A).count(), blocky);
+    }
+
+    #[test]
+    fn sharpening_steepens_a_ramp_and_leaves_flat_areas_and_keys() {
+        // A soft ramp from dark to light, left to right, over four keyed rows.
+        let (w, h) = (8, 8);
+        let src: Vec<Px> = (0..w * h)
+            .map(|i| {
+                if i / w >= 4 {
+                    return K;
+                }
+                let v = [40u8, 40, 40, 60, 140, 160, 160, 160][i % w];
+                [v, v, v, 255]
+            })
+            .collect();
+        let out = sharpen(&src, w, h, 1.0);
+        // Keys stay exactly zero, the flat ends stay as they were.
+        for (k, (a, b)) in src.iter().zip(&out).enumerate() {
+            if *a == K || matches!(k % w, 0 | 7) {
+                assert_eq!(a, b, "texel {k}");
+            }
+        }
+        // The ramp's foot gets darker and its shoulder lighter, within black and white.
+        assert!(out[3][0] < src[3][0]);
+        assert!(out[4][0] > src[4][0]);
+        // And alpha is kept.
+        assert!(out.iter().zip(&src).all(|(a, b)| a[3] == b[3]));
     }
 }
