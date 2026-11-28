@@ -489,9 +489,10 @@ fn decoded(
 
 /// The texture enlarged four times, for the GPU: smoothed (`smooth`, "smooth textures",
 /// `upscale`) or not, and with the glyphs of the fonts tied to it redrawn (`fonts`, "smooth
-/// fonts", `glyphs`); cached as `decoded`. With it the variant for the GPU's texture key (bit 1
-/// smoothed, bit 2 fonts, above them the fonts' stamp). `None` when nothing is asked or the
-/// texture is too large to be enlarged (at most 2048 texels a side after).
+/// fonts", `glyphs`); made in the background (`enlarging`) and cached here. With it the variant
+/// for the GPU's texture key (bit 1 smoothed, bit 2 fonts, above them the fonts' stamp). `None`
+/// when nothing is asked, the texture is too large to be enlarged (at most 2048 texels a side
+/// after) or it is still being made: the plain texture is drawn meanwhile.
 #[cfg(feature = "gpu")]
 fn enlarge(
     m: Mem,
@@ -501,13 +502,9 @@ fn enlarge(
     smooth: bool,
     fonts: Option<(Vec<std::sync::Arc<crate::glyphs::GlyphSet>>, u64)>,
 ) -> Option<(std::sync::Arc<Decoded>, u32)> {
-    type Cache = std::collections::HashMap<(u32, u32, bool, u32), std::sync::Arc<Decoded>>;
+    type Cache = std::collections::HashMap<crate::enlarging::Key, std::sync::Arc<Decoded>>;
     static ENLARGED: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
     if !smooth && fonts.is_none() {
-        return None;
-    }
-    let d = decoded(m, obj, version, info, key);
-    if d.w > 512 || d.h > 512 {
         return None;
     }
     let variant = u32::from(smooth) << 1
@@ -515,42 +512,46 @@ fn enlarge(
             .as_ref()
             .map_or(0, |f| 4 | (f.1 as u32 & 0x1fff_ffff) << 3);
     let k = (obj, version, key.is_some(), variant);
-    if let Some(e) = ENLARGED
-        .lock()
-        .expect("enlarged")
-        .as_ref()
-        .and_then(|c| c.get(&k))
-    {
-        return Some((e.clone(), variant));
-    }
-    let (w, h) = (d.w as usize, d.h as usize);
-    let mut texels = if smooth {
-        crate::upscale::scale4x(&d.texels, w, h)
-    } else {
-        let mut big = vec![[0u8; 4]; 16 * w * h];
-        for (y, row) in big.chunks_exact_mut(4 * w).enumerate() {
-            for (x, p) in row.iter_mut().enumerate() {
-                *p = d.texels[(y / 4) * w + x / 4];
+    let lookup = || {
+        let mut cache = ENLARGED.lock().expect("enlarged");
+        let map = cache.get_or_insert_with(Default::default);
+        for done in crate::enlarging::take_done() {
+            if map.len() > 1024 {
+                map.clear();
             }
+            map.insert(
+                done.key,
+                std::sync::Arc::new(Decoded {
+                    w: done.w,
+                    h: done.h,
+                    texels: std::sync::Arc::new(done.texels),
+                    keyed: done.keyed,
+                }),
+            );
         }
-        big
+        map.get(&k).cloned()
     };
-    if let Some((sets, _)) = &fonts {
-        crate::glyphs::refine(sets, &d.texels, w, h, &mut texels);
+    if let Some(e) = lookup() {
+        return Some((e, variant));
     }
-    let e = std::sync::Arc::new(Decoded {
-        w: 4 * d.w,
-        h: 4 * d.h,
-        texels: std::sync::Arc::new(texels),
-        keyed: d.keyed,
-    });
-    let mut cache = ENLARGED.lock().expect("enlarged");
-    let map = cache.get_or_insert_with(Default::default);
-    if map.len() > 1024 {
-        map.clear();
+    if crate::enlarging::pending(&k) {
+        return None;
     }
-    map.insert(k, e.clone());
-    Some((e, variant))
+    let d = decoded(m, obj, version, info, key);
+    if d.w > 512 || d.h > 512 {
+        return None;
+    }
+    let job = crate::enlarging::Job::new(
+        d.texels.clone(),
+        d.w as usize,
+        d.h as usize,
+        d.keyed,
+        smooth,
+        fonts.map(|f| f.0).unwrap_or_default(),
+    );
+    crate::enlarging::submit(k, job);
+    // Done at once with the virtual clock.
+    lookup().map(|e| (e, variant))
 }
 
 /// The texel rectangles that 2D quads among `tris` show of a `width × height` texture, one texel

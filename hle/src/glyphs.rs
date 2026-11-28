@@ -117,20 +117,32 @@ pub fn tied(tex: u64) -> Option<(Vec<Arc<GlyphSet>>, u64)> {
 /// the glyphs of `sets` drawn from their outline fonts.
 pub fn refine(sets: &[Arc<GlyphSet>], src: &[Px], width: usize, height: usize, base: &mut [Px]) {
     for set in sets {
-        let Ok(font) = ab_glyph::FontRef::try_from_slice(set.face) else {
-            continue;
-        };
-        // Transparent around the glyphs when the font's texels are (alpha or a colour key's
-        // zero) anywhere: a narrow glyph's rectangle may be ink all over.
-        let clear = set.cells.iter().any(|c| {
-            let [x, y, w, h] = c.rect.map(usize::from);
-            x + w <= width
-                && y + h <= height
-                && (y..y + h).any(|yy| (x..x + w).any(|xx| src[yy * width + xx][3] < 128))
-        });
-        for cell in &set.cells {
-            draw_cell(&font, cell, clear, src, width, height, base);
-        }
+        refine_cells(set, 0..set.cells.len(), src, width, height, base);
+    }
+}
+
+/// Part of `refine`: the glyphs `cells` of one set; so the work can be spread.
+pub fn refine_cells(
+    set: &GlyphSet,
+    cells: std::ops::Range<usize>,
+    src: &[Px],
+    width: usize,
+    height: usize,
+    base: &mut [Px],
+) {
+    let Ok(font) = ab_glyph::FontRef::try_from_slice(set.face) else {
+        return;
+    };
+    // Transparent around the glyphs when the font's texels are (alpha or a colour key's zero)
+    // anywhere: a narrow glyph's rectangle may be ink all over.
+    let clear = set.cells.iter().any(|c| {
+        let [x, y, w, h] = c.rect.map(usize::from);
+        x + w <= width
+            && y + h <= height
+            && (y..y + h).any(|yy| (x..x + w).any(|xx| src[yy * width + xx][3] < 128))
+    });
+    for cell in set.cells.get(cells).unwrap_or_default() {
+        draw_cell(&font, cell, clear, src, width, height, base);
     }
 }
 

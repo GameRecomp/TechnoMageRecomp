@@ -28,6 +28,8 @@ pub mod d3d;
 pub mod ddraw;
 pub mod dinput;
 pub mod dsound;
+#[cfg(feature = "gpu")]
+mod enlarging;
 pub mod glyphs;
 pub mod kernel32;
 pub mod mixer;
@@ -196,6 +198,8 @@ pub(crate) fn frame_done(c: &mut Cpu) {
             rc_runtime::host::exit(0);
         }
     }
+    #[cfg(feature = "gpu")]
+    enlarging::pump();
     profile::time(profile::Section::Yield, rc_runtime::host::frame_yield);
     yield_point(c);
 }

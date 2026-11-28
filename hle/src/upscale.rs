@@ -41,11 +41,24 @@ const SAME: u32 = 24;
 
 /// `width × height` texels enlarged twice in each direction.
 pub fn scale2x(src: &[Px], width: usize, height: usize) -> Vec<Px> {
+    let mut out = vec![[0u8; 4]; 4 * width * height];
+    scale2x_rows(src, width, height, 0..height, &mut out);
+    out
+}
+
+/// Part of `scale2x`: the enlarged rows of source rows `rows` (output rows `2y` and `2y + 1`)
+/// written into `out`, the whole `2 width × 2 height` picture; so the work can be spread.
+pub fn scale2x_rows(
+    src: &[Px],
+    width: usize,
+    height: usize,
+    rows: std::ops::Range<usize>,
+    out: &mut [Px],
+) {
     let (w, h) = (width as isize, height as isize);
     let at = |x: isize, y: isize| src[(y.clamp(0, h - 1) * w + x.clamp(0, w - 1)) as usize];
-    let mut out = vec![[0u8; 4]; 4 * width * height];
     let ow = 2 * width;
-    for y in 0..h {
+    for y in rows.start as isize..rows.end.min(height) as isize {
         for x in 0..w {
             let e = at(x, y);
             for (sx, sy) in [(1isize, 1isize), (-1, 1), (1, -1), (-1, -1)] {
@@ -58,7 +71,6 @@ pub fn scale2x(src: &[Px], width: usize, height: usize) -> Vec<Px> {
             }
         }
     }
-    out
 }
 
 /// The lower right quarter of `e`'s enlarged pixel, `p(dx, dy)` its neighbours:
@@ -112,7 +124,7 @@ pub fn scale4x(src: &[Px], width: usize, height: usize) -> Vec<Px> {
 }
 
 /// How strongly `scale4x` sharpens, as a share of the strongest the pass allows.
-const SHARPNESS: f32 = 0.6;
+pub const SHARPNESS: f32 = 0.6;
 
 /// The most negative weight a neighbour may get (RCAS's limit: past it the curve is badly
 /// conditioned).
@@ -127,11 +139,24 @@ const LOBE_LIMIT: f32 = 0.25 - 1.0 / 16.0;
 /// colour comes in from behind a colour key. Alpha is kept.
 pub fn sharpen(src: &[Px], width: usize, height: usize, strength: f32) -> Vec<Px> {
     let mut out = src.to_vec();
+    sharpen_rows(src, width, height, strength, 0..height, &mut out);
+    out
+}
+
+/// Part of `sharpen`: rows `rows` of `out` (a copy of `src` beforehand) sharpened.
+pub fn sharpen_rows(
+    src: &[Px],
+    width: usize,
+    height: usize,
+    strength: f32,
+    rows: std::ops::Range<usize>,
+    out: &mut [Px],
+) {
     if width == 0 || height == 0 || strength <= 0.0 {
-        return out;
+        return;
     }
     let rgb = |p: Px| [p[0], p[1], p[2]].map(|c| f32::from(c) / 255.0);
-    for y in 0..height {
+    for y in rows.start..rows.end.min(height) {
         for x in 0..width {
             let e = src[y * width + x];
             if clear(e) {
@@ -175,7 +200,6 @@ pub fn sharpen(src: &[Px], width: usize, height: usize, strength: f32) -> Vec<Px
             }
         }
     }
-    out
 }
 
 #[cfg(test)]
