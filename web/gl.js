@@ -21,6 +21,7 @@ layout(location = 3) in vec2 a_uv0;
 layout(location = 4) in vec2 a_uv1;
 layout(location = 5) in float a_eye;
 layout(location = 6) in float a_exact;
+layout(location = 7) in vec4 a_box0;
 uniform vec2 u_view;
 out vec4 v_diffuse;
 out vec4 v_specular;
@@ -28,6 +29,7 @@ out vec2 v_uv0;
 out vec2 v_uv1;
 out float v_eye;
 flat out float v_exact;
+flat out vec4 v_box0;
 void main() {
   // Direct3D 7 has pixel centres on integer coordinates: half a pixel to WebGL's.
   float x = (a_pos.x + 0.5) / u_view.x * 2.0 - 1.0;
@@ -41,6 +43,7 @@ void main() {
   v_uv1 = a_uv1;
   v_eye = a_eye;
   v_exact = a_exact;
+  v_box0 = a_box0;
 }`;
 
 const FS = `#version 300 es
@@ -52,6 +55,7 @@ in vec2 v_uv0;
 in vec2 v_uv1;
 in float v_eye;
 flat in float v_exact;
+flat in vec4 v_box0;
 uniform sampler2D u_t0;
 uniform sampler2D u_t1;
 uniform ivec4 u_stage[4];
@@ -123,8 +127,17 @@ void main() {
   vec2 atCentre = v_uv0 + gx * dc.x + gy * dc.y;
   vec2 size = vec2(textureSize(u_t0, 0)) / max(u_snap.w, 1.0);
   vec2 f = fract(game);
-  vec2 within = vec2(gx.x < 0.0 ? 1.0 - f.x : f.x, gy.y < 0.0 ? 1.0 - f.y : f.y);
+  // Half an enlarged texel inside the game's texel at most: filtered, a sample nearer its edge
+  // takes in the next texel on the page (beside a glyph a transparent black one, a dark line).
+  float inset = 0.5 / max(u_snap.w, 1.0);
+  vec2 within = clamp(vec2(gx.x < 0.0 ? 1.0 - f.x : f.x, gy.y < 0.0 ? 1.0 - f.y : f.y), inset, 1.0 - inset);
   if (u_snap.w > 1.5 && v_exact > 0.5) uv0 = (floor(atCentre * size) + within) / size;
+  // A piece's texels (the vertex's box0): filtering takes nothing from beside them on the page.
+  if (v_box0.z >= v_box0.x) {
+    vec2 texels = vec2(textureSize(u_t0, 0));
+    vec2 mid = (v_box0.xy + v_box0.zw) * 0.5;
+    uv0 = clamp(uv0, min(v_box0.xy + 0.5 / texels, mid), max(v_box0.zw - 0.5 / texels, mid));
+  }
   vec4 c0 = texture(u_t0, u_stage[1].z == 1 ? uv1 : uv0);
   vec4 c1 = texture(u_t1, u_stage[3].z == 1 ? uv1 : uv0);
   vec4 current = v_diffuse;
@@ -357,9 +370,9 @@ export function createGL(memory) {
     gl.uniform1i(loc.u_t1, 1);
     vbuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
-    const stride = 80;
+    const stride = 88;
     const attr = (i, n, off) => { gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, n, gl.FLOAT, false, stride, off); };
-    attr(0, 4, 0); attr(1, 4, 16); attr(2, 4, 32); attr(3, 2, 48); attr(4, 2, 56); attr(5, 1, 64); attr(6, 1, 68);
+    attr(0, 4, 0); attr(1, 4, 16); attr(2, 4, 32); attr(3, 2, 48); attr(4, 2, 56); attr(5, 1, 64); attr(6, 1, 68); attr(7, 4, 72);
     white = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, white);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
@@ -505,8 +518,8 @@ export function createGL(memory) {
         continue;
       }
       const n = words[p++];
-      gl.bufferData(gl.ARRAY_BUFFER, floats.subarray(p, p + 20 * n), gl.STREAM_DRAW);
-      p += 20 * n;
+      gl.bufferData(gl.ARRAY_BUFFER, floats.subarray(p, p + 22 * n), gl.STREAM_DRAW);
+      p += 22 * n;
       const t0 = words[p], f0 = words[p + 1], t1 = words[p + 2], f1 = words[p + 3];
       p += 4;
       bindTexture(0, t0, f0);
@@ -554,13 +567,13 @@ export function createGL(memory) {
       // Its rims (opaque 3D): the gaps between meshes closed, losing against any surface there.
       const m = words[p++];
       if (m) {
-        gl.bufferData(gl.ARRAY_BUFFER, floats.subarray(p, p + 20 * m), gl.STREAM_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, floats.subarray(p, p + 22 * m), gl.STREAM_DRAW);
         gl.enable(gl.POLYGON_OFFSET_FILL);
         gl.polygonOffset(2, 16);
         gl.drawArrays(gl.TRIANGLES, 0, m);
         gl.disable(gl.POLYGON_OFFSET_FILL);
       }
-      p += 20 * m;
+      p += 22 * m;
     }
   }
 

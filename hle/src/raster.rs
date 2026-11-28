@@ -577,6 +577,24 @@ fn enlarge(
     lookup().map(|e| (e, variant))
 }
 
+/// The rectangle of texture coordinates a triangle covers, when each of its corners is at a
+/// corner of it (half a quad: `gpu::Vertex::box0`); else none. The game's tiles are not quite
+/// rectangles on their pages (a corner a texel off now and then): within about a texel of a
+/// 256-texel page counts as at the corner.
+#[cfg(feature = "gpu")]
+fn texel_box(uv: [[f32; 2]; 3]) -> [f32; 4] {
+    let lo = [0, 1].map(|k| uv.iter().map(|t| t[k]).fold(f32::INFINITY, f32::min));
+    let hi = [0, 1].map(|k| uv.iter().map(|t| t[k]).fold(f32::NEG_INFINITY, f32::max));
+    let at = |a: f32, b: f32| (a - b).abs() <= 1.5 / 256.0;
+    let cornered = uv
+        .iter()
+        .all(|t| (at(t[0], lo[0]) || at(t[0], hi[0])) && (at(t[1], lo[1]) || at(t[1], hi[1])));
+    if !cornered || hi[0] <= lo[0] || hi[1] <= lo[1] {
+        return rc_platform::gpu::NO_BOX;
+    }
+    [lo[0], lo[1], hi[0], hi[1]]
+}
+
 /// The texel rectangles that 2D quads among `tris` show of a `width × height` texture, one texel
 /// to one pixel (as `mark_texel_for_pixel` finds them), for `glyphs`.
 #[cfg(feature = "gpu")]
@@ -1201,7 +1219,7 @@ pub fn gpu_draw(
     }
     let cull = rs(st, RS_CULLMODE, 3);
     let flat = rs(st, RS_SHADEMODE, 2) == 1;
-    let gv = |v: &Vert| gpu::Vertex {
+    let gv = |v: &Vert, box0: [f32; 4]| gpu::Vertex {
         pos: [v.x, v.y, v.z, v.rhw],
         diffuse: v.diffuse,
         specular: v.specular,
@@ -1209,7 +1227,7 @@ pub fn gpu_draw(
         uv1: v.uv[1],
         eye: v.eye_z,
         exact: 0.0,
-        _pad: [0.0; 2],
+        box0,
     };
     let mut out = Vec::with_capacity(tris.len() * 3);
     for (a, b, c) in tris {
@@ -1220,6 +1238,7 @@ pub fn gpu_draw(
             vb.specular = va.specular;
             vc.specular = va.specular;
         }
+        let box0 = texel_box([va.uv[0], vb.uv[0], vc.uv[0]]);
         for [va, vb, vc] in clip_near([va, vb, vc], &st.viewport) {
             let area = (vb.x - va.x) * (vc.y - va.y) - (vc.x - va.x) * (vb.y - va.y);
             if (cull == 2 && area > 0.0) || (cull == 3 && area < 0.0) {
@@ -1228,7 +1247,7 @@ pub fn gpu_draw(
             if va.rhw <= 0.0 || vb.rhw <= 0.0 || vc.rhw <= 0.0 {
                 continue;
             }
-            out.extend([gv(&va), gv(&vb), gv(&vc)]);
+            out.extend([gv(&va, box0), gv(&vb, box0), gv(&vc, box0)]);
         }
     }
     if out.is_empty() {

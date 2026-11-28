@@ -12,7 +12,7 @@
 //! | words | what |
 //! |---|---|
 //! | 1 | vertex count `n` |
-//! | 20 n | the vertices ([`Vertex`], f32) |
+//! | 22 n | the vertices ([`Vertex`], f32) |
 //! | 4 | texture 0 id (0: none), its flags (1 bilinear, 2 clamp u, 4 clamp v), texture 1 the same |
 //! | 1 + 7 s | stage count `s`; each: colour op, arg 1, arg 2, alpha op, arg 1, arg 2, coordinate set |
 //! | 4 | texture factor (f32) |
@@ -21,7 +21,7 @@
 //! | 2 | blend source and destination factors (0: off) |
 //! | 2 | depth function (0: no test), write |
 //! | 7 | fog mode (0 off, 1 vertex, 2 linear table), colour (4 f32), start, end (f32) |
-//! | 1 + 20 m | rim vertex count `m` and the rims ([`super::rims`], opaque 3D: drawn after the draw with its depth pushed back) |
+//! | 1 + 22 m | rim vertex count `m` and the rims ([`super::rims`], opaque 3D: drawn after the draw with its depth pushed back) |
 
 use super::guest::{overlay_uniforms, strip, uniforms};
 use super::{Command, Draw, GpuPicture, Guest, OverlayImage, Texture, Vertex};

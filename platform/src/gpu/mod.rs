@@ -179,8 +179,16 @@ pub struct Vertex {
     pub eye: f32,
     /// 1 when the triangle lies on the screen texel for pixel (see [`Draw::pixel_exact`]).
     pub exact: f32,
-    pub _pad: [f32; 2],
+    /// For a triangle that covers a rectangle of texture 0's texels (a corner of it at each of
+    /// its corners: the pieces of a window's frame, a level's tiles), that rectangle (u, v
+    /// least; u, v greatest): filtering takes nothing from beyond it (half a texel in), which on
+    /// a page of such pieces is the next piece and showed as a seam between them. Others:
+    /// [`NO_BOX`].
+    pub box0: [f32; 4],
 }
+
+/// [`Vertex::box0`] of a triangle sampled freely.
+pub const NO_BOX: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 
 /// A texture's pixels (RGBA8), identified by `key` for the GPU-side cache.
 #[derive(Debug, Clone)]

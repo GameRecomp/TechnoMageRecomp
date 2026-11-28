@@ -50,6 +50,7 @@ struct In {
     @location(4) uv1: vec2<f32>,
     @location(5) eye: f32,
     @location(6) exact: f32,
+    @location(7) box0: vec4<f32>,
 };
 struct Out {
     @builtin(position) clip: vec4<f32>,
@@ -59,6 +60,7 @@ struct Out {
     @location(3) uv1: vec2<f32>,
     @location(4) eye: f32,
     @location(5) @interpolate(flat) exact: f32,
+    @location(6) @interpolate(flat) box0: vec4<f32>,
 };
 
 @vertex
@@ -76,6 +78,7 @@ fn vs(i: In) -> Out {
     o.uv1 = i.uv1;
     o.eye = i.eye;
     o.exact = i.exact;
+    o.box0 = i.box0;
     return o;
 }
 
@@ -142,9 +145,26 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     let at_centre = i.uv0 + gx * dc.x + gy * dc.y;
     let size = vec2<f32>(textureDimensions(t0)) / max(u.snap.w, 1.0);
     let f = fract(game);
-    let within = vec2<f32>(select(f.x, 1.0 - f.x, gx.x < 0.0), select(f.y, 1.0 - f.y, gy.y < 0.0));
+    // Half an enlarged texel inside the game's texel at most: filtered, a sample nearer its edge
+    // takes in the next texel on the page (beside a glyph a transparent black one, a dark line;
+    // beside a piece of a window's frame the next piece).
+    let inset = 0.5 / max(u.snap.w, 1.0);
+    let within = clamp(
+        vec2<f32>(select(f.x, 1.0 - f.x, gx.x < 0.0), select(f.y, 1.0 - f.y, gy.y < 0.0)),
+        vec2<f32>(inset),
+        vec2<f32>(1.0 - inset),
+    );
     let sub = (floor(at_centre * size) + within) / size;
     uv0 = select(uv0, sub, u.snap.w > 1.5 && i.exact > 0.5);
+    // A piece's texels (`Vertex::box0`): filtering takes nothing from beside them on the page.
+    let texels = vec2<f32>(textureDimensions(t0));
+    let mid = (i.box0.xy + i.box0.zw) * 0.5;
+    let within_box = clamp(
+        uv0,
+        min(i.box0.xy + 0.5 / texels, mid),
+        max(i.box0.zw - 0.5 / texels, mid),
+    );
+    uv0 = select(within_box, uv0, i.box0.z < i.box0.x);
     let uv1 = i.uv1 + dpdx(i.uv1) * d.x + dpdy(i.uv1) * d.y;
     // Both textures are sampled in uniform control flow, then used as the stages say.
     let c0 = textureSample(t0, s0, select(uv0, uv1, u.stage[1].z == 1u));
@@ -425,7 +445,7 @@ impl Renderer {
     fn pipeline(&mut self, key: PipelineKey) -> &wgpu::RenderPipeline {
         let (device, shader, layout) = (&self.device, &self.shader, &self.layout);
         self.pipelines.entry(key).or_insert_with(|| {
-            let attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x2, 4 => Float32x2, 5 => Float32, 6 => Float32];
+            let attrs = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x2, 4 => Float32x2, 5 => Float32, 6 => Float32, 7 => Float32x4];
             let blend = key.0.map(|(s, d)| wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: blend_factor(s),
