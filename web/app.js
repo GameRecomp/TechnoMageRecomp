@@ -27,7 +27,13 @@ function systems() {
   const app = g.stem;
   return {
     windows: { label: 'Windows', after: `Unzip it and start technomage.exe in the ${app} folder.` },
-    linux: { label: 'Linux', after: `Unzip it and start technomage in the ${app} folder.` },
+    linux: {
+      label: 'Linux',
+      ext: 'AppImage',
+      type: { description: 'AppImage', accept: { 'application/vnd.appimage': ['.AppImage'] } },
+      after: 'The AppImage holds the whole game. Make it executable (chmod +x, or tick "Allow executing" in '
+        + 'its properties) and start it. Without FUSE, start it with --appimage-extract-and-run.',
+    },
     macos: {
       label: 'macOS',
       after: `Unzip it and open ${app}.app. It is not signed: the first time, right-click it and choose Open, `
@@ -402,7 +408,7 @@ async function start() {
   const build = buildOf(system);
   const forGame = game;
   const arch = build === system ? '' : '-ARM64';
-  const outName = sys.file || `${forGame.stem}-${sys.label.replace(/\s/g, '')}${arch}.zip`;
+  const outName = sys.file || `${forGame.stem}-${sys.label.replace(/\s/g, '')}${arch}.${sys.ext || 'zip'}`;
   $('error').hidden = true;
   $('result').hidden = true;
   webMode = !!sys.web;

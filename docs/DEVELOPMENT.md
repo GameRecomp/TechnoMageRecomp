@@ -106,14 +106,23 @@ the intro keys loads slot 1.
 
 ```sh
 RC_NO_GENERATED=1 CARGO_TARGET_DIR=target/template cargo build --release -p technomage
+curl -fsSL -o target/appimage-runtime \
+  https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-$(uname -m)
 cargo run -p rc-cli --release -- template --game technomage --system linux \
-  --shell target/template/release/technomage -o templates/TechnoMage-linux.zip
+  --shell target/template/release/technomage --runtime target/appimage-runtime \
+  --icon tools/icons/technomage.svg -o templates/TechnoMage-linux.zip
 cargo run -p rc-cli --release -- convert orig/2004-03.BIN --templates templates --system linux
 ```
 
 `convert` reads the medium (and its supplements beside it), lifts and compiles the code with Cranelift, and
-writes a zip that runs on its own: the program, `data/game/` (the installed files and the CD's folders) and
-the code.
+writes a package that runs on its own: the program, `data/game/` (the installed files and the CD's folders) and
+the code; a zip, for Android an APK, and for Linux one AppImage holding everything (the converter page makes
+the same). The AppImage is the AppImage runtime (type2-runtime, static, MIT; the template carries the one for
+its machine) followed by a SquashFS image that `rc_convert::squashfs` writes itself, uncompressed (the game's
+files are mostly compressed already, and a browser needs no compressor): `AppRun` (the shell, which finds
+`data/` beside it), `technomage.desktop`, `technomage.svg`, `data/code-*.bin` and `data/game/`. The image's
+tables are laid out from the file list first, so the files stream straight in. It needs FUSE to start;
+without it `--appimage-extract-and-run`. A template made without `--runtime` gives a zip as before.
 
 The systems are `windows`, `linux` (x86-64), `windows-arm64`, `linux-arm64`, `macos` and `android`. A template is
 the shell built on that machine (CI builds the ARM64 ones on GitHub's `ubuntu-22.04-arm` and `windows-11-arm`

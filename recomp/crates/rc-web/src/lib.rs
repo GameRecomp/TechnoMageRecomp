@@ -268,7 +268,8 @@ pub fn convert(
     }
     tell(&progress, "compile", total, total);
 
-    let (_, files) = inst.plan();
+    let listing = inst.plan();
+    let files = &listing.1;
     let game: f64 = files.iter().map(|f| f.1 as f64).sum();
     let mut written = 0u64;
     let mut last = 0u64;
@@ -279,6 +280,7 @@ pub fn convert(
         },
         &tpl,
         &blobs,
+        Some(&listing),
         &mut |sink| inst.files(sink),
         None,
         &mut |k| {

@@ -62,7 +62,13 @@ USAGE:
                                             template for SYSTEM (windows, linux, macos; from
                                             DIR, by default templates/ beside
                                             recomp), with the game's files: <Game>-SYSTEM.zip
-                                            (.apk for android) in the current folder
+                                            (.apk for android; .AppImage for a Linux template
+                                            made with --runtime: one file holding everything)
+                                            in the current folder
+    recomp template --game ID --system SYSTEM --shell PROGRAM [--runtime R --icon I.svg]
+                    --out T.zip                 a shell template; on Linux with the AppImage
+                                            runtime (type2-runtime) and the game's icon, its
+                                            packages are AppImages
     recomp download [--games DIR] [--dest DIR] GAME LANGUAGE
                                             download the game's medium in that language
                                             (technomage: de, en) and the media that supplement
@@ -104,6 +110,8 @@ struct Opts {
     native: Vec<String>,
     system: Option<String>,
     shell: Option<PathBuf>,
+    runtime: Option<PathBuf>,
+    icon: Option<PathBuf>,
     template: Option<PathBuf>,
     templates: Option<PathBuf>,
     download: Option<String>,
@@ -137,6 +145,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         native: Vec::new(),
         system: None,
         shell: None,
+        runtime: None,
+        icon: None,
         template: None,
         templates: None,
         download: None,
@@ -161,6 +171,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--set" => o.set = Some(it.next().ok_or("--set needs a file")?.into()),
             "--system" => o.system = Some(it.next().ok_or("--system needs a system")?.clone()),
             "--shell" => o.shell = Some(it.next().ok_or("--shell needs a file")?.into()),
+            "--runtime" => o.runtime = Some(it.next().ok_or("--runtime needs a file")?.into()),
+            "--icon" => o.icon = Some(it.next().ok_or("--icon needs a file")?.into()),
             "--templates" => {
                 o.templates = Some(it.next().ok_or("--templates needs a folder")?.into())
             }
@@ -263,7 +275,12 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 .ok_or("template needs --system SYSTEM")?;
             let shell = o.shell.as_deref().ok_or("template needs --shell PROGRAM")?;
             let out = o.out.as_deref().ok_or("template needs --out FILE")?;
-            package::template(game, system, shell, out)
+            let appimage = match (o.runtime.as_deref(), o.icon.as_deref()) {
+                (Some(r), Some(i)) => Some((r, i)),
+                (None, None) => None,
+                _ => return Err("an AppImage template needs --runtime and --icon".into()),
+            };
+            package::template(game, system, shell, appimage, out)
         }
         "package" => {
             let o = parse_opts(rest)?;

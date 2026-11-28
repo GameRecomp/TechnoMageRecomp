@@ -18,8 +18,9 @@ by its SHA-256. You can use copies you already have instead.
 ### How to play
 
 - **Linux, Windows**: `recomp download --dest media technomage de` (or `en`), then
-  `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`; `--system windows`). Unzip
-  the result and start `technomage`. Alt+Enter or F11 switches to full screen.
+  `recomp convert media/2004-03.BIN --system linux` (English: `media/TECHNOMAGE.mdf`; `--system windows`). On
+  Linux the result is one AppImage holding the whole game: start it. On Windows unzip it and start
+  `technomage.exe`. Alt+Enter or F11 switches to full screen.
 - **Browser**: on the converter page choose "Browser" and a language. The game is stored in the browser and
   plays on its page. It needs WebAssembly stack switching (JSPI): a current Chrome, Edge or Firefox.
 

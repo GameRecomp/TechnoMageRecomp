@@ -6,7 +6,9 @@
 //! - [`make_template`]: a shell and the targets it runs, as a template zip.
 //! - [`template`]: read one.
 //! - [`package`]: the template's files, `data/code-<target>-<exe>.bin` for each program and target,
-//!   and the game's files under `data/game/`.
+//!   and the game's files under `data/game/`: a zip, an APK (Android) or an AppImage (Linux, one
+//!   file holding everything: the AppImage runtime, then a SquashFS image of the program, the
+//!   code and the game's files).
 //!
 //! Nothing here touches the file system: the caller reads and writes, so the crate can run in a
 //! browser later as TropicoRecomp's does.
@@ -14,6 +16,7 @@
 pub mod apk;
 pub mod install;
 pub mod lift;
+pub mod squashfs;
 pub mod zip;
 
 pub use rc_emit_native;
@@ -25,6 +28,10 @@ use std::io::Write;
 use rc_emit_native::Target;
 
 pub type Error = String;
+
+/// A game's files as they are listed before they are written: its directories, and its files
+/// with their sizes (`Install::plan`, [`folder_plan`]).
+pub type Listing = (Vec<String>, Vec<(String, u64)>);
 
 /// The target names a template lists for each system (TropicoRecomp's).
 pub fn default_targets(system: &str) -> Option<&'static [&'static str]> {
@@ -49,12 +56,25 @@ pub fn stem(game: &str) -> &'static str {
     }
 }
 
-/// A template: the shell `shell_name` (its bytes) and the targets it runs, in `<stem>/`.
+/// What an AppImage template holds besides the shell: the AppImage runtime for its machine (the
+/// type2-runtime's `runtime-<arch>`) and the game's icon (SVG).
+pub struct AppImageParts<'a> {
+    pub runtime: &'a [u8],
+    pub icon_svg: &'a [u8],
+}
+
+/// Where an AppImage template keeps the runtime (outside the AppDir).
+const APPIMAGE_RUNTIME: &str = "appimage/runtime";
+
+/// A template: the shell `shell_name` (its bytes) and the targets it runs, in `<stem>/`. With
+/// `appimage` (Linux) the package becomes an AppImage: `<stem>/` is its AppDir, the shell its
+/// `AppRun` (it finds `data/` beside itself), with a desktop entry and the icon.
 pub fn make_template(
     game: &str,
     system: &str,
     shell_name: &str,
     shell: &[u8],
+    appimage: Option<AppImageParts<'_>>,
 ) -> Result<Vec<u8>, Error> {
     let targets = default_targets(system).ok_or_else(|| format!("unknown system {system:?}"))?;
     let io = |e: std::io::Error| e.to_string();
@@ -82,9 +102,30 @@ pub fn make_template(
     }
     let root = format!("{}/", stem(game));
     let mut z = zip::ZipWriter::new(Vec::new());
-    z.dir(&root).map_err(io)?;
-    z.file(&format!("{root}{shell_name}"), 0o755, shell)
-        .map_err(io)?;
+    if let Some(a) = &appimage {
+        if !system.starts_with("linux") {
+            return Err(format!("an AppImage is for Linux, not {system}"));
+        }
+        let id = stem(game).to_ascii_lowercase();
+        z.dir("appimage/").map_err(io)?;
+        z.file(APPIMAGE_RUNTIME, 0o755, a.runtime).map_err(io)?;
+        z.dir(&root).map_err(io)?;
+        z.file(&format!("{root}AppRun"), 0o755, shell).map_err(io)?;
+        let desktop = format!(
+            "[Desktop Entry]\nType=Application\nName={}\nComment={} on this computer, recompiled from your own copy\n\
+             Exec=AppRun\nIcon={id}\nCategories=Game;\nTerminal=false\n",
+            stem(game),
+            stem(game)
+        );
+        z.file(&format!("{root}{id}.desktop"), 0o644, desktop.as_bytes())
+            .map_err(io)?;
+        z.file(&format!("{root}{id}.svg"), 0o644, a.icon_svg)
+            .map_err(io)?;
+    } else {
+        z.dir(&root).map_err(io)?;
+        z.file(&format!("{root}{shell_name}"), 0o755, shell)
+            .map_err(io)?;
+    }
     z.dir(&format!("{root}data/")).map_err(io)?;
     z.file(
         &format!("{root}data/targets"),
@@ -104,6 +145,8 @@ pub struct Template<'a> {
     pub targets: Vec<Target>,
     /// An Android package: the output is a signed APK, its data under `assets/data/`.
     pub apk: bool,
+    /// An AppImage template (it holds the runtime the package starts with).
+    pub appimage: bool,
 }
 
 /// A target by its name in a template's `targets`.
@@ -130,11 +173,13 @@ pub fn template(bytes: &[u8]) -> Result<Template<'_>, Error> {
         return Err("shell template: no targets".into());
     }
     let apk = entries.iter().any(|e| e.name == "AndroidManifest.xml");
+    let appimage = entries.iter().any(|e| e.name == APPIMAGE_RUNTIME);
     Ok(Template {
         entries,
         data,
         targets,
         apk,
+        appimage,
     })
 }
 
@@ -146,15 +191,24 @@ pub fn template(bytes: &[u8]) -> Result<Template<'_>, Error> {
 /// index `files.txt` (a line per file: its size and path; directories end in `/`) that the app
 /// unpacks from on its first start (rc_plat_bundled_data). `progress` hears the bytes of each
 /// game file written.
+///
+/// For an AppImage template `plan` must list the game's files the sink will get (directories and
+/// files with their sizes, as `Install::plan` gives them): the image's tables are laid out first.
+#[allow(clippy::too_many_arguments)]
 pub fn package<W: Write>(
     out: W,
     tpl: &Template<'_>,
     blobs: &[(Target, String, Vec<u8>)],
+    plan: Option<&Listing>,
     game: &mut dyn FnMut(&mut dyn rc_media::Sink) -> Result<(), Error>,
     key: Option<&apk::ApkKey>,
     progress: &mut dyn FnMut(u64),
 ) -> Result<W, Error> {
     let io = |e: std::io::Error| e.to_string();
+    if tpl.appimage {
+        let plan = plan.ok_or("an AppImage needs the game's files listed first")?;
+        return appimage(out, tpl, blobs, plan, game, progress);
+    }
     if !tpl.apk {
         let mut z = zip::ZipWriter::new(out);
         write_contents(&mut z, tpl, blobs, game, 1, progress)?;
@@ -277,6 +331,167 @@ fn write_contents<W: Write>(
     };
     game(&mut sink)?;
     Ok(sink.list)
+}
+
+/// The AppImage: the runtime, then a SquashFS image of the template's AppDir (its `<stem>/`, but
+/// `data/targets`), the code under `data/` and the game's files under `data/game/`, the files
+/// streamed straight into the image.
+fn appimage<W: Write>(
+    mut out: W,
+    tpl: &Template<'_>,
+    blobs: &[(Target, String, Vec<u8>)],
+    (dirs, files): &Listing,
+    game: &mut dyn FnMut(&mut dyn rc_media::Sink) -> Result<(), Error>,
+    progress: &mut dyn FnMut(u64),
+) -> Result<W, Error> {
+    use squashfs::Node;
+    use std::collections::BTreeMap;
+    let io = |e: std::io::Error| e.to_string();
+    let runtime = tpl
+        .entries
+        .iter()
+        .find(|e| e.name == APPIMAGE_RUNTIME)
+        .ok_or("AppImage template: no runtime")?;
+    out.write_all(&runtime.data).map_err(io)?;
+    // The AppDir is the folder holding data/.
+    let root = tpl
+        .data
+        .trim_end_matches('/')
+        .rsplit_once('/')
+        .map_or("", |(r, _)| r);
+    let root = if root.is_empty() {
+        String::new()
+    } else {
+        format!("{root}/")
+    };
+    let targets = format!("{}targets", tpl.data);
+    let mut tree: BTreeMap<String, Node> = BTreeMap::new();
+    let add_dirs = |tree: &mut BTreeMap<String, Node>, path: &str| {
+        let mut at = String::new();
+        for part in path.split('/').filter(|p| !p.is_empty()) {
+            if !at.is_empty() {
+                at.push('/');
+            }
+            at.push_str(part);
+            tree.entry(at.clone()).or_insert(Node::Dir);
+        }
+    };
+    let mut ours = Vec::new();
+    for e in &tpl.entries {
+        let Some(rel) = e.name.strip_prefix(&root) else {
+            continue;
+        };
+        if e.name == targets || rel.is_empty() {
+            continue;
+        }
+        if e.is_dir {
+            add_dirs(&mut tree, rel);
+        } else {
+            if let Some((parent, _)) = rel.rsplit_once('/') {
+                add_dirs(&mut tree, parent);
+            }
+            let mode = (e.mode & 0o777) as u16;
+            let mode = if mode == 0 { 0o644 } else { mode };
+            tree.insert(
+                rel.to_string(),
+                Node::File {
+                    size: e.data.len() as u64,
+                    mode,
+                },
+            );
+            ours.push((rel.to_string(), &e.data[..]));
+        }
+    }
+    add_dirs(&mut tree, "data/game");
+    let code: Vec<(String, &[u8])> = blobs
+        .iter()
+        .map(|(t, exe, blob)| (format!("data/code-{}-{exe}.bin", t.name()), &blob[..]))
+        .collect();
+    for (path, blob) in &code {
+        tree.insert(
+            path.clone(),
+            Node::File {
+                size: blob.len() as u64,
+                mode: 0o644,
+            },
+        );
+    }
+    for d in dirs {
+        add_dirs(&mut tree, &format!("data/game/{d}"));
+    }
+    for (f, size) in files {
+        let path = format!("data/game/{f}");
+        if let Some((parent, _)) = path.rsplit_once('/') {
+            add_dirs(&mut tree, parent);
+        }
+        tree.insert(
+            path,
+            Node::File {
+                size: *size,
+                mode: 0o644,
+            },
+        );
+    }
+    let mut sq = squashfs::SquashWriter::new(out, tree).map_err(io)?;
+    for (path, data) in ours.iter().chain(code.iter()) {
+        sq.file(path, data).map_err(io)?;
+    }
+    struct Sink<'s, 'p, W: Write> {
+        sq: &'s mut squashfs::SquashWriter<W>,
+        size: u64,
+        progress: &'p mut dyn FnMut(u64),
+    }
+    impl<W: Write> rc_media::Sink for Sink<'_, '_, W> {
+        fn dir(&mut self, _: &str) -> rc_media::Result<()> {
+            Ok(())
+        }
+        fn begin(&mut self, path: &str, size: u64) -> rc_media::Result<()> {
+            self.size = size;
+            self.sq
+                .begin(&format!("data/game/{path}"))
+                .map_err(media_err)
+        }
+        fn write(&mut self, data: &[u8]) -> rc_media::Result<()> {
+            self.sq.write(data).map_err(media_err)
+        }
+        fn end(&mut self) -> rc_media::Result<()> {
+            self.sq.end().map_err(media_err)?;
+            (self.progress)(self.size);
+            Ok(())
+        }
+    }
+    game(&mut Sink {
+        sq: &mut sq,
+        size: 0,
+        progress,
+    })?;
+    let (out, _) = sq.finish().map_err(io)?;
+    Ok(out)
+}
+
+/// The game's files of an installed folder as `Install::plan` lists them: its directories and
+/// its files with their sizes, relative to it.
+pub fn folder_plan(root: &std::path::Path) -> Result<Listing, Error> {
+    struct Plan(Vec<String>, Vec<(String, u64)>);
+    impl rc_media::Sink for Plan {
+        fn dir(&mut self, path: &str) -> rc_media::Result<()> {
+            self.0.push(path.to_string());
+            Ok(())
+        }
+        fn begin(&mut self, path: &str, size: u64) -> rc_media::Result<()> {
+            self.1.push((path.to_string(), size));
+            Ok(())
+        }
+        fn write(&mut self, _: &[u8]) -> rc_media::Result<()> {
+            Ok(())
+        }
+        fn end(&mut self) -> rc_media::Result<()> {
+            Ok(())
+        }
+    }
+    let mut p = Plan(Vec::new(), Vec::new());
+    folder_files(root, &mut p)?;
+    Ok((p.0, p.1))
 }
 
 /// The game's files of an installed folder into `sink`, sorted, directories first in each.

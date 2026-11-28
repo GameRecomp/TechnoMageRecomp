@@ -78,8 +78,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/templates
+          # Linux: the packages are AppImages, with the AppImage runtime of this machine.
+          appimage=()
+          if [ "${{ runner.os }}" = Linux ]; then
+            curl -fsSL -o target/appimage-runtime \
+              "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-$(uname -m)"
+            appimage=(--runtime target/appimage-runtime --icon tools/icons/technomage.svg)
+          fi
           target/dist/recomp${{ matrix.exe }} template --game technomage --system ${{ matrix.system }} \
-            --shell target/dist/technomage${{ matrix.exe }} -o dist/templates/TechnoMage-${{ matrix.system }}.zip
+            --shell target/dist/technomage${{ matrix.exe }} "${appimage[@]}" \
+            -o dist/templates/TechnoMage-${{ matrix.system }}.zip
           cp target/dist/recomp${{ matrix.exe }} dist/
           cp README.md LICENSE dist/
       - name: Package

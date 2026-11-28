@@ -8,14 +8,35 @@ use std::process::ExitCode;
 
 use crate::native::{compile, programs};
 
-/// `recomp template --game ID --system SYSTEM --shell PROGRAM -o OUT.zip`.
-pub fn template(game: &str, system: &str, shell: &Path, out: &Path) -> Result<ExitCode, String> {
-    let bytes = fs::read(shell).map_err(|e| format!("{}: {e}", shell.display()))?;
+/// `recomp template --game ID --system SYSTEM --shell PROGRAM [--runtime R --icon I.svg] -o
+/// OUT.zip`: with the AppImage runtime and the icon a Linux template makes AppImages.
+pub fn template(
+    game: &str,
+    system: &str,
+    shell: &Path,
+    appimage: Option<(&Path, &Path)>,
+    out: &Path,
+) -> Result<ExitCode, String> {
+    let read = |p: &Path| fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    let bytes = read(shell)?;
     let name = shell
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("--shell needs a file")?;
-    let zip = rc_convert::make_template(game, system, name, &bytes)?;
+    let parts = match appimage {
+        Some((r, i)) => Some((read(r)?, read(i)?)),
+        None => None,
+    };
+    let zip = rc_convert::make_template(
+        game,
+        system,
+        name,
+        &bytes,
+        parts.as_ref().map(|(r, i)| rc_convert::AppImageParts {
+            runtime: r,
+            icon_svg: i,
+        }),
+    )?;
     fs::write(out, zip).map_err(|e| format!("{}: {e}", out.display()))?;
     println!("template    {game} for {system}: {}", out.display());
     Ok(ExitCode::SUCCESS)
@@ -65,26 +86,52 @@ pub fn package(
                 "{}-{variant}-{}.{}",
                 rc_convert::stem(&id),
                 tpl.targets[0].name(),
-                if tpl.apk { "apk" } else { "zip" }
+                extension(&tpl)
             ))
         }
     };
     let f = fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let w = std::io::BufWriter::new(f);
     let mut n = 0;
+    let listing = rc_convert::folder_plan(install)?;
     rc_convert::package(
         w,
         &tpl,
         &blobs,
+        Some(&listing),
         &mut |sink| rc_convert::folder_files(install, sink),
         None,
         &mut |_| n += 1,
     )?;
+    executable(&out, &tpl)?;
     println!(
         "package     {id}/{variant}, {n} game files → {}",
         out.display()
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// A package's file extension: an APK, an AppImage or a zip.
+fn extension(tpl: &rc_convert::Template<'_>) -> &'static str {
+    if tpl.apk {
+        "apk"
+    } else if tpl.appimage {
+        "AppImage"
+    } else {
+        "zip"
+    }
+}
+
+/// An AppImage is started itself: executable.
+fn executable(out: &Path, tpl: &rc_convert::Template<'_>) -> Result<(), String> {
+    #[cfg(unix)]
+    if tpl.appimage {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(out, fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("{}: {e}", out.display()))?;
+    }
+    let _ = (out, tpl);
+    Ok(())
 }
 
 /// The systems a converter makes builds for.
@@ -169,7 +216,8 @@ pub fn convert_package(
         inst.supply(k, readers)?;
     }
     inst.add_cd(open_medium()?)?;
-    let (_, files) = inst.plan();
+    let listing = inst.plan();
+    let files = &listing.1;
     let game_bytes: u64 = files.iter().map(|f| f.1).sum();
     eprintln!(
         "{} ({}): {} files, {:.0} MiB",
@@ -194,21 +242,17 @@ pub fn convert_package(
                     t.display()
                 ));
             }
-            let ext = if s == "android" { "apk" } else { "zip" };
-            (
-                t,
-                Some(std::path::PathBuf::from(format!("{stem}-{s}.{ext}"))),
-            )
+            (t, Some(std::path::PathBuf::from(format!("{stem}-{s}"))))
         }
         (None, None) => return Err("convert needs --system SYSTEM or --template FILE".into()),
     };
-    let out = match (out, &default_out) {
-        (Some(o), _) => o.to_path_buf(),
-        (None, Some(o)) => o.clone(),
-        (None, None) => return Err("convert --template needs --out FILE".into()),
-    };
     let tbytes = fs::read(&tpath).map_err(|e| format!("{}: {e}", tpath.display()))?;
     let tpl = rc_convert::template(&tbytes)?;
+    let out = match (out, &default_out) {
+        (Some(o), _) => o.to_path_buf(),
+        (None, Some(o)) => o.with_extension(extension(&tpl)),
+        (None, None) => return Err("convert --template needs --out FILE".into()),
+    };
     let progs = inst.programs(&ms)?;
     eprintln!(
         "lifted {} programs ({:.1} s)",
@@ -234,6 +278,7 @@ pub fn convert_package(
         std::io::BufWriter::with_capacity(1 << 20, f),
         &tpl,
         &blobs,
+        Some(&listing),
         &mut |sink| inst.files(sink),
         None,
         &mut |n| {
@@ -249,6 +294,7 @@ pub fn convert_package(
         .map_err(|e| e.to_string())?
         .flush()
         .map_err(|e| e.to_string())?;
+    executable(&out, &tpl)?;
     eprintln!(
         "\rwrote {} ({:.0} MiB) in {:.1} s",
         out.display(),
