@@ -83,21 +83,15 @@ pub fn scale2x_rows(
 ///         H5 I5
 /// ```
 fn corner(e: Px, p: impl Fn(isize, isize) -> Px) -> Px {
-    let (b, c, d, f, g, h, i) = (
-        p(0, -1),
-        p(1, -1),
-        p(-1, 0),
-        p(1, 0),
-        p(-1, 1),
-        p(0, 1),
-        p(1, 1),
-    );
-    let (f4, h5, i4, i5) = (p(2, 0), p(0, 2), p(2, 1), p(1, 2));
+    let (f, h) = (p(1, 0), p(0, 1));
     // The corner is on an edge from F to H when E differs from both and the diagonal F–H is
-    // more alike than E–I, weighed over the pixels around (xBR's first level).
-    if dist(e, f) < SAME || dist(e, h) < SAME {
+    // more alike than E–I, weighed over the pixels around (xBR's first level). (The same texel
+    // beside it, as often in an enlarged picture, before the distances.)
+    if e == f || e == h || dist(e, f) < SAME || dist(e, h) < SAME {
         return e;
     }
+    let (b, c, d, g, i) = (p(0, -1), p(1, -1), p(-1, 0), p(-1, 1), p(1, 1));
+    let (f4, h5, i4, i5) = (p(2, 0), p(0, 2), p(2, 1), p(1, 2));
     let along = dist(e, c) + dist(e, g) + dist(i, f4) + dist(i, h5) + 4 * dist(h, f);
     let across = dist(h, d) + dist(h, i5) + dist(f, i4) + dist(f, b) + 4 * dist(e, i);
     if along >= across {
@@ -162,21 +156,20 @@ pub fn sharpen_rows(
             if clear(e) {
                 continue;
             }
-            let centre = rgb(e);
-            let n = [
+            let around = [
                 (x, y.saturating_sub(1)),
                 (x.saturating_sub(1), y),
                 ((x + 1).min(width - 1), y),
                 (x, (y + 1).min(height - 1)),
             ]
-            .map(|(nx, ny)| {
-                let p = src[ny * width + nx];
-                if clear(p) {
-                    centre
-                } else {
-                    rgb(p)
-                }
-            });
+            .map(|(nx, ny)| src[ny * width + nx]);
+            // Its neighbours its own colour (most of an enlarged picture, inside its texels):
+            // nothing to sharpen.
+            if around.iter().all(|&p| p == e || clear(p)) {
+                continue;
+            }
+            let centre = rgb(e);
+            let n = around.map(|p| if clear(p) { centre } else { rgb(p) });
             // The weight each channel allows; the gentlest of them is taken for all three so
             // that the hue stays.
             let mut weight = f32::NEG_INFINITY;
@@ -193,9 +186,10 @@ pub fn sharpen_rows(
                 continue;
             }
             let p = &mut out[y * width + x];
+            let r = 1.0 / (1.0 + 4.0 * w);
             for c in 0..3 {
-                let around: f32 = n.iter().map(|q| q[c]).sum();
-                let v = (centre[c] + w * around) / (1.0 + 4.0 * w);
+                let sum: f32 = n.iter().map(|q| q[c]).sum();
+                let v = (centre[c] + w * sum) * r;
                 p[c] = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
             }
         }

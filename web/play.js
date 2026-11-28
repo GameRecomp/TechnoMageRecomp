@@ -281,7 +281,8 @@ function setPointer(canvas, rgba, w, h, hx, hy, scaleMilli = 1000) {
   canvas.style.cursor = 'none';
   if (!p.el) {
     p.el = document.createElement('canvas');
-    p.el.style.cssText = 'position: fixed; left: 0; top: 0; pointer-events: none; z-index: 5';
+    // Transparent: the page's canvases are black behind (style.css).
+    p.el.style.cssText = 'position: fixed; left: 0; top: 0; pointer-events: none; z-index: 5; background: transparent';
     p.ctx = p.el.getContext('2d');
     document.body.appendChild(p.el);
     const at = (e) => { p.x = e.clientX; p.y = e.clientY; pointerPlace(); };

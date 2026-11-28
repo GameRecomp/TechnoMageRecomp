@@ -4,7 +4,8 @@
      from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM;
      hashes=1 posts a hash of each frame at the end, a line a frame; cfg=a;b the settings file's
      lines; runtime=path of the runtime module in the checkout; output=WxH the size the picture
-     is shown in). -->
+     is shown in; user=a,b files of GAME_DIR/user/ in the user directory; pointer=1 the game's
+     pointer as the player page shows it). -->
 <meta charset="utf-8"><canvas id="c" width="640" height="480"></canvas>
 <script type="module">
 import { run } from '/player.js';
@@ -30,14 +31,28 @@ tree.set('/user', { path: '/user', dir: true, size: 0 });
 const user = new Map();
 // cfg=… (lines separated by ";"): the project's settings file to start with.
 if (params.get('cfg')) user.set('/user/technomagerecomp.cfg', new TextEncoder().encode(params.get('cfg').split(';').join('\n') + '\n'));
+// user=a,b: files of GAME_DIR/user/ put into the user directory at the start (saved games).
+for (const name of (params.get('user') || '').split(',').filter(Boolean)) {
+  const r = await fetch(`/webgame/user/${name}`);
+  if (r.ok) user.set(`/user/${name}`.toLowerCase(), new Uint8Array(await r.arrayBuffer()));
+}
 const fds = new Map(); let next = 1;
 const fs = {
   stat(p) {
-    if (p.startsWith('/user/')) { const f = user.get(p.toLowerCase()); return f ? { size: f.length, dir: false } : null; }
+    if (p.startsWith('/user/')) {
+      const k = p.toLowerCase();
+      const f = user.get(k);
+      if (f) return { size: f.length, dir: false };
+      return [...user.keys()].some((u) => u.startsWith(k + '/')) ? { size: 0, dir: true } : null;
+    }
     const e = tree.get(p.toLowerCase()); return e ? { size: Math.max(0, e.size), dir: e.dir } : null;
   },
   list(p) {
-    if (p === '/user') return [...user.keys()].map((k) => k.slice(6));
+    if (p === '/user' || p.startsWith('/user/')) {
+      // The names directly in it (files, and the folders of files further in).
+      const at = p.toLowerCase() + '/';
+      return [...new Set([...user.keys()].filter((k) => k.startsWith(at)).map((k) => k.slice(at.length).split('/')[0]))];
+    }
     return tree.has(p.toLowerCase()) ? (kids.get(p.toLowerCase()) || []) : null;
   },
   open(p, flags) {
@@ -77,7 +92,7 @@ const fs = {
   truncate(fd, size) { const h = fds.get(fd); if (h.user) user.set(h.user, user.get(h.user).slice(0, size)); },
   flush() {}, close(fd) { fds.delete(fd); }, mkdir() { return true; }, remove(p) { return user.delete(p.toLowerCase()); },
 };
-let frames = 0; let onGpu = 0; const t0 = performance.now(); let tl = t0;
+let frames = 0; let onGpu = 0; let pointers = 0; const t0 = performance.now(); let tl = t0;
 const hashes = params.get('hashes') ? [] : null;
 // A frame: its pixels (`read()`, RGBA8) only as far as asked for.
 function shown(read, w, h) {
@@ -108,7 +123,19 @@ const player = await run({
   present(rgba, w, h) { shown(() => rgba, w, h); },
   presentCanvas(_canvas, w, h, read) { onGpu += 1; shown(read, w, h); },
   frame: () => new Promise((r) => setTimeout(r, 0)),
-  exit: async (c) => { await postHashes(); log(`exit ${c} after ${frames} frames (${onGpu} drawn on the GPU), ${((performance.now() - t0) / 1000).toFixed(0)} s`); },
+  // pointer=1: the game's pointer as the player page shows it (a canvas of its own).
+  pointer: params.get('pointer') === '1' ? (() => {
+    const c = document.createElement('canvas');
+    document.body.appendChild(c);
+    const g = c.getContext('2d');
+    return (rgba, w, h) => {
+      if (!rgba) return;
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      g.putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+      pointers += 1;
+    };
+  })() : undefined,
+  exit: async (c) => { await postHashes(); log(`exit ${c} after ${frames} frames (${onGpu} drawn on the GPU, ${pointers} pointers), ${((performance.now() - t0) / 1000).toFixed(0)} s`); },
 });
 // output=WxH: the size the page shows the picture in (native resolution follows it).
 if (params.get('output')) player.output(...params.get('output').split('x').map(Number));

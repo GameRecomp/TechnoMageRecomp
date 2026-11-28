@@ -1141,18 +1141,24 @@ fn draw_ot(c: &mut Cpu) {
     if prims.is_empty() {
         return;
     }
-    // Each primitive in a chain of its own (an empty node, it, an empty node), in the table's
-    // order: drawn together, the game's renderer would group them by kind and put the glow over
-    // the stone, which the frame's other primitives keep it from.
+    // In the table's order, in chains of their own (an empty node, them, an empty node): drawn
+    // all together, the game's renderer would group them by kind and put the glow over the
+    // stone, which the frame's other primitives keep it from. A run of primitives of one kind
+    // (the same command byte) it does not regroup, and draws a chain from its far end, so a run
+    // is chained backwards: the pointer, some 600 primitives in a few such runs, takes one call
+    // a run, not one a primitive (that took 15 to 25 ms a frame), and looks the same.
     let m = c.mem();
     let ends = pointer_chain(m);
     let (head, tail) = (ends, ends + 16);
     DRAWING_POINTER.store(true, Ordering::Relaxed);
     let draws = rc_hle::d3d::capture(|| {
-        for &p in &prims {
+        for run in prims.chunk_by(|&a, &b| m.ld8(a + 0xf) == m.ld8(b + 0xf)) {
             m.write(head, &[0u8; 32]);
-            m.st32(head, p);
-            m.st32(p, tail);
+            m.st32(head, run[run.len() - 1]);
+            for pair in run.windows(2) {
+                m.st32(pair[1], pair[0]);
+            }
+            m.st32(run[0], tail);
             call_guest(c, DRAW_OT, &[head]);
         }
     });

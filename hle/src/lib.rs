@@ -201,6 +201,8 @@ pub(crate) fn frame_done(c: &mut Cpu) {
     #[cfg(feature = "gpu")]
     enlarging::pump();
     profile::time(profile::Section::Yield, rc_runtime::host::frame_yield);
+    #[cfg(feature = "gpu")]
+    enlarging::frame_started();
     yield_point(c);
 }
 

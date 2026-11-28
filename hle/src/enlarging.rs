@@ -31,8 +31,19 @@ const BAND: usize = 4 * 1024;
 /// Glyphs drawn per band.
 const GLYPHS: usize = 8;
 
-/// How long a frame lends to jobs where there are no worker threads.
-const FRAME_BUDGET_NS: u64 = 3_000_000;
+/// What a frame lends to jobs where there are no worker threads: what is left of a 60th of a
+/// second after the game's own work in it, at least 3 and at most 12 ms.
+const FRAME_NS: u64 = 16_000_000;
+const LEAST_NS: u64 = 3_000_000;
+const MOST_NS: u64 = 12_000_000;
+
+/// When the game's frame began (after the last frame's wait for the display).
+static FRAME_START: Mutex<Option<rc_runtime::host::Stamp>> = Mutex::new(None);
+
+/// The frame begins (after the wait for the display): `pump` lends what the game leaves of it.
+pub(crate) fn frame_started() {
+    *FRAME_START.lock().expect("frame start") = Some(rc_runtime::host::Stamp::now());
+}
 
 /// At most this many worker threads.
 const MAX_WORKERS: usize = 4;
@@ -344,7 +355,9 @@ pub(crate) fn pump() {
         return;
     }
     let start = rc_runtime::host::Stamp::now();
-    let mut more = || start.elapsed_ns() < FRAME_BUDGET_NS;
+    let used = (*FRAME_START.lock().expect("frame start")).map_or(0, |t| t.elapsed_ns());
+    let budget = FRAME_NS.saturating_sub(used).clamp(LEAST_NS, MOST_NS);
+    let mut more = || start.elapsed_ns() < budget;
     while let Some((key, mut job)) = with(|q| q.waiting.pop_front()) {
         match job.run(&mut more) {
             Some(texels) => with(|q| {
