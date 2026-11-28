@@ -95,4 +95,6 @@ How it works and how to build it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 
 ## License
 
-[MIT](LICENSE) applies to the code in this repository. The game is the property of its rights holders.
+[MIT](LICENSE) applies to the code in this repository. The fonts in `assets/fonts/` (DejaVu Sans, for
+the smooth fonts option) are under the Bitstream Vera license ([assets/fonts/LICENSE](assets/fonts/LICENSE)). The game is
+the property of its rights holders.
