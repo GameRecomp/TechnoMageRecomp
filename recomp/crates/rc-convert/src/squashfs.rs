@@ -474,12 +474,16 @@ mod tests {
             std::fs::read_dir(out.join("data/game")).unwrap().count(),
             601
         );
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(out.join("AppRun"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o755);
+        // The modes as unpacked (only Unix keeps them).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(out.join("AppRun"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
