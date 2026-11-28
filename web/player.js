@@ -9,7 +9,8 @@
 //   table slots too (rc_helpers).
 // - Waiting is JSPI: the imports that wait (opening and reading files, sleeping, a frame, a
 //   thread switch) are WebAssembly.Suspending, the runtime's entries WebAssembly.promising.
-// - Direct3D's batches are drawn by WebGL2 (gl.js), read back into guest memory.
+// - Direct3D's batches are drawn by WebGL2 (gl.js) on a render target kept on the GPU, the frame
+//   shown made there too (presentCanvas); read into guest memory only when the game touches it.
 // - Each guest thread has a JSPI stack and a shadow stack (Rust's `__stack_pointer`, in linear
 //   memory) of its own. The shadow stack pointer is saved and set again around every wait, as
 //   another thread may run meanwhile.
@@ -21,6 +22,9 @@
  *         write(fd, at, bytes) -> n, size(fd), truncate(fd, size), flush(fd), close(fd),
  *         mkdir(path) -> bool, remove(path) -> bool }
  *   present(rgba, width, height): a frame (the bytes are only valid during the call)
+ *   presentCanvas(canvas, width, height, read): optional; a frame drawn on the GPU, on `canvas`
+ *     (WebGL, to be drawn from during the call); `read()` gives its pixels (RGBA8). Without it
+ *     such frames come to `present`, read back.
  *   pointer(rgba, width, height, hotX, hotY): optional; the game's mouse pointer as the cursor
  *     (RGBA with straight alpha, valid during the call; null: none now). With it the game does
  *     not draw its pointer into the frames.
@@ -30,7 +34,7 @@
  */
 import { createGL } from './gl.js';
 
-export async function run({ runtime, code, fs, present, pointer, frame, env = {}, log = console.log, exit }) {
+export async function run({ runtime, code, fs, present, presentCanvas, pointer, frame, env = {}, log = console.log, exit }) {
   let ex = null;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -78,7 +82,7 @@ export async function run({ runtime, code, fs, present, pointer, frame, env = {}
   const gl = createGL(() => ex.memory);
   const imports = {
     rc_js: {
-      ...gl,
+      ...gl.imports,
       fs_stat: (p, n, out) => {
         const s = fs.stat(str(p, n));
         if (!s) return 0;
@@ -119,6 +123,11 @@ export async function run({ runtime, code, fs, present, pointer, frame, env = {}
       exit_js: waits((c) => { exit(c); return new Promise(() => {}); }),
       frame_js: waits(() => frame()),
       present_js: (p, w, h) => present(u8().subarray(p, p + w * h * 4), w, h),
+      present_gl_js: (w, h) => {
+        const read = () => gl.readPresent(w, h);
+        if (presentCanvas) presentCanvas(gl.canvas(), w, h, read);
+        else present(read(), w, h);
+      },
       cursor_js: (p, w, h, hx, hy) => {
         if (pointer) pointer(p ? u8().subarray(p, p + w * h * 4) : null, w, h, hx, hy);
       },

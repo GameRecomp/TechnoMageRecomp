@@ -214,9 +214,7 @@ mod batch {
             return;
         };
         use crate::profile::{time, Section as S};
-        #[cfg(not(target_family = "wasm"))]
         let (w, h) = super::shadow::render_size(&info);
-        #[cfg(not(target_family = "wasm"))]
         if resident_on() {
             draw_resident(m, target, &info, (w, h), &commands);
             return;
@@ -264,7 +262,6 @@ mod batch {
         if pending {
             flush(m);
         }
-        #[cfg(not(target_family = "wasm"))]
         to_guest(m, obj);
     }
 
@@ -273,7 +270,6 @@ mod batch {
     /// A render target whose pixels are on the GPU (`rc_platform::gpu::Renderer`'s target), not
     /// yet in guest memory: its object and buffer, its render size, and with native resolution
     /// whether the frame drawn is still being drawn (`fresh`: not yet shown).
-    #[cfg(not(target_family = "wasm"))]
     struct Resident {
         obj: u32,
         buf: u32,
@@ -283,26 +279,21 @@ mod batch {
     }
 
     /// The front surface's picture as flipped, kept on the GPU until the game reads it.
-    #[cfg(not(target_family = "wasm"))]
     struct Front {
         obj: u32,
         guest: rc_platform::gpu::Guest,
     }
 
-    #[cfg(not(target_family = "wasm"))]
     static RESIDENT: Mutex<Option<Resident>> = Mutex::new(None);
-    #[cfg(not(target_family = "wasm"))]
     static FRONT: Mutex<Option<Front>> = Mutex::new(None);
 
     /// Whether render targets stay on the GPU (`RC_GPU_RESIDENT=0` reads every batch back, as
     /// before, to compare).
-    #[cfg(not(target_family = "wasm"))]
     fn resident_on() -> bool {
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ON.get_or_init(|| rc_runtime::host::env("RC_GPU_RESIDENT").is_none_or(|v| v != "0"))
     }
 
-    #[cfg(not(target_family = "wasm"))]
     fn guest_of(m: Mem, obj: u32, info: &crate::ddraw::SurfaceInfo) -> rc_platform::gpu::Guest {
         rc_platform::gpu::Guest {
             width: info.width,
@@ -316,7 +307,6 @@ mod batch {
     /// Draw a batch on the target on the GPU: over what it holds when it holds this surface
     /// (with native resolution, a new frame first brought to what guest memory would hold),
     /// else over the surface's pixels uploaded.
-    #[cfg(not(target_family = "wasm"))]
     fn draw_resident(
         m: Mem,
         target: u32,
@@ -386,7 +376,6 @@ mod batch {
     /// The surface `obj`'s pixels into guest memory, if they are on the GPU (the CPU is about
     /// to read or write them): as the batch's read-back would have written them, with native
     /// resolution the large picture kept as its shadow.
-    #[cfg(not(target_family = "wasm"))]
     fn to_guest(m: Mem, obj: u32) {
         use crate::profile::{time, Section as S};
         let front = {
@@ -444,7 +433,6 @@ mod batch {
     /// A flip of `back` (on the GPU) to `front`: the frame shown made on the GPU with the
     /// pictures over it, the front's picture kept for the game to read, the margins black.
     /// `None` when the back surface's pixels are not on the GPU (shown as before).
-    #[cfg(not(target_family = "wasm"))]
     pub fn flip(
         m: Mem,
         back: u32,
@@ -501,7 +489,6 @@ mod batch {
     }
 
     /// A surface's pixels moved or went away: what the GPU held of them is forgotten.
-    #[cfg(not(target_family = "wasm"))]
     pub fn forget(buf: u32) {
         let mut res = RESIDENT.lock().expect("resident");
         if res.as_ref().is_some_and(|r| r.buf == buf) {
@@ -649,7 +636,6 @@ mod shadow {
     }
 
     /// Keep `rgba` (`size`) as the shadow of the surface's pixels as they are now.
-    #[cfg(not(target_family = "wasm"))]
     pub fn keep(m: Mem, info: &SurfaceInfo, size: (u32, u32), rgba: Vec<u8>, fresh: bool) {
         let written = raw(m, info);
         SHADOWS
@@ -747,7 +733,7 @@ pub fn native_picture(m: Mem, info: &crate::ddraw::SurfaceInfo) -> Option<(u32, 
 pub fn forget_surface(buf: u32) {
     #[cfg(feature = "gpu")]
     shadow::drop(buf);
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    #[cfg(feature = "gpu")]
     batch::forget(buf);
     #[cfg(not(feature = "gpu"))]
     let _ = buf;
@@ -761,9 +747,9 @@ pub fn flip_on_gpu(
     front: Option<u32>,
     overlays: impl FnOnce(u32, u32) -> Vec<rc_platform::overlay::OverlayImage>,
 ) -> bool {
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    #[cfg(feature = "gpu")]
     return batch::available() && batch::flip(m, back, front, overlays);
-    #[cfg(not(all(feature = "gpu", not(target_family = "wasm"))))]
+    #[cfg(not(feature = "gpu"))]
     {
         let _ = (m, back, front, overlays);
         false

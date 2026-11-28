@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_family = "wasm")'.dependencies]
 rc-runtime.workspace = true
 rc-hle = { workspace = true, features = ["gpu"] }
-rc-platform.workspace = true
+rc-platform = { workspace = true, features = ["gpu"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

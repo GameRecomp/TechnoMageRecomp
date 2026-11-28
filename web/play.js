@@ -8,7 +8,8 @@
 //   technomage-user/ in the same storage a moment after each change.
 // - Before it starts, the game's code is made again from its stored files when this site's
 //   converter makes different code (a new version: worker.js "update"); the CD is not needed.
-// - Frames go to a canvas at the game's size, scaled to fit; audio through Web Audio.
+// - Frames go to a canvas at the game's size, scaled to fit (drawn on the GPU: copied from the
+//   renderer's WebGL canvas); audio through Web Audio.
 // - The game's mouse pointer is the canvas's cursor (CSS), as natively the system's.
 import { gameOf, showIcon } from './games.js';
 import { run } from './player.js';
@@ -460,6 +461,11 @@ async function start() {
         if (!image) image = new ImageData(w, h);
         image.data.set(rgba);
         ctx.putImageData(image, 0, 0);
+      },
+      // A frame drawn on the GPU: copied from the renderer's canvas, without leaving it.
+      presentCanvas(src, w, h) {
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; layout(); image = null; }
+        ctx.drawImage(src, 0, 0);
       },
       pointer: (rgba, w, h, hx, hy) => setPointer(canvas, rgba, w, h, hx, hy),
       frame: () => new Promise((res) => requestAnimationFrame(() => { pollPads(); res(); })),

@@ -557,7 +557,7 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    #[cfg(feature = "gpu")]
     pub gpu: Option<gpu::GpuPicture>,
     /// Frames submitted so far, this one included.
     pub number: u64,
@@ -570,7 +570,7 @@ static FRAME: Mutex<Frame> = Mutex::new(Frame {
     width: 0,
     height: 0,
     rgba: Vec::new(),
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    #[cfg(feature = "gpu")]
     gpu: None,
     number: 0,
     game: (0, 0),
@@ -598,7 +598,7 @@ pub fn submit_frame_scaled(game: (u32, u32), width: u32, height: u32, mut rgba: 
     f.height = height;
     f.game = game;
     f.rgba = rgba;
-    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    #[cfg(feature = "gpu")]
     {
         f.gpu = None;
     }
@@ -639,9 +639,10 @@ fn hash_if_asked(n: u64) {
     }
 }
 
-/// Hand over a finished frame drawn on the GPU (the renderer's, on the window's device): shown
-/// without its pixels leaving the GPU (read back only for a screenshot).
-#[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+/// Hand over a finished frame drawn on the GPU (the renderer's, on the window's device; in a
+/// browser on the player's canvas): shown without its pixels leaving the GPU (read back only
+/// for a screenshot).
+#[cfg(feature = "gpu")]
 pub fn submit_gpu_frame(picture: gpu::GpuPicture) {
     let mut f = FRAME.lock().expect("frame");
     f.width = picture.width;
@@ -651,7 +652,11 @@ pub fn submit_gpu_frame(picture: gpu::GpuPicture) {
     f.gpu = Some(picture);
     f.number += 1;
     let n = f.number;
+    if let Some(p) = PRESENT.get() {
+        p(&f);
+    }
     drop(f);
+    #[cfg(not(target_family = "wasm"))]
     NEW_FRAME.notify_all();
     screenshot_if_asked(n);
     hash_if_asked(n);
@@ -664,6 +669,10 @@ fn pixels(f: &Frame) -> std::borrow::Cow<'_, [u8]> {
         if let Some(s) = gpu::device_of_frames() {
             return std::borrow::Cow::Owned(gpu::read(&s.0, &s.1, &p.texture));
         }
+    }
+    #[cfg(all(feature = "gpu", target_family = "wasm"))]
+    if let Some(p) = &f.gpu {
+        return std::borrow::Cow::Owned(gpu::read_present(p.width, p.height));
     }
     std::borrow::Cow::Borrowed(&f.rgba)
 }

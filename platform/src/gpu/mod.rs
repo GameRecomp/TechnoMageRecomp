@@ -8,9 +8,10 @@
 //! on the GPU (`resident`): batches are drawn over what it holds, the frame shown is made there
 //! and handed to the window as a texture, and only when the game touches the surface (`Lock`,
 //! `Blt`) its pixels go into guest memory, exactly as a read-back would have written them, so
-//! the game's own 2D work mixes with the 3D as on Windows. In the browser (and with
-//! `RC_GPU_RESIDENT=0`) each batch is rendered over the target's pixels uploaded from guest
-//! memory and read back. The depth buffer lives on the GPU across batches of a frame.
+//! the game's own 2D work mixes with the 3D as on Windows. In a browser the same happens on
+//! WebGL2, the frame drawn on the player's canvas. With `RC_GPU_RESIDENT=0` each batch is
+//! rendered over the target's pixels uploaded from guest memory and read back. The depth buffer
+//! lives on the GPU across batches of a frame.
 //!
 //! One shader serves every draw (the stages, alpha test and fog are uniforms); a pipeline per
 //! blend and depth setting (natively). Without a usable GPU [`Renderer::new`] returns `None` and
@@ -22,14 +23,16 @@ use std::sync::Arc;
 /// (drawing and the copy back), the rows unpacked, the edges filled (for profiling).
 pub static LAST_RENDER: std::sync::Mutex<[u64; 4]> = std::sync::Mutex::new([0; 4]);
 
+mod guest;
+pub use guest::Guest;
 #[cfg(not(target_family = "wasm"))]
 mod native;
 #[cfg(not(target_family = "wasm"))]
-pub use native::{read, Guest, Renderer};
+pub use native::{read, Renderer};
 #[cfg(target_family = "wasm")]
 mod web;
 #[cfg(target_family = "wasm")]
-pub use web::Renderer;
+pub use web::{read_present, Renderer};
 
 /// The GPU the window draws with (Bevy's device), shared with the renderer so the frame it draws
 /// is shown without leaving the GPU.
@@ -92,6 +95,16 @@ pub(crate) fn device_of_frames() -> Option<&'static (wgpu::Device, wgpu::Queue)>
 #[derive(Debug, Clone)]
 pub struct GpuPicture {
     pub texture: wgpu::Texture,
+    pub width: u32,
+    pub height: u32,
+    /// The game's screen it shows.
+    pub game: (u32, u32),
+}
+
+/// A frame on the GPU in a browser: drawn on the player's WebGL canvas, which the page shows.
+#[cfg(target_family = "wasm")]
+#[derive(Debug, Clone)]
+pub struct GpuPicture {
     pub width: u32,
     pub height: u32,
     /// The game's screen it shows.

@@ -258,6 +258,9 @@ format needs a host service **(open)**.
   path (`RC_GPU_RESIDENT=0`), and so does the window's picture (`RC_WINDOW_SHOT`, under Xvfb). With native
   resolution a frame took 19 ms with the GPU waited for (`RC_GPU_SYNC`), 9 ms of the CPU's with the GPU working
   alongside (the next frame waits for the last); without it 15 and 5 ms.
+  In a browser the same is done on WebGL2 (`web/gl.js`, the passes as GLSL): the frame is drawn on the renderer's
+  canvas and the page copies it from there (`drawImage`). A scripted run of 1950 frames in headless Firefox
+  (`tools/web-test`, `hashes=1`) stays identical to the read-back path frame by frame.
   Spikes: loading a level (100 to 130 ms in the game's code) and the first frames (shaders, textures), none
   while playing.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right

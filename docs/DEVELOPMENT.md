@@ -188,6 +188,9 @@ RC_FRAMES=1100 RC_INPUT="…" RC_SCREENSHOT=room.ppm RC_SCREENSHOT_FRAME=1090 \
 tools/web-test/run GAME_DIR out "RC_FRAMES=1100&RC_TRACE=fps&shots=1090&RC_INPUT=…"
 ```
 
+With `hashes=1` the test page writes a hash of every frame to `out/hashes` (a line a frame); a run with
+`RC_GPU_RESIDENT=0&RC_CLOCK=virtual` beside one without compares the WebGL2 path kept on the GPU with the read-back one.
+
 Node needs version 24 (JSPI behind `--experimental-wasm-jspi`), Firefox 139 or later. `tools/web-test/flow.html`
 runs the page's own flow from a built site: the release from `orig/` converted by `worker.js` into the browser's
 storage, then `play.html` started in a frame (serve the site with `tools/web-test/serve.py SITE GAME OUT PORT`).

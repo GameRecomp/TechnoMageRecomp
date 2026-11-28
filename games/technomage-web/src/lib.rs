@@ -44,6 +44,8 @@ mod web {
     unsafe extern "C" {
         /// A frame: RGBA8, `width * height * 4` bytes at `ptr`.
         fn present_js(ptr: *const u8, width: u32, height: u32);
+        /// A frame drawn on the player's WebGL canvas (`width × height`).
+        fn present_gl_js(width: u32, height: u32);
         /// The mouse cursor: RGBA8 (straight alpha) at `ptr` with its hotspot, or none (`ptr` 0).
         fn cursor_js(ptr: *const u8, width: u32, height: u32, hot_x: u32, hot_y: u32);
     }
@@ -52,8 +54,13 @@ mod web {
     static CURSOR: std::sync::Mutex<(u64, bool)> = std::sync::Mutex::new((0, false));
 
     fn present(f: &rc_platform::Frame) {
-        // SAFETY: the frame's pixels are valid for the call.
-        unsafe { present_js(f.rgba.as_ptr(), f.width, f.height) }
+        if f.gpu.is_some() {
+            // SAFETY: a plain call.
+            unsafe { present_gl_js(f.width, f.height) }
+        } else {
+            // SAFETY: the frame's pixels are valid for the call.
+            unsafe { present_js(f.rgba.as_ptr(), f.width, f.height) }
+        }
         let (generation, pointer) = rc_platform::cursor::current_at(f.number);
         let mut told = CURSOR.lock().expect("cursor");
         if *told == (generation, pointer.is_some()) {

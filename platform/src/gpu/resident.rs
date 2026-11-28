@@ -9,25 +9,8 @@
 //! frame's first draws start from). So the pictures stay those of the CPU path, pixel for pixel.
 
 use super::Renderer;
-use crate::gpu::{GpuPicture, OverlayImage};
-
-/// A surface as the game sees it: its size, its colour bits per channel (red, green, blue,
-/// alpha: 0 for none), its bytes per pixel, the widescreen margin on each side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Guest {
-    pub width: u32,
-    pub height: u32,
-    pub bits: [u32; 4],
-    pub bpp: u32,
-    pub margin: u32,
-}
-
-impl Guest {
-    /// Whether its pixels are RGB565 (the format the present table expands by its bits).
-    fn rgb565(&self) -> bool {
-        self.bpp == 16 && self.bits == [5, 6, 5, 0]
-    }
-}
+use crate::gpu::guest::{overlay_uniforms, strip, uniforms};
+use crate::gpu::{GpuPicture, Guest, OverlayImage};
 
 const PASSES: &str = r#"
 struct P { a: vec4<u32>, b: vec4<u32>, c: vec4<u32>, d: vec4<u32> };
@@ -364,36 +347,6 @@ impl Resident {
     }
 }
 
-/// The uniforms of a pass for `guest` on a target of `size`.
-fn uniforms(size: (u32, u32), guest: &Guest, flags: u32, strip: (u32, u32)) -> [u32; 16] {
-    let zero = |n: u32| if n == 0 { 255 } else { 0 };
-    let scaled = u32::from(size != (guest.width, guest.height));
-    [
-        size.0,
-        size.1,
-        guest.width,
-        guest.height,
-        guest.margin,
-        strip.0,
-        strip.1,
-        flags | scaled | if guest.bpp == 16 { 2 } else { 0 },
-        guest.bits[0],
-        guest.bits[1],
-        guest.bits[2],
-        guest.bits[3],
-        zero(guest.bits[0]),
-        zero(guest.bits[1]),
-        zero(guest.bits[2]),
-        zero(guest.bits[3]),
-    ]
-}
-
-/// The pixels of the target before the first screen pixel's centre (as `fill_edges` has them).
-fn strip(size: u32, view: u32) -> u32 {
-    let s = size as f32 / view as f32;
-    (((s - 1.0) / 2.0).ceil().max(0.0) as u32).min(size - 1)
-}
-
 impl Renderer {
     fn resident(&mut self) -> &mut Resident {
         if self.resident.is_none() {
@@ -671,25 +624,7 @@ impl Renderer {
         self.run_pass(&mut enc, Pass::Present, u, &color, &present, false, None);
         for o in overlays {
             let img = self.resident.as_ref()?.images.get(&o.key)?.0.clone();
-            let g = o.gradient.unwrap_or_default();
-            let q = [
-                size.0,
-                size.1,
-                o.x as u32,
-                o.y as u32,
-                o.width,
-                o.height,
-                u32::from(o.gradient.is_some()),
-                u[7],
-                g[0],
-                g[1],
-                g[2],
-                g[3],
-                g[4],
-                g[5],
-                0,
-                0,
-            ];
+            let q = overlay_uniforms(size, o, u[7]);
             self.run_pass(
                 &mut enc,
                 Pass::Overlay,

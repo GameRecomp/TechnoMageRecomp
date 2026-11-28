@@ -5,7 +5,7 @@ use super::{Command, Draw, Texture, Vertex};
 
 #[path = "resident.rs"]
 mod resident;
-pub use resident::{read, Guest};
+pub use resident::read;
 use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
