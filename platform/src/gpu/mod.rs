@@ -133,7 +133,9 @@ pub struct Vertex {
 /// A texture's pixels (RGBA8), identified by `key` for the GPU-side cache.
 #[derive(Debug, Clone)]
 pub struct Texture {
-    pub key: (u32, u32, bool),
+    /// The surface, its version, and how it was made (bit 0 colour-keyed, others the HLE's
+    /// variants: smoothed, fonts redrawn).
+    pub key: (u32, u32, u32),
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<Vec<[u8; 4]>>,
@@ -176,6 +178,11 @@ pub struct Draw {
     /// centre of the screen's pixel each drawn pixel belongs to, so they look as at the game's
     /// size, only enlarged.
     pub pixel_exact: bool,
+    /// How many times larger texture 0 is than the game's (1, or 4 for one the HLE enlarged:
+    /// smoothed, fonts redrawn). Its pixel-exact triangles then take the texel the game's pixel
+    /// shows, sampled within at where the screen's pixel lies in the game's: four times the
+    /// detail, never a texel past the game's.
+    pub enlarged: u32,
 }
 
 /// Fog: the colour and, for linear table fog, (start, end); vertex fog without.

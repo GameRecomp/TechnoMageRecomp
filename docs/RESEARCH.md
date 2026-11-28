@@ -149,6 +149,16 @@ format needs a host service **(open)**.
   NUL-terminated key and text in Windows-1252. The lookup by key is behind the thunk at `0x402252`. The language
   is the index at `0x59de18` into `GER`, `ENG`, `FRA`, `ITA`, `SPA`, `NL`. Text is drawn by `0x4010d7` (font,
   text, x, y, size, colour, …, flags whose low bits align it: 0 from x on, 1 ending at x).
+- **Fonts.** A font (the dialogue font `DIALOGFONT`, the status font `STATUS`; the menus and the options panel
+  use the dialogue font, pointer at `0x59e2a0`) is a name (16 bytes), the line height at `+0x13`, the glyph count
+  at `+0x14`, then pointers to a table from character (Windows-1252) to glyph (256 bytes; glyph 0 is the space
+  and every character the font lacks) and to five byte arrays per glyph: x, y, width, height on its texture page
+  and a vertical offset. The fonts follow one another in memory. The glyphs lie packed on 256×256 pages shared
+  with other sprites, cut to their ink: grey levels smoothed against black, alpha only 0 or 255 (a narrow glyph's
+  rectangle is ink all over). The dialogue font looks like Verdana, the status font like its bold with a black
+  rim. Text is drawn glyph by glyph as 2D quads, one texel a pixel; at native resolution such a quad's last
+  pixels reach up to a pixel past its rectangle (below, also into an opaque band under the glyphs), harmless only
+  while each game pixel is sampled at its texel's centre.
 - **Thunks.** The executable was linked incrementally: most calls go to a jump thunk near `0x401000`, and the code
   map merges a thunk with its target into one function entered at the thunk. Hooks therefore name the thunk's
   address (`[binary.patch]` refuses an address that is not a function entry).

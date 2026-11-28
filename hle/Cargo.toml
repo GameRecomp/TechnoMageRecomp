@@ -17,6 +17,9 @@ gpu = ["rc-platform/gpu"]
 rc-runtime.workspace = true
 rc-platform.workspace = true
 rayon = "1"
+# Smooth fonts: the outline fonts rasterized (`glyphs`).
+ab_glyph = "0.2"
+ab_glyph_rasterizer = "0.1"
 
 [lints]
 workspace = true

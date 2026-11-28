@@ -371,6 +371,17 @@ pub mod render {
         SMOOTH_TEXTURES.load(Ordering::Relaxed)
     }
 
+    static SMOOTH_FONTS: AtomicBool = AtomicBool::new(false);
+
+    /// The game's bitmap fonts redrawn from outline fonts, sharp at any size.
+    pub fn set_smooth_fonts(on: bool) {
+        SMOOTH_FONTS.store(on, Ordering::Relaxed);
+    }
+
+    pub fn smooth_fonts() -> bool {
+        SMOOTH_FONTS.load(Ordering::Relaxed)
+    }
+
     /// Antialiasing: the GPU renderer draws with several samples per pixel (multisampling).
     pub fn set_antialias(on: bool) {
         ANTIALIAS.store(on, Ordering::Relaxed);

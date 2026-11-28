@@ -2,8 +2,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- The browser player without the converter's storage: the game over HTTP (serve.py), settings
      from the address (RC_FRAMES, RC_INPUT, RC_TRACE; shots=frame,… posts those frames as PPM;
-     hashes=1 posts a hash of each frame at the end, a line a frame; runtime=path of the runtime
-     module in the checkout). -->
+     hashes=1 posts a hash of each frame at the end, a line a frame; cfg=a;b the settings file's
+     lines; runtime=path of the runtime module in the checkout). -->
 <meta charset="utf-8"><canvas id="c" width="640" height="480"></canvas>
 <script type="module">
 import { run } from '/player.js';
@@ -27,6 +27,8 @@ for (const [p, size] of index) {
 }
 tree.set('/user', { path: '/user', dir: true, size: 0 });
 const user = new Map();
+// cfg=… (lines separated by ";"): the project's settings file to start with.
+if (params.get('cfg')) user.set('/user/technomagerecomp.cfg', new TextEncoder().encode(params.get('cfg').split(';').join('\n') + '\n'));
 const fds = new Map(); let next = 1;
 const fs = {
   stat(p) {

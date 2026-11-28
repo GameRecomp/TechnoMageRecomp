@@ -28,6 +28,7 @@ pub mod d3d;
 pub mod ddraw;
 pub mod dinput;
 pub mod dsound;
+pub mod glyphs;
 pub mod kernel32;
 pub mod mixer;
 pub mod mss32;

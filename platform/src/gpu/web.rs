@@ -16,7 +16,7 @@
 //! | 4 | texture 0 id (0: none), its flags (1 bilinear, 2 clamp u, 4 clamp v), texture 1 the same |
 //! | 1 + 7 s | stage count `s`; each: colour op, arg 1, arg 2, alpha op, arg 1, arg 2, coordinate set |
 //! | 4 | texture factor (f32) |
-//! | 1 | flags: 1 specular added, 2 colour-keyed |
+//! | 1 | flags: 1 specular added, 2 colour-keyed; above bit 8 how much larger texture 0 is (`Draw::enlarged`) when the draw is pixel-exact, else 0 |
 //! | 2 | alpha test function (0: off), reference (f32) |
 //! | 2 | blend source and destination factors (0: off) |
 //! | 2 | depth function (0: no test), write |
@@ -68,7 +68,7 @@ pub fn read_present(width: u32, height: u32) -> Vec<u8> {
 }
 
 pub struct Renderer {
-    textures: HashMap<(u32, u32, bool), (u32, u64)>,
+    textures: HashMap<(u32, u32, u32), (u32, u64)>,
     next: u32,
     frame: u64,
     words: Vec<u32>,
@@ -158,7 +158,12 @@ impl Renderer {
             w.extend_from_slice(&[s.cop, s.ca1, s.ca2, s.aop, s.aa1, s.aa2, s.coords]);
         }
         w.extend(d.factor.iter().map(|&v| f(v)));
-        w.push(u32::from(d.specular_add) | (u32::from(d.keyed) << 1));
+        let enlarged = if d.pixel_exact && d.enlarged > 1 {
+            d.enlarged
+        } else {
+            0
+        };
+        w.push(u32::from(d.specular_add) | (u32::from(d.keyed) << 1) | enlarged << 8);
         let (af, ar) = d.alpha_test.unwrap_or((0, 0.0));
         w.extend_from_slice(&[af, f(ar)]);
         let (bs, bd) = d.blend.unwrap_or((0, 0));

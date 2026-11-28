@@ -487,45 +487,93 @@ fn decoded(
     d
 }
 
-/// The texture enlarged four times ("smooth textures", `upscale`), cached as `decoded`; the
-/// texture as it is when it is too large to be enlarged (at most 2048 texels a side after).
+/// The texture enlarged four times, for the GPU: smoothed (`smooth`, "smooth textures",
+/// `upscale`) or not, and with the glyphs of the fonts tied to it redrawn (`fonts`, "smooth
+/// fonts", `glyphs`); cached as `decoded`. With it the variant for the GPU's texture key (bit 1
+/// smoothed, bit 2 fonts, above them the fonts' stamp). `None` when nothing is asked or the
+/// texture is too large to be enlarged (at most 2048 texels a side after).
 #[cfg(feature = "gpu")]
-fn smoothed(
+fn enlarge(
     m: Mem,
-    obj: u32,
-    version: u32,
+    (obj, version): (u32, u32),
     info: &SurfaceInfo,
     key: Option<(u32, u32)>,
-) -> Option<std::sync::Arc<Decoded>> {
-    type Cache = std::collections::HashMap<(u32, u32, bool), std::sync::Arc<Decoded>>;
-    static SMOOTHED: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    smooth: bool,
+    fonts: Option<(Vec<std::sync::Arc<crate::glyphs::GlyphSet>>, u64)>,
+) -> Option<(std::sync::Arc<Decoded>, u32)> {
+    type Cache = std::collections::HashMap<(u32, u32, bool, u32), std::sync::Arc<Decoded>>;
+    static ENLARGED: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    if !smooth && fonts.is_none() {
+        return None;
+    }
     let d = decoded(m, obj, version, info, key);
     if d.w > 512 || d.h > 512 {
         return None;
     }
-    let k = (obj, version, key.is_some());
-    if let Some(s) = SMOOTHED
+    let variant = u32::from(smooth) << 1
+        | fonts
+            .as_ref()
+            .map_or(0, |f| 4 | (f.1 as u32 & 0x1fff_ffff) << 3);
+    let k = (obj, version, key.is_some(), variant);
+    if let Some(e) = ENLARGED
         .lock()
-        .expect("smoothed")
+        .expect("enlarged")
         .as_ref()
         .and_then(|c| c.get(&k))
     {
-        return Some(s.clone());
+        return Some((e.clone(), variant));
     }
-    let texels = crate::upscale::scale4x(&d.texels, d.w as usize, d.h as usize);
-    let s = std::sync::Arc::new(Decoded {
+    let (w, h) = (d.w as usize, d.h as usize);
+    let mut texels = if smooth {
+        crate::upscale::scale4x(&d.texels, w, h)
+    } else {
+        let mut big = vec![[0u8; 4]; 16 * w * h];
+        for (y, row) in big.chunks_exact_mut(4 * w).enumerate() {
+            for (x, p) in row.iter_mut().enumerate() {
+                *p = d.texels[(y / 4) * w + x / 4];
+            }
+        }
+        big
+    };
+    if let Some((sets, _)) = &fonts {
+        crate::glyphs::refine(sets, &d.texels, w, h, &mut texels);
+    }
+    let e = std::sync::Arc::new(Decoded {
         w: 4 * d.w,
         h: 4 * d.h,
         texels: std::sync::Arc::new(texels),
         keyed: d.keyed,
     });
-    let mut cache = SMOOTHED.lock().expect("smoothed");
+    let mut cache = ENLARGED.lock().expect("enlarged");
     let map = cache.get_or_insert_with(Default::default);
     if map.len() > 1024 {
         map.clear();
     }
-    map.insert(k, s.clone());
-    Some(s)
+    map.insert(k, e.clone());
+    Some((e, variant))
+}
+
+/// The texel rectangles that 2D quads among `tris` show of a `width × height` texture, one texel
+/// to one pixel (as `mark_texel_for_pixel` finds them), for `glyphs`.
+#[cfg(feature = "gpu")]
+fn exact_rects(tris: &[rc_platform::gpu::Vertex], width: f32, height: f32) -> Vec<[u16; 4]> {
+    let mut out = Vec::new();
+    for t in tris.as_chunks::<3>().0 {
+        if !texel_for_pixel(t, width, height) {
+            continue;
+        }
+        let us = t.map(|v| v.uv0[0] * width);
+        let vs = t.map(|v| v.uv0[1] * height);
+        let lo = |a: [f32; 3]| a.iter().copied().fold(f32::MAX, f32::min).round();
+        let hi = |a: [f32; 3]| a.iter().copied().fold(f32::MIN, f32::max).round();
+        let (x0, y0) = (lo(us), lo(vs));
+        let (x1, y1) = (hi(us), hi(vs));
+        if x0 < 0.0 || y0 < 0.0 || x1 <= x0 || y1 <= y0 || x1 > 65535.0 || y1 > 65535.0 {
+            continue;
+        }
+        out.push([x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16]);
+    }
+    out
 }
 
 struct Texture {
@@ -1044,26 +1092,30 @@ fn triangle(cx: &Ctx, a: &Vert, b: &Vert, c: &Vert) {
 /// one texel to one screen pixel along the axes, 2D drawn with Direct3D (`Vertex::exact`);
 /// whether there are any.
 #[cfg(feature = "gpu")]
-fn mark_texel_for_pixel(tris: &mut [rc_platform::gpu::Vertex], width: f32, height: f32) -> bool {
+/// Whether a triangle shows its texture one texel to one screen pixel, axis-aligned.
+fn texel_for_pixel(t: &[rc_platform::gpu::Vertex; 3], width: f32, height: f32) -> bool {
     let near = |a: f32, b: f32| (a - b).abs() < 0.02;
+    let [a, b, c] = t;
+    let (x1, y1) = (b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]);
+    let (x2, y2) = (c.pos[0] - a.pos[0], c.pos[1] - a.pos[1]);
+    let det = x1 * y2 - x2 * y1;
+    if det.abs() < 1e-3 {
+        return false;
+    }
+    // The texture coordinates' gradients over the screen (an affine map per triangle).
+    let grad = |d1: f32, d2: f32| ((d1 * y2 - d2 * y1) / det, (x1 * d2 - x2 * d1) / det);
+    let (ux, uy) = grad(b.uv0[0] - a.uv0[0], c.uv0[0] - a.uv0[0]);
+    let (vx, vy) = grad(b.uv0[1] - a.uv0[1], c.uv0[1] - a.uv0[1]);
+    near((ux * width).abs(), 1.0)
+        && near((vy * height).abs(), 1.0)
+        && near(uy * width, 0.0)
+        && near(vx * height, 0.0)
+}
+
+fn mark_texel_for_pixel(tris: &mut [rc_platform::gpu::Vertex], width: f32, height: f32) -> bool {
     let mut any = false;
     for t in tris.as_chunks_mut::<3>().0 {
-        let [a, b, c] = &*t;
-        let (x1, y1) = (b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]);
-        let (x2, y2) = (c.pos[0] - a.pos[0], c.pos[1] - a.pos[1]);
-        let det = x1 * y2 - x2 * y1;
-        if det.abs() < 1e-3 {
-            continue;
-        }
-        // The texture coordinates' gradients over the screen (an affine map per triangle).
-        let grad = |d1: f32, d2: f32| ((d1 * y2 - d2 * y1) / det, (x1 * d2 - x2 * d1) / det);
-        let (ux, uy) = grad(b.uv0[0] - a.uv0[0], c.uv0[0] - a.uv0[0]);
-        let (vx, vy) = grad(b.uv0[1] - a.uv0[1], c.uv0[1] - a.uv0[1]);
-        let exact = near((ux * width).abs(), 1.0)
-            && near((vy * height).abs(), 1.0)
-            && near(uy * width, 0.0)
-            && near(vx * height, 0.0);
-        if exact {
+        if texel_for_pixel(t, width, height) {
             any = true;
             for v in t.iter_mut() {
                 v.exact = 1.0;
@@ -1158,6 +1210,7 @@ pub fn gpu_draw(
         return None;
     }
     let mut textures: [Option<gpu::Texture>; 2] = [None, None];
+    let mut enlarged = 1;
     for (s, slot) in textures.iter_mut().enumerate() {
         if let Some((obj, version)) = st.textures[s] {
             if let Some(info) = ddraw::info(m, obj) {
@@ -1167,20 +1220,36 @@ pub fn gpu_draw(
                     None
                 };
                 let version = ddraw::version_of(m, obj).max(version);
-                // Smoothed, a texture of its own on the GPU (the version's top bit).
-                let (d, version) = match rc_platform::render::smooth_textures()
-                    .then(|| smoothed(m, obj, version, &info, key))
-                    .flatten()
-                {
-                    Some(d) => (d, version | 1 << 31),
-                    None => (decoded(m, obj, version, &info, key), version),
-                };
+                // Smooth fonts: the glyphs this texture shows (stage 0's 2D quads) found out,
+                // then, if it is a font's page, the page with them redrawn.
+                let fonts = rc_platform::render::smooth_fonts() && crate::glyphs::any();
+                let tex = u64::from(obj) << 32 | u64::from(version);
+                if fonts && s == 0 {
+                    for r in exact_rects(&out, info.width as f32, info.height as f32) {
+                        crate::glyphs::note(tex, r);
+                    }
+                }
+                let tied = fonts.then(|| crate::glyphs::tied(tex)).flatten();
+                let smooth = rc_platform::render::smooth_textures();
+                let (d, variant) = enlarge(m, (obj, version), &info, key, smooth, tied)
+                    .unwrap_or_else(|| (decoded(m, obj, version, &info, key), 0));
+                if s == 0 && variant != 0 {
+                    enlarged = 4;
+                }
+                // Enlarged, a 2D quad (one texel to a pixel of the original) is sampled at its
+                // nearest texel: filtered, its edges would take in the packed neighbours.
+                let quad_2d = variant != 0
+                    && out
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .any(|t| texel_for_pixel(t, info.width as f32, info.height as f32));
                 *slot = Some(gpu::Texture {
-                    key: (obj, version, key.is_some()),
+                    key: (obj, version, u32::from(key.is_some()) | variant),
                     width: d.w,
                     height: d.h,
                     rgba: d.texels.clone(),
-                    bilinear: tss(st, s, TSS_MAGFILTER) >= 2,
+                    bilinear: tss(st, s, TSS_MAGFILTER) >= 2 && !quad_2d,
                     clamp: (tss(st, s, TSS_ADDRESSU) == 3, tss(st, s, TSS_ADDRESSV) == 3),
                 });
             }
@@ -1210,11 +1279,13 @@ pub fn gpu_draw(
             .flatten()
             .any(|(o, _)| ddraw::info(m, *o).is_some_and(|i| i.src_key.is_some()));
     let zbuffer = rs(st, RS_ZENABLE, 1) != 0 && ddraw::zbuffer_info(m, st.target).is_some();
-    let pixel_exact = textures[0]
-        .as_ref()
-        .is_some_and(|t| mark_texel_for_pixel(&mut out, t.width as f32, t.height as f32));
+    let pixel_exact = textures[0].as_ref().is_some_and(|t| {
+        let n = enlarged as f32;
+        mark_texel_for_pixel(&mut out, t.width as f32 / n, t.height as f32 / n)
+    });
     Some(gpu::Draw {
         pixel_exact,
+        enlarged,
         vertices: out,
         textures,
         stages,

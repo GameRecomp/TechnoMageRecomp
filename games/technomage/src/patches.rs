@@ -149,6 +149,7 @@ const KEY_ANTIALIAS: &str = "RC_ANTIALIAS";
 const KEY_SHOW_FPS: &str = "RC_SHOW_FPS";
 const KEY_REFINE: &str = "RC_REFINE";
 const KEY_SMOOTH_TEXTURES: &str = "RC_SMOOTH_TEX";
+const KEY_SMOOTH_FONTS: &str = "RC_SMOOTH_FONT";
 const KEY_VERSION: &str = "RC_VERSION";
 const KEY_BUILT: &str = "RC_BUILT";
 const KEY_COMMIT: &str = "RC_COMMIT";
@@ -255,6 +256,17 @@ const TEXTS: &[(&str, [&str; 6])] = &[
             "Ammorbidisci le texture",
             "Suavizar texturas",
             "Texturen gladmaken",
+        ],
+    ),
+    (
+        KEY_SMOOTH_FONTS,
+        [
+            "Schrift glätten",
+            "Smooth fonts",
+            "Lisser les polices",
+            "Ammorbidisci i caratteri",
+            "Suavizar fuentes",
+            "Lettertypen gladmaken",
         ],
     ),
     (
@@ -747,12 +759,20 @@ const GRAPHICS: [Switch; 4] = [
 ];
 
 /// The refining page's switches (no line above them).
-const REFINE: [Switch; 1] = [Switch {
-    key: KEY_SMOOTH_TEXTURES,
-    name: "smooth_textures",
-    get: rc_platform::render::smooth_textures,
-    set: rc_platform::render::set_smooth_textures,
-}];
+const REFINE: [Switch; 2] = [
+    Switch {
+        key: KEY_SMOOTH_TEXTURES,
+        name: "smooth_textures",
+        get: rc_platform::render::smooth_textures,
+        set: rc_platform::render::set_smooth_textures,
+    },
+    Switch {
+        key: KEY_SMOOTH_FONTS,
+        name: "smooth_fonts",
+        get: rc_platform::render::smooth_fonts,
+        set: rc_platform::render::set_smooth_fonts,
+    },
+];
 
 // Our pages' entries and the end fit the table.
 const _: () = assert!((2 + GRAPHICS.len()) * OPTIONS_ENTRY_SIZE as usize <= OPTIONS_BYTES);
@@ -918,6 +938,77 @@ fn checkbox(c: &mut Cpu, page: Page, i: usize) {
     );
     let value = call_guest(c, TEXT, &[key]);
     draw_line(c, label, value, place);
+}
+
+// --- Smooth fonts -----------------------------------------------------------------------------------
+
+/// The outline fonts the game's are redrawn with (DejaVu, Bitstream Vera's license: see
+/// `assets/fonts/LICENSE`), cut to Windows-1252: the dialogue font is a Verdana-like sans, the
+/// status font its bold.
+const FACE: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSans.ttf");
+const FACE_BOLD: &[u8] = include_bytes!("../../../assets/fonts/DejaVuSans-Bold.ttf");
+
+/// Text drawn: with smooth fonts its font's glyphs told to the renderer (`rc_hle::glyphs`) first.
+fn draw_text(c: &mut Cpu) {
+    if rc_platform::render::smooth_fonts() {
+        register_font(c.mem(), arg(c, 0));
+    }
+    call_original(c, DRAW_TEXT);
+}
+
+/// A font as the game keeps it: its name (16 bytes), at 0x13 its line height, at 0x14 its
+/// glyph count, then pointers to its table from character to glyph (256 bytes) and to the
+/// glyphs' x, y, width and height on the texture page (a byte each per glyph).
+fn register_font(m: Mem, font: u32) {
+    use std::collections::HashMap;
+    /// The fonts told so far, by address, with what was read of them.
+    static TOLD: Mutex<Option<HashMap<u32, u32>>> = Mutex::new(None);
+    if font == 0 {
+        return;
+    }
+    let count = m.ld32(font + 0x14);
+    let tables = [0x18, 0x1c, 0x20, 0x24, 0x28].map(|o| m.ld32(font + o));
+    if count == 0 || count > 256 || tables.contains(&0) {
+        return;
+    }
+    // What identifies it as read: its count and tables (a font loaded anew elsewhere differs).
+    let stamp = tables
+        .iter()
+        .fold(count, |a, &t| a.wrapping_mul(31).wrapping_add(t));
+    let mut told = TOLD.lock().expect("fonts");
+    let told = told.get_or_insert_with(HashMap::new);
+    if told.get(&font) == Some(&stamp) {
+        return;
+    }
+    told.insert(font, stamp);
+    let [map, xs, ys, ws, hs] = tables;
+    // The first character of each glyph (a glyph without one, or the space's, is left).
+    let mut chars = vec![None; count as usize];
+    for b in (0x21..=0xffu32).rev() {
+        let g = m.ld8(map + b) as usize;
+        if g < chars.len() && b != 0x20 && g != usize::from(m.ld8(map + 0x20)) {
+            let ch = char::from_u32(u32::from(rc_hle::codepage::to_unicode(b as u8)));
+            chars[g] = ch.or(chars[g]);
+        }
+    }
+    let cells = chars
+        .iter()
+        .enumerate()
+        .filter_map(|(g, ch)| {
+            let g = g as u32;
+            Some(rc_hle::glyphs::Cell {
+                rect: [xs, ys, ws, hs].map(|t| u16::from(m.ld8(t + g))),
+                ch: (*ch)?,
+            })
+        })
+        .collect();
+    let name = m.cstr(font, 16);
+    let face = if name.as_slice() == b"STATUS" {
+        FACE_BOLD
+    } else {
+        FACE
+    };
+    rc_hle::glyphs::register(font, rc_hle::glyphs::GlyphSet { cells, face });
 }
 
 // --- Settings ------------------------------------------------------------------------------------
@@ -1606,6 +1697,7 @@ pub fn register() {
     hook(ASKS_640[2], asks_640_2);
     hook(READ_INPUT, read_input);
     hook(PLAY_VIDEO, play_video);
+    hook(DRAW_TEXT, draw_text);
     hook(crate::controls::CONFIG_PAGE, crate::controls::config_page);
     hook(
         crate::controls::SET_PAD_TABLE,

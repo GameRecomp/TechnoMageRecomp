@@ -188,6 +188,7 @@ RC_FRAMES=1100 RC_INPUT="…" RC_SCREENSHOT=room.ppm RC_SCREENSHOT_FRAME=1090 \
 tools/web-test/run GAME_DIR out "RC_FRAMES=1100&RC_TRACE=fps&shots=1090&RC_INPUT=…"
 ```
 
+With `cfg=smooth_fonts%3D1%3Bwidescreen%3D1` the test page starts with those lines in the project's settings file.
 With `hashes=1` the test page writes a hash of every frame to `out/hashes` (a line a frame); a run with
 `RC_GPU_RESIDENT=0&RC_CLOCK=virtual` beside one without compares the WebGL2 path kept on the GPU with the read-back one.
 

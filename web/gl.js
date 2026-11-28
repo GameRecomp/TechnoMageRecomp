@@ -20,12 +20,14 @@ layout(location = 2) in vec4 a_specular;
 layout(location = 3) in vec2 a_uv0;
 layout(location = 4) in vec2 a_uv1;
 layout(location = 5) in float a_eye;
+layout(location = 6) in float a_exact;
 uniform vec2 u_view;
 out vec4 v_diffuse;
 out vec4 v_specular;
 out vec2 v_uv0;
 out vec2 v_uv1;
 out float v_eye;
+flat out float v_exact;
 void main() {
   // Direct3D 7 has pixel centres on integer coordinates: half a pixel to WebGL's.
   float x = (a_pos.x + 0.5) / u_view.x * 2.0 - 1.0;
@@ -38,6 +40,7 @@ void main() {
   v_uv0 = a_uv0;
   v_uv1 = a_uv1;
   v_eye = a_eye;
+  v_exact = a_exact;
 }`;
 
 const FS = `#version 300 es
@@ -48,6 +51,7 @@ in vec4 v_specular;
 in vec2 v_uv0;
 in vec2 v_uv1;
 in float v_eye;
+flat in float v_exact;
 uniform sampler2D u_t0;
 uniform sampler2D u_t1;
 uniform ivec4 u_stage[4];
@@ -56,6 +60,7 @@ uniform vec4 u_fog_color;
 uniform vec2 u_fog_range;
 uniform ivec4 u_misc; // alpha func, -, fog mode, flags (1 specular, 2 keyed, 4 tex0, 8 tex1)
 uniform float u_alpha_ref;
+uniform float u_enlarged; // how much larger texture 0 is on a pixel-exact draw (0: not)
 out vec4 o_color;
 
 vec4 arg(int a, vec4 diffuse, vec4 current, vec4 tex, vec4 spec) {
@@ -99,7 +104,11 @@ bool compare(int f, float a, float b) {
 }
 
 void main() {
-  vec4 c0 = texture(u_t0, u_stage[1].z == 1 ? v_uv1 : v_uv0);
+  // An enlarged texture on a pixel-exact triangle: the texel the game's pixel (here the
+  // screen's) shows, at its middle; never a texel past the game's.
+  vec2 size = vec2(textureSize(u_t0, 0)) / max(u_enlarged, 1.0);
+  vec2 uv0 = (u_enlarged > 1.5 && v_exact > 0.5) ? (floor(v_uv0 * size) + 0.5) / size : v_uv0;
+  vec4 c0 = texture(u_t0, u_stage[1].z == 1 ? v_uv1 : uv0);
   vec4 c1 = texture(u_t1, u_stage[3].z == 1 ? v_uv1 : v_uv0);
   vec4 current = v_diffuse;
   bool keyed = false;
@@ -326,14 +335,14 @@ export function createGL(memory) {
     }
     gl.useProgram(prog);
     loc = Object.fromEntries(['u_view', 'u_t0', 'u_t1', 'u_stage', 'u_factor', 'u_fog_color', 'u_fog_range',
-      'u_misc', 'u_alpha_ref'].map((n) => [n, gl.getUniformLocation(prog, n)]));
+      'u_misc', 'u_alpha_ref', 'u_enlarged'].map((n) => [n, gl.getUniformLocation(prog, n)]));
     gl.uniform1i(loc.u_t0, 0);
     gl.uniform1i(loc.u_t1, 1);
     vbuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbuf);
     const stride = 80;
     const attr = (i, n, off) => { gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, n, gl.FLOAT, false, stride, off); };
-    attr(0, 4, 0); attr(1, 4, 16); attr(2, 4, 32); attr(3, 2, 48); attr(4, 2, 56); attr(5, 1, 64);
+    attr(0, 4, 0); attr(1, 4, 16); attr(2, 4, 32); attr(3, 2, 48); attr(4, 2, 56); attr(5, 1, 64); attr(6, 1, 68);
     white = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, white);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
@@ -508,6 +517,7 @@ export function createGL(memory) {
       p += 7;
       gl.uniform1f(loc.u_alpha_ref, alphaRef);
       gl.uniform4i(loc.u_misc, alphaFn, 0, fog, (flags & 1) | (flags & 2) | (t0 ? 4 : 0) | (t1 ? 8 : 0));
+      gl.uniform1f(loc.u_enlarged, flags >> 8);
       if (src) {
         gl.enable(gl.BLEND);
         gl.blendFunc(blendFactor(src), blendFactor(dst));

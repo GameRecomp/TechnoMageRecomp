@@ -21,8 +21,8 @@ struct Uniforms {
     /// alpha func (0 off), alpha ref bits, fog mode (0 off, 1 vertex, 2 table), flags
     /// (1 specular add, 2 keyed, 4 texture 0, 8 texture 1)
     misc: [u32; 4],
-    /// Target pixels per screen pixel (x, y), and 1 to sample a pixel-exact draw at the
-    /// screen's pixel centres.
+    /// Target pixels per screen pixel (x, y), 1 to sample a pixel-exact draw at the screen's
+    /// pixel centres, and how much larger texture 0 is (`Draw::enlarged`, 0 when it is not).
     snap: [f32; 4],
     _pad: [u32; 4],
 }
@@ -132,7 +132,19 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     // pixel this pixel belongs to (along their gradients).
     let centre = (floor(i.clip.xy / u.snap.xy) + 0.5) * u.snap.xy;
     let d = select(vec2<f32>(0.0), centre - i.clip.xy, u.snap.z != 0.0 && i.exact > 0.5);
-    let uv0 = i.uv0 + dpdx(i.uv0) * d.x + dpdy(i.uv0) * d.y;
+    var uv0 = i.uv0 + dpdx(i.uv0) * d.x + dpdy(i.uv0) * d.y;
+    // An enlarged texture on a pixel-exact triangle: the texel the game's pixel shows (at its
+    // centre), sampled within at where this pixel lies in the game's pixel.
+    let game = i.clip.xy / u.snap.xy;
+    let dc = (floor(game) + 0.5) * u.snap.xy - i.clip.xy;
+    let gx = dpdx(i.uv0);
+    let gy = dpdy(i.uv0);
+    let at_centre = i.uv0 + gx * dc.x + gy * dc.y;
+    let size = vec2<f32>(textureDimensions(t0)) / max(u.snap.w, 1.0);
+    let f = fract(game);
+    let within = vec2<f32>(select(f.x, 1.0 - f.x, gx.x < 0.0), select(f.y, 1.0 - f.y, gy.y < 0.0));
+    let sub = (floor(at_centre * size) + within) / size;
+    uv0 = select(uv0, sub, u.snap.w > 1.5 && i.exact > 0.5);
     let uv1 = i.uv1 + dpdx(i.uv1) * d.x + dpdy(i.uv1) * d.y;
     // Both textures are sampled in uniform control flow, then used as the stages say.
     let c0 = textureSample(t0, s0, select(uv0, uv1, u.stage[1].z == 1u));
@@ -245,7 +257,7 @@ pub struct Renderer {
     uniform_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
-    textures: HashMap<(u32, u32, bool), (wgpu::TextureView, u64)>,
+    textures: HashMap<(u32, u32, u32), (wgpu::TextureView, u64)>,
     samplers: HashMap<(bool, bool, bool), wgpu::Sampler>,
     white: wgpu::TextureView,
     target: Option<Target>,
@@ -752,7 +764,11 @@ impl Renderer {
                     } else {
                         0.0
                     },
-                    0.0,
+                    if d.pixel_exact && d.enlarged > 1 {
+                        d.enlarged as f32
+                    } else {
+                        0.0
+                    },
                 ],
                 _pad: [0; 4],
             };
