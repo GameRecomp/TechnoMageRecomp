@@ -243,15 +243,12 @@ pub fn overlay(_m: Mem, out: &mut Vec<OverlayImage>, w: u32, h: u32, scale: f32)
     for (k, [x, y, bw, bh]) in shown.into_iter().enumerate() {
         let place = (x * scale, y * scale, bw * scale, bh * scale);
         let pressed = held & (1 << k) != 0;
-        let kind = TOUCH_BUTTONS[k].0;
+        let glyph = TOUCH_BUTTONS[k].0;
         out.push(picture(
             ("touch", k, pressed),
             place,
             None,
-            |f, fw, fh, p| match kind {
-                Touch::Ours(g) => crate::icons::draw_touch(f, fw, fh, p, g, pressed),
-                Touch::Game(_) => crate::icons::draw_rim(f, fw, fh, p, pressed),
-            },
+            |f, fw, fh, p| crate::icons::draw_touch(f, fw, fh, p, glyph, pressed),
         ));
     }
     let found = std::mem::take(&mut *KEY_PICTURES.lock().expect("key pictures"));
@@ -332,27 +329,21 @@ fn picture(
 
 // --- The touch screen's on-screen buttons -----------------------------------------------------
 
-/// What an on-screen button shows: a picture of the loaded ones (by name) or one of ours.
-#[derive(Clone, Copy)]
-enum Touch {
-    Game(&'static str),
-    Ours(crate::icons::Glyph),
-}
-
-/// The on-screen buttons and their actions (pad bits): along the bottom on the right the camera
-/// (left, right), the tool, the spell and the jump; at the top on the right the quest log, the
-/// map and the rucksack. Pointing, the action and walking stay the fingers' (as the mouse).
-const TOUCH_BUTTONS: [(Touch, u16); 8] = {
+/// The on-screen buttons (our pictures, all alike) and their actions (pad bits): along the
+/// bottom on the right the camera (left, right), the tool, the spell and the jump; at the top on
+/// the right the quest log, the map and the rucksack. Pointing, the action and walking stay the
+/// fingers' (as the mouse).
+const TOUCH_BUTTONS: [(crate::icons::Glyph, u16); 8] = {
     use crate::icons::Glyph;
     [
-        (Touch::Ours(Glyph::CameraLeft), L2),
-        (Touch::Ours(Glyph::CameraRight), R2),
-        (Touch::Ours(Glyph::Tool), CIRCLE),
-        (Touch::Ours(Glyph::Spell), TRIANGLE),
-        (Touch::Ours(Glyph::Jump), CROSS),
-        (Touch::Game("ICON_QUESTLOG"), L1),
-        (Touch::Game("ICON_MAP"), R1),
-        (Touch::Ours(Glyph::Rucksack), SELECT),
+        (Glyph::CameraLeft, L2),
+        (Glyph::CameraRight, R2),
+        (Glyph::Tool, CIRCLE),
+        (Glyph::Spell, TRIANGLE),
+        (Glyph::Jump, CROSS),
+        (Glyph::QuestLog, L1),
+        (Glyph::Map, R1),
+        (Glyph::Rucksack, SELECT),
     ]
 };
 
@@ -365,8 +356,8 @@ const PAUSE_STATE: u32 = 0x0056_3c84;
 const MENU_FLAGS: u32 = 0x0059_de34;
 
 /// Once per frame, before its ordering table is drawn: while touch is used and the game is
-/// played, the on-screen buttons (their places to the platform, the game's pictures into the
-/// table, ours to the overlay); none otherwise.
+/// played, the on-screen buttons (their places to the platform, their pictures to the overlay);
+/// none otherwise.
 pub fn touch_bar(c: &mut Cpu) {
     let m = c.mem();
     let playing = m.ld32(PAUSE_STATE) == PLAYING_STATE && m.ld32(MENU_FLAGS) == 0;
@@ -383,7 +374,7 @@ pub fn touch_bar(c: &mut Cpu) {
     // into the middle; ours by one more).
     let ox = rc_hle::ddraw::margin() as i32;
     let mut places = Vec::new();
-    for (k, (what, _)) in TOUCH_BUTTONS.iter().enumerate() {
+    for k in 0..TOUCH_BUTTONS.len() {
         // Five along the bottom, three at the top, from the right.
         let (row, col, n) = if k < 5 {
             (1, k as i32, 5)
@@ -392,66 +383,14 @@ pub fn touch_bar(c: &mut Cpu) {
         };
         let x = w - EDGE - (n - col) * SIZE - (n - 1 - col) * GAP;
         let y = if row == 1 { 480 - EDGE - SIZE } else { EDGE };
-        if let Touch::Game(name) = what {
-            if let Some(rec) = sprite_record(c, name) {
-                let (sw, sh) = (i32::from(m.ld8(rec + 9)), i32::from(m.ld8(rec + 10)));
-                draw_record(m, rec, x + ox + (SIZE - sw) / 2, y + (SIZE - sh) / 2, 1);
-            }
-        }
         places.push([(x + 2 * ox) as f32, y as f32, SIZE as f32, SIZE as f32]);
     }
     rc_platform::touch::set_buttons(places.clone());
     *TOUCH_SHOWN.lock().expect("touch buttons") = places;
 }
 
-// --- The game's sprites, drawn by us ---------------------------------------------------------------
-
-/// A sprite of the loaded pictures by its name (12 bytes: four 0xff, its texture page and mode,
-/// its palette, u, v, width, height), or none.
-const SPRITE_BY_NAME: u32 = 0x0040_1465;
-/// The next free primitive and the ordering tables (two, 0x400 buckets of 16 bytes each).
+/// The next free primitive.
 const PRIM_NEXT: u32 = 0x0059_de10;
-const OT_BUFFER: u32 = 0x0059_cb1c;
-const OT_TABLES: u32 = 0x0079_5840;
-
-/// The loaded sprite `name`'s record, if there is one.
-fn sprite_record(c: &mut Cpu, name: &str) -> Option<u32> {
-    let m = c.mem();
-    let mut s = Strings::new(m);
-    let n = s.put(m, name);
-    let rec = call_guest(c, SPRITE_BY_NAME, &[n]);
-    (rec != 0 && m.ld32(rec) == u32::MAX).then_some(rec)
-}
-
-/// Draw the sprite record `rec` at `(x, y)` (the game's pixels) into the ordering table's
-/// `bucket`, as the game draws its sprites (`0x445830`): a mode primitive with its texture page,
-/// then the sprite.
-fn draw_record(m: Mem, rec: u32, x: i32, y: i32, bucket: u32) {
-    let (w, h) = (m.ld8(rec + 9), m.ld8(rec + 10));
-    let head = OT_TABLES + ((m.ld32(OT_BUFFER) << 10) + bucket) * 16;
-    let p = m.ld32(PRIM_NEXT);
-    // The sprite (variable size, textured, semi-transparent off).
-    m.st8(p + 7, 0);
-    m.st8(p + 0xf, 0x65);
-    m.st16(p + 0x10, x as u16);
-    m.st16(p + 0x12, y as u16);
-    m.st8(p + 0x14, m.ld8(rec + 7));
-    m.st8(p + 0x15, m.ld8(rec + 8));
-    m.st16(p + 0x16, u16::from(m.ld8(rec + 6)) << 6);
-    m.st16(p + 0x18, u16::from(w));
-    m.st16(p + 0x1a, u16::from(h));
-    m.st32(p, m.ld32(head));
-    m.st32(head, p);
-    // Before it in the bucket: the texture page and mode.
-    let q = p + 0x1c;
-    m.st8(q + 7, 0);
-    m.st8(q + 0xf, 0x80);
-    let mode = ((u16::from(m.ld8(rec + 5)) & 0xfff8) | u16::from(m.ld8(rec + 4))) << 9 | 0xa0;
-    m.st16(q + 0x10, mode);
-    m.st32(q, m.ld32(head));
-    m.st32(head, q);
-    m.st32(PRIM_NEXT, q + 0x14);
-}
 
 // --- The page's tabs ----------------------------------------------------------------------------
 

@@ -368,6 +368,8 @@ pub enum Glyph {
     Spell,
     Tool,
     Rucksack,
+    QuestLog,
+    Map,
 }
 
 const GOLD: Rgb = rgb(0xd8_b060);
@@ -445,6 +447,57 @@ fn glyph_distance(g: Glyph, x: f32, y: f32) -> f32 {
             );
             body.min(flap).min(handle)
         }
+        Glyph::QuestLog => {
+            // An open book: two pages from the spine, a line of writing on each.
+            let left = polyline(
+                x,
+                y,
+                &[
+                    (0.0, 0.42),
+                    (-0.58, 0.32),
+                    (-0.58, -0.38),
+                    (0.0, -0.28),
+                    (0.0, 0.42),
+                ],
+            );
+            let right = polyline(
+                x,
+                y,
+                &[(0.0, 0.42), (0.58, 0.32), (0.58, -0.38), (0.0, -0.28)],
+            );
+            let lines = [-0.1f32, 0.1]
+                .iter()
+                .map(|&ly| {
+                    segment(x, y, (-0.44, ly - 0.04), (-0.14, ly + 0.01)).min(segment(
+                        x,
+                        y,
+                        (0.14, ly + 0.01),
+                        (0.44, ly - 0.04),
+                    ))
+                })
+                .fold(f32::MAX, f32::min);
+            left.min(right).min(lines)
+        }
+        Glyph::Map => {
+            // A map folded in three, a cross on it.
+            let top = [(-0.58, -0.36), (-0.19, -0.46), (0.19, -0.36), (0.58, -0.46)];
+            let bottom = top.map(|(px, py)| (px, py + 0.82));
+            let folds = top
+                .iter()
+                .zip(&bottom)
+                .map(|(&a, &b)| segment(x, y, a, b))
+                .fold(f32::MAX, f32::min);
+            let cross = segment(x, y, (0.27, -0.08), (0.47, 0.12)).min(segment(
+                x,
+                y,
+                (0.47, -0.08),
+                (0.27, 0.12),
+            ));
+            polyline(x, y, &top)
+                .min(polyline(x, y, &bottom))
+                .min(folds)
+                .min(cross)
+        }
     }
 }
 
@@ -499,36 +552,6 @@ pub fn draw_touch(
     }
 }
 
-/// Only the gold rim of an on-screen button (around a picture of the game's).
-pub fn draw_rim(
-    frame: &mut [u8],
-    fw: u32,
-    fh: u32,
-    (x, y, w, h): (f32, f32, f32, f32),
-    held: bool,
-) {
-    let x0 = x.floor().max(0.0) as i32;
-    let y0 = y.floor().max(0.0) as i32;
-    let x1 = ((x + w).ceil() as i32).min(fw as i32);
-    let y1 = ((y + h).ceil() as i32).min(fh as i32);
-    let half = w.min(h) / 2.0;
-    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-    let aa = 1.0 / half.max(1.0);
-    let line = if held { GOLD_BRIGHT } else { GOLD };
-    for yy in y0..y1 {
-        for xx in x0..x1 {
-            let u = (xx as f32 + 0.5 - cx) / half;
-            let v = (yy as f32 + 0.5 - cy) / half;
-            let a = (0.5 - (rounded_box(u, v, 0.95, 0.95, 0.25).abs() - 0.05) / aa).clamp(0.0, 1.0);
-            let at = ((yy as u32 * fw + xx as u32) * 4) as usize;
-            for i in 0..3 {
-                let o = f32::from(frame[at + i]) / 255.0 * (1.0 - a) + line[i] * a;
-                frame[at + i] = (o * 255.0).round() as u8;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +582,8 @@ mod tests {
             Glyph::Spell,
             Glyph::Tool,
             Glyph::Rucksack,
+            Glyph::QuestLog,
+            Glyph::Map,
         ] {
             draw_touch(&mut frame, w, h, (4.0, 4.0, 24.0, 24.0), g, false);
         }

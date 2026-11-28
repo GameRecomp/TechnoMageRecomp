@@ -237,8 +237,8 @@ Binary treatment:
       Bevy's, Android's through JNI, the browser's id) drawn over the game's in the frame, sharp at native
       resolution; the gamepad tab names the buttons as the gamepad in use does
 - [x] On-screen buttons for the touch screen while it is used and the game is played: camera, tool, spell and
-      jump at the bottom right, quest log, map and rucksack at the top right (the game's own map and quest log
-      pictures, drawn by its sprite routine; ours for the rest), joystick buttons from 16 with their actions
+      jump at the bottom right, quest log, map and rucksack at the top right (all pictures of our own, one style:
+      #6), joystick buttons from 16 with their actions
 - [ ] A gamepad tried by hand (natively, in the browser, on Android), with its vibration; the on-screen
       buttons on a device; the on-screen buttons in the browser (its touch still only points)
 - [x] Widescreen: the life and mana tubes at the left edge, the character menu split to both edges (its
