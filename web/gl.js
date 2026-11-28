@@ -60,7 +60,9 @@ uniform vec4 u_fog_color;
 uniform vec2 u_fog_range;
 uniform ivec4 u_misc; // alpha func, -, fog mode, flags (1 specular, 2 keyed, 4 tex0, 8 tex1)
 uniform float u_alpha_ref;
-uniform float u_enlarged; // how much larger texture 0 is on a pixel-exact draw (0: not)
+// Target pixels per game pixel (x, y), whether the draw is pixel-exact on a larger target, how
+// much larger texture 0 is on a pixel-exact draw (0: not).
+uniform vec4 u_snap;
 out vec4 o_color;
 
 vec4 arg(int a, vec4 diffuse, vec4 current, vec4 tex, vec4 spec) {
@@ -104,12 +106,27 @@ bool compare(int f, float a, float b) {
 }
 
 void main() {
-  // An enlarged texture on a pixel-exact triangle: the texel the game's pixel (here the
-  // screen's) shows, at its middle; never a texel past the game's.
-  vec2 size = vec2(textureSize(u_t0, 0)) / max(u_enlarged, 1.0);
-  vec2 uv0 = (u_enlarged > 1.5 && v_exact > 0.5) ? (floor(v_uv0 * size) + 0.5) / size : v_uv0;
-  vec4 c0 = texture(u_t0, u_stage[1].z == 1 ? v_uv1 : uv0);
-  vec4 c1 = texture(u_t1, u_stage[3].z == 1 ? v_uv1 : v_uv0);
+  // As natively: a pixel-exact draw on a larger target has its coordinates moved to the centre
+  // of the game's pixel this pixel belongs to (along their gradients).
+  vec2 frag = gl_FragCoord.xy;
+  vec2 gx = dFdx(v_uv0);
+  vec2 gy = dFdy(v_uv0);
+  vec2 centre = (floor(frag / u_snap.xy) + 0.5) * u_snap.xy;
+  vec2 d = (u_snap.z != 0.0 && v_exact > 0.5) ? centre - frag : vec2(0.0);
+  vec2 uv0 = v_uv0 + gx * d.x + gy * d.y;
+  vec2 uv1 = v_uv1 + dFdx(v_uv1) * d.x + dFdy(v_uv1) * d.y;
+  // An enlarged texture on a pixel-exact triangle: the texel the game's pixel shows (at its
+  // centre), sampled within at where this pixel lies in the game's pixel, so the enlarged
+  // texture's detail (smoothing, an outline font's glyphs) shows; never a texel past the game's.
+  vec2 game = frag / u_snap.xy;
+  vec2 dc = (floor(game) + 0.5) * u_snap.xy - frag;
+  vec2 atCentre = v_uv0 + gx * dc.x + gy * dc.y;
+  vec2 size = vec2(textureSize(u_t0, 0)) / max(u_snap.w, 1.0);
+  vec2 f = fract(game);
+  vec2 within = vec2(gx.x < 0.0 ? 1.0 - f.x : f.x, gy.y < 0.0 ? 1.0 - f.y : f.y);
+  if (u_snap.w > 1.5 && v_exact > 0.5) uv0 = (floor(atCentre * size) + within) / size;
+  vec4 c0 = texture(u_t0, u_stage[1].z == 1 ? uv1 : uv0);
+  vec4 c1 = texture(u_t1, u_stage[3].z == 1 ? uv1 : uv0);
   vec4 current = v_diffuse;
   bool keyed = false;
   int flags = u_misc.w;
@@ -335,7 +352,7 @@ export function createGL(memory) {
     }
     gl.useProgram(prog);
     loc = Object.fromEntries(['u_view', 'u_t0', 'u_t1', 'u_stage', 'u_factor', 'u_fog_color', 'u_fog_range',
-      'u_misc', 'u_alpha_ref', 'u_enlarged'].map((n) => [n, gl.getUniformLocation(prog, n)]));
+      'u_misc', 'u_alpha_ref', 'u_snap'].map((n) => [n, gl.getUniformLocation(prog, n)]));
     gl.uniform1i(loc.u_t0, 0);
     gl.uniform1i(loc.u_t1, 1);
     vbuf = gl.createBuffer();
@@ -518,7 +535,7 @@ export function createGL(memory) {
       p += 7;
       gl.uniform1f(loc.u_alpha_ref, alphaRef);
       gl.uniform4i(loc.u_misc, alphaFn, 0, fog, (flags & 1) | (flags & 2) | (t0 ? 4 : 0) | (t1 ? 8 : 0));
-      gl.uniform1f(loc.u_enlarged, flags >> 8);
+      gl.uniform4f(loc.u_snap, w / vw, h / vh, (flags & 4) && (w !== vw || h !== vh) ? 1 : 0, flags >> 8);
       if (src) {
         gl.enable(gl.BLEND);
         gl.blendFunc(blendFactor(src), blendFactor(dst));
