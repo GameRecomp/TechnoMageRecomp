@@ -11,6 +11,7 @@
 //! reports the gamepads' buttons in the pad's order (`rc_platform::pad`), so a button means what
 //! it meant on the PlayStation.
 
+use rc_platform::overlay::OverlayImage;
 use rc_runtime::cpu::ESP;
 use rc_runtime::dispatch::{call_guest, call_original};
 use rc_runtime::mem::Mem;
@@ -236,16 +237,22 @@ pub fn note_key_pictures(m: Mem, last: u32, ox: i32) {
 
 /// Over the frame, while the gamepad is in use: in each key picture's place the gamepad's
 /// button that does its action now (the set-up's), drawn as its maker does.
-pub fn overlay(_m: Mem, frame: &mut [u8], w: u32, h: u32, scale: f32) {
+pub fn overlay(_m: Mem, out: &mut Vec<OverlayImage>, w: u32, h: u32, scale: f32) {
     let shown = std::mem::take(&mut *TOUCH_SHOWN.lock().expect("touch buttons"));
     let held = rc_platform::touch::held();
     for (k, [x, y, bw, bh]) in shown.into_iter().enumerate() {
         let place = (x * scale, y * scale, bw * scale, bh * scale);
         let pressed = held & (1 << k) != 0;
-        match TOUCH_BUTTONS[k].0 {
-            Touch::Ours(g) => crate::icons::draw_touch(frame, w, h, place, g, pressed),
-            Touch::Game(_) => crate::icons::draw_rim(frame, w, h, place, pressed),
-        }
+        let kind = TOUCH_BUTTONS[k].0;
+        out.push(picture(
+            ("touch", k, pressed),
+            place,
+            None,
+            |f, fw, fh, p| match kind {
+                Touch::Ours(g) => crate::icons::draw_touch(f, fw, fh, p, g, pressed),
+                Touch::Game(_) => crate::icons::draw_rim(f, fw, fh, p, pressed),
+            },
+        ));
     }
     let found = std::mem::take(&mut *KEY_PICTURES.lock().expect("key pictures"));
     if !rc_hle::dinput::pad_in_use() {
@@ -263,8 +270,64 @@ pub fn overlay(_m: Mem, frame: &mut [u8], w: u32, h: u32, scale: f32) {
             pw as f32 * scale,
             ph as f32 * scale,
         );
-        crate::icons::draw(frame, w, h, place, button, style);
+        // The button covers its place, filled first with the colours left and right of it.
+        let (x0, x1) = (
+            place.0.floor().max(0.0) as u32,
+            ((place.0 + place.2).ceil() as u32).min(w),
+        );
+        let (y0, y1) = (
+            place.1.floor().max(0.0) as u32,
+            ((place.1 + place.3).ceil() as u32).min(h),
+        );
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let gradient = [x0, x1, y0, y1, x0.saturating_sub(1), x1.min(w - 1)];
+        out.push(picture(
+            ("pad", button, style as usize),
+            place,
+            Some(gradient),
+            |f, fw, fh, p| crate::icons::draw(f, fw, fh, p, button, style),
+        ));
     }
+}
+
+/// A picture of `draw` at `place` (frame pixels): drawn into a picture of its own (a pixel more
+/// on the left, for a gradient's column), once for its key, its size and where in a pixel it
+/// begins.
+fn picture(
+    key: impl std::hash::Hash,
+    (x, y, w, h): (f32, f32, f32, f32),
+    gradient: Option<[u32; 6]>,
+    draw: impl Fn(&mut [u8], u32, u32, (f32, f32, f32, f32)),
+) -> OverlayImage {
+    use std::hash::{Hash, Hasher};
+    let (x0, y0) = (x.floor() as i32 - 1, y.floor() as i32);
+    let (iw, ih) = (
+        ((x + w).ceil() as i32 - x0 + 1).max(1) as u32,
+        ((y + h).ceil() as i32 - y0).max(1) as u32,
+    );
+    let local = (x - x0 as f32, y - y0 as f32, w, h);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    (
+        iw,
+        ih,
+        local.0.to_bits(),
+        local.1.to_bits(),
+        w.to_bits(),
+        h.to_bits(),
+    )
+        .hash(&mut hasher);
+    OverlayImage::make(
+        hasher.finish(),
+        (x0, y0),
+        (iw, ih),
+        gradient,
+        |f, fw, fh| {
+            draw(f, fw, fh, local);
+        },
+    )
 }
 
 // --- The touch screen's on-screen buttons -----------------------------------------------------

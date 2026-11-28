@@ -216,6 +216,11 @@ mod batch {
         use crate::profile::{time, Section as S};
         #[cfg(not(target_family = "wasm"))]
         let (w, h) = super::shadow::render_size(&info);
+        #[cfg(not(target_family = "wasm"))]
+        if resident_on() {
+            draw_resident(m, target, &info, (w, h), &commands);
+            return;
+        }
         let mut r = RENDERER.lock().expect("renderer");
         let Some(Some(r)) = r.as_mut() else {
             return;
@@ -258,6 +263,249 @@ mod batch {
         };
         if pending {
             flush(m);
+        }
+        #[cfg(not(target_family = "wasm"))]
+        to_guest(m, obj);
+    }
+
+    // --- The target kept on the GPU -------------------------------------------------------
+
+    /// A render target whose pixels are on the GPU (`rc_platform::gpu::Renderer`'s target), not
+    /// yet in guest memory: its object and buffer, its render size, and with native resolution
+    /// whether the frame drawn is still being drawn (`fresh`: not yet shown).
+    #[cfg(not(target_family = "wasm"))]
+    struct Resident {
+        obj: u32,
+        buf: u32,
+        size: (u32, u32),
+        guest: rc_platform::gpu::Guest,
+        fresh: bool,
+    }
+
+    /// The front surface's picture as flipped, kept on the GPU until the game reads it.
+    #[cfg(not(target_family = "wasm"))]
+    struct Front {
+        obj: u32,
+        guest: rc_platform::gpu::Guest,
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    static RESIDENT: Mutex<Option<Resident>> = Mutex::new(None);
+    #[cfg(not(target_family = "wasm"))]
+    static FRONT: Mutex<Option<Front>> = Mutex::new(None);
+
+    /// Whether render targets stay on the GPU (`RC_GPU_RESIDENT=0` reads every batch back, as
+    /// before, to compare).
+    #[cfg(not(target_family = "wasm"))]
+    fn resident_on() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| rc_runtime::host::env("RC_GPU_RESIDENT").is_none_or(|v| v != "0"))
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn guest_of(m: Mem, obj: u32, info: &crate::ddraw::SurfaceInfo) -> rc_platform::gpu::Guest {
+        rc_platform::gpu::Guest {
+            width: info.width,
+            height: info.height,
+            bits: info.masks.map(u32::count_ones),
+            bpp: info.bpp,
+            margin: crate::ddraw::margin_of(m, obj),
+        }
+    }
+
+    /// Draw a batch on the target on the GPU: over what it holds when it holds this surface
+    /// (with native resolution, a new frame first brought to what guest memory would hold),
+    /// else over the surface's pixels uploaded.
+    #[cfg(not(target_family = "wasm"))]
+    fn draw_resident(
+        m: Mem,
+        target: u32,
+        info: &crate::ddraw::SurfaceInfo,
+        size: (u32, u32),
+        commands: &[Command],
+    ) {
+        use crate::profile::{time, Section as S};
+        let guest = guest_of(m, target, info);
+        let same = RESIDENT
+            .lock()
+            .expect("resident")
+            .as_ref()
+            .map(|r| r.buf == info.buf && r.size == size && r.guest == guest);
+        if same == Some(false) {
+            // Another surface's pixels are on the GPU: into guest memory first.
+            let obj = RESIDENT
+                .lock()
+                .expect("resident")
+                .as_ref()
+                .map_or(0, |r| r.obj);
+            to_guest(m, obj);
+        }
+        let scaled = size != (info.width, info.height);
+        let mut guard = RENDERER.lock().expect("renderer");
+        let Some(Some(r)) = guard.as_mut() else {
+            return;
+        };
+        let kept = same == Some(true) && r.target_is(size);
+        let background = if kept {
+            None
+        } else if scaled {
+            Some(time(S::FlushRead, || super::shadow::compose(m, info, size)))
+        } else {
+            super::shadow::drop(info.buf);
+            Some(time(S::FlushRead, || crate::raster::to_rgba8(m, info)))
+        };
+        if kept && scaled {
+            let fresh = RESIDENT
+                .lock()
+                .expect("resident")
+                .as_ref()
+                .is_some_and(|r| r.fresh);
+            if !fresh {
+                time(S::FlushRender, || r.reduce(&guest));
+            }
+        }
+        time(S::FlushRender, || {
+            r.draw_resident(
+                size,
+                (info.width, info.height),
+                &guest,
+                background.as_deref(),
+                commands,
+            )
+        });
+        split_render();
+        *RESIDENT.lock().expect("resident") = Some(Resident {
+            obj: target,
+            buf: info.buf,
+            size,
+            guest,
+            fresh: true,
+        });
+    }
+
+    /// The surface `obj`'s pixels into guest memory, if they are on the GPU (the CPU is about
+    /// to read or write them): as the batch's read-back would have written them, with native
+    /// resolution the large picture kept as its shadow.
+    #[cfg(not(target_family = "wasm"))]
+    fn to_guest(m: Mem, obj: u32) {
+        use crate::profile::{time, Section as S};
+        let front = {
+            let mut f = FRONT.lock().expect("front");
+            if f.as_ref().is_some_and(|f| f.obj == obj) {
+                f.take()
+            } else {
+                None
+            }
+        };
+        if let Some(f) = front {
+            let Some(info) = crate::ddraw::info(m, f.obj) else {
+                return;
+            };
+            let mut guard = RENDERER.lock().expect("renderer");
+            if let Some(Some(r)) = guard.as_mut() {
+                if let Some(low) = time(S::FlushWrite, || r.read_guest(&f.guest, true)) {
+                    crate::raster::from_rgba8(m, &info, &low);
+                }
+            }
+            return;
+        }
+        let res = {
+            let mut res = RESIDENT.lock().expect("resident");
+            if res.as_ref().is_some_and(|r| r.obj == obj) {
+                res.take()
+            } else {
+                None
+            }
+        };
+        let Some(res) = res else {
+            return;
+        };
+        let Some(info) = crate::ddraw::info(m, res.obj) else {
+            return;
+        };
+        if info.buf != res.buf {
+            return;
+        }
+        let mut guard = RENDERER.lock().expect("renderer");
+        let Some(Some(r)) = guard.as_mut() else {
+            return;
+        };
+        let Some(low) = time(S::FlushWrite, || r.read_guest(&res.guest, false)) else {
+            return;
+        };
+        crate::raster::from_rgba8(m, &info, &low);
+        if res.size != (info.width, info.height) {
+            if let Some(big) = time(S::FlushWrite, || r.read_target()) {
+                super::shadow::keep(m, &info, res.size, big, res.fresh);
+            }
+        }
+    }
+
+    /// A flip of `back` (on the GPU) to `front`: the frame shown made on the GPU with the
+    /// pictures over it, the front's picture kept for the game to read, the margins black.
+    /// `None` when the back surface's pixels are not on the GPU (shown as before).
+    #[cfg(not(target_family = "wasm"))]
+    pub fn flip(
+        m: Mem,
+        back: u32,
+        front: Option<u32>,
+        overlays: impl FnOnce(u32, u32) -> Vec<rc_platform::overlay::OverlayImage>,
+    ) -> bool {
+        let pending = {
+            let b = BATCH.lock().expect("batch");
+            b.0 == back && !b.1.is_empty()
+        };
+        if pending {
+            flush(m);
+        }
+        let mut res = RESIDENT.lock().expect("resident");
+        let Some(state) = res.as_mut().filter(|r| r.obj == back) else {
+            return false;
+        };
+        let mut guard = RENDERER.lock().expect("renderer");
+        let Some(Some(r)) = guard.as_mut() else {
+            return false;
+        };
+        if !r.target_is(state.size) {
+            return false;
+        }
+        use crate::profile::{time, Section as S};
+        if let Some(f) = front {
+            r.keep_front();
+            *FRONT.lock().expect("front") = Some(Front {
+                obj: f,
+                guest: state.guest,
+            });
+        }
+        let (w, h) = state.size;
+        let mut list = time(S::Overlay, || overlays(w, h));
+        list.extend(rc_platform::fps::overlay_image(w, h));
+        let gamma = crate::small::gamma_ramp();
+        let game = (state.guest.width, state.guest.height);
+        let Some(pic) = time(S::Picture, || {
+            r.present(&state.guest, gamma.as_deref(), &list, game)
+        }) else {
+            return false;
+        };
+        r.clear_margins(&state.guest);
+        state.fresh = false;
+        if rc_runtime::host::env("RC_GPU_SYNC").is_some() {
+            // Measured: the GPU's work of the frame waited for (else the next frame waits for it,
+            // the CPU's work meanwhile overlapping).
+            time(S::GpuWait, || r.wait());
+        }
+        drop(guard);
+        drop(res);
+        time(S::Submit, || rc_platform::submit_gpu_frame(pic));
+        true
+    }
+
+    /// A surface's pixels moved or went away: what the GPU held of them is forgotten.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn forget(buf: u32) {
+        let mut res = RESIDENT.lock().expect("resident");
+        if res.as_ref().is_some_and(|r| r.buf == buf) {
+            *res = None;
         }
     }
 }
@@ -400,6 +648,25 @@ mod shadow {
         out
     }
 
+    /// Keep `rgba` (`size`) as the shadow of the surface's pixels as they are now.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn keep(m: Mem, info: &SurfaceInfo, size: (u32, u32), rgba: Vec<u8>, fresh: bool) {
+        let written = raw(m, info);
+        SHADOWS
+            .lock()
+            .expect("shadows")
+            .get_or_insert_with(HashMap::new)
+            .insert(
+                info.buf,
+                Shadow {
+                    size,
+                    rgba,
+                    written,
+                    fresh,
+                },
+            );
+    }
+
     /// Keep `rgba` (`size`) as the surface's shadow and write it scaled down into the surface.
     pub fn store(m: Mem, info: &SurfaceInfo, size: (u32, u32), rgba: Vec<u8>) {
         let (lw, lh) = (info.width as usize, info.height as usize);
@@ -480,8 +747,27 @@ pub fn native_picture(m: Mem, info: &crate::ddraw::SurfaceInfo) -> Option<(u32, 
 pub fn forget_surface(buf: u32) {
     #[cfg(feature = "gpu")]
     shadow::drop(buf);
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    batch::forget(buf);
     #[cfg(not(feature = "gpu"))]
     let _ = buf;
+}
+
+/// A flip of `back` to `front` shown from the GPU (see `batch::flip`); false when the back
+/// surface's pixels are not there.
+pub fn flip_on_gpu(
+    m: Mem,
+    back: u32,
+    front: Option<u32>,
+    overlays: impl FnOnce(u32, u32) -> Vec<rc_platform::overlay::OverlayImage>,
+) -> bool {
+    #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
+    return batch::available() && batch::flip(m, back, front, overlays);
+    #[cfg(not(all(feature = "gpu", not(target_family = "wasm"))))]
+    {
+        let _ = (m, back, front, overlays);
+        false
+    }
 }
 
 pub fn flush_if_target(m: Mem, obj: u32) {

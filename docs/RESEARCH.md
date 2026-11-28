@@ -246,9 +246,18 @@ format needs a host service **(open)**.
   row by row (whole rows as written copied from the shadow, a surface row converted and enlarged once for all
   the large rows that show it) and scaling down by rows brought it to 33 ms, the picture to 1.3 ms; every
   frame of seven scripted runs (4:3, widescreen, native resolution; playing, menus, saving) stays identical
-  (`RC_FRAME_HASHES`). Of the GPU's wait, drawing is about two thirds and the copy back a third. Showing the
-  GPU's picture without the copy back needs the window's device: the renderer has a wgpu instance of its own
-  on purpose (OpenGL in that machine, three times as fast as the window's Vulkan), so it is **(open)**.
+  (`RC_FRAME_HASHES`). Of the GPU's wait, drawing is about two thirds and the copy back a third.
+  Then the frame stayed on the GPU (`rc_platform::gpu::Renderer` on the window's device; HLE `d3d::batch`): a batch
+  is drawn over what the target holds, nothing is read back unless the CPU touches the surface (`Lock`, `Blt`,
+  a colour `Clear`: at loading and for a saved game's picture, never while playing), and at `Flip` the frame
+  shown is made on the GPU (the gamma ramp, a 16-bit surface's RGB565 expanded, the overlays) and copied into
+  the window's image there. What guest memory would hold is kept exactly by passes over the target: rounded to
+  the surface's 16 bits after each batch, the edge strips filled, the margins black after a flip, with native
+  resolution the picture brought down to the surface's pixels and up again before the next frame; the front
+  surface's picture is kept for the game to read. Every frame of the seven runs stays identical to the read-back
+  path (`RC_GPU_RESIDENT=0`), and so does the window's picture (`RC_WINDOW_SHOT`, under Xvfb). With native
+  resolution a frame took 19 ms with the GPU waited for (`RC_GPU_SYNC`), 9 ms of the CPU's with the GPU working
+  alongside (the next frame waits for the last); without it 15 and 5 ms.
   Spikes: loading a level (100 to 130 ms in the game's code) and the first frames (shaders, textures), none
   while playing.
 - **The options panel's keys.** Up and down choose among the selectable entries (`0x810c74`), left and right
@@ -421,10 +430,11 @@ words (drills, turtles).
   X11 window offered no present modes, and Bevy panicked creating it ("Fallback system failed to choose present
   mode"); lavapipe works. The platform layer therefore takes the primary backends (Vulkan, Direct3D 12, Metal)
   when one of them has an adapter, OpenGL only otherwise, and `WGPU_BACKEND` overrides it. Whether Bevy's OpenGL
-  window works on real hardware under X11 is **(open)**. The Direct3D renderer (`rc_platform::gpu`) has a wgpu
-  instance of its own, on all backends and deliberately deaf to `WGPU_BACKEND`: in that virtual machine it takes
+  window works on real hardware under X11 is **(open)**. The Direct3D renderer (`rc_platform::gpu`) had a wgpu
+  instance of its own, on all backends and deliberately deaf to `WGPU_BACKEND`: in that virtual machine it took
   OpenGL, about three times as fast as lavapipe there (60 against 20 frames a second in the first room), also when
-  the window needs `WGPU_BACKEND=vulkan`.
+  the window needs `WGPU_BACKEND=vulkan`. With a window it now draws on the window's device (the frame shown
+  without leaving the GPU), so on the window's backend; without one (scripted runs) on its own as before.
 - Where a frame's time goes (2026-11-26, first room, the virtual machine above, gdb stack samples): at `Flip` the
   collected draws render on the GPU over the back buffer and come back, so each frame converts the 16-bit back
   buffer to RGBA8, uploads it, reads the result back (synchronously), packs it to 16 bits again and converts it once

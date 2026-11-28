@@ -915,9 +915,10 @@ pub fn set_picture_fn(f: PictureFn) {
     let _ = PICTURE.set(f);
 }
 
-/// Draws over a frame before it is shown (a game patch's): the frame's RGBA, its size, and how
-/// many of its pixels one of the screen surface's is (more with native resolution).
-pub type OverlayFn = fn(Mem, &mut [u8], u32, u32, f32);
+/// Pictures over a frame before it is shown (a game patch's), into the list: given the frame's
+/// size and how many of its pixels one of the screen surface's is (more with native
+/// resolution).
+pub type OverlayFn = fn(Mem, &mut Vec<rc_platform::overlay::OverlayImage>, u32, u32, f32);
 
 static OVERLAY: std::sync::OnceLock<OverlayFn> = std::sync::OnceLock::new();
 
@@ -927,9 +928,24 @@ pub fn set_overlay_fn(f: OverlayFn) {
     let _ = OVERLAY.set(f);
 }
 
-fn overlay(m: Mem, rgba: &mut [u8], w: u32, h: u32, surface_w: u32) {
+/// The game patch's pictures over a `w` × `h` frame of a screen surface `surface_w` wide.
+pub(crate) fn overlays(
+    m: Mem,
+    w: u32,
+    h: u32,
+    surface_w: u32,
+) -> Vec<rc_platform::overlay::OverlayImage> {
+    let mut list = Vec::new();
     if let Some(f) = OVERLAY.get() {
-        f(m, rgba, w, h, w as f32 / surface_w.max(1) as f32);
+        f(m, &mut list, w, h, w as f32 / surface_w.max(1) as f32);
+    }
+    list
+}
+
+/// The game patch's pictures over a frame made on the CPU.
+fn overlay(m: Mem, rgba: &mut [u8], w: u32, h: u32, surface_w: u32) {
+    for o in overlays(m, w, h, surface_w) {
+        o.apply(rgba, w, h);
     }
 }
 
@@ -1250,6 +1266,18 @@ fn s_Flip(c: &mut Cpu) {
         return ret_stdcall(c, DDERR_GENERIC, 3);
     };
     if let Some(back) = front.back.and_then(surface) {
+        // Drawn on the GPU: shown from there, nothing read back.
+        let copy =
+            back.buf != front.buf && (back.pitch, back.height) == (front.pitch, front.height);
+        let surface_w = back.width;
+        if crate::d3d::flip_on_gpu(m, back.object, copy.then_some(front.object), |w, h| {
+            overlays(m, w, h, surface_w)
+        }) {
+            let _ = crate::d3d::take_frame();
+            apply_margin(m);
+            crate::frame_done(c);
+            return ret_stdcall(c, S_OK, 3);
+        }
         crate::d3d::flush_if_target(m, back.object);
     }
     let front_buf = (front.buf, front.pitch, front.height);

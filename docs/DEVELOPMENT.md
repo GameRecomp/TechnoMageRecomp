@@ -50,6 +50,9 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs) |
 | `RC_TRACE=imports,files,fps,debug,rumble` | trace import calls, file opens, frame rate and where its time goes, `OutputDebugString`, the force feedback's strength |
 | `RC_TRACE=profile` (`RC_PROFILE=file.csv`) | a frame profiler: per frame the time of each section (game code, Direct3D recording, the GPU batch's read, upload, wait and write-back, the picture with native resolution, presenting, copies, sleeps), one CSV line a frame (`hle::profile`) |
+| `RC_GPU_RESIDENT=0` | every Direct3D batch read back into guest memory and the frame shown from there, as before the frame stayed on the GPU (to compare) |
+| `RC_GPU_SYNC=1` | wait for the GPU at each frame's end (measuring its work with `RC_TRACE=profile`) |
+| `RC_WINDOW_SHOT=frame:file.ppm` | the window's picture as Bevy rendered it, once that frame has been shown (under `xvfb-run` too, where a screen capture shows no Vulkan window) |
 | `RC_FRAME_HASHES=file` | a line per frame shown: its size and a hash of its pixels; two scripted runs (virtual clock) before and after a change compared frame by frame show any change in the picture |
 
 A scripted run to the first room of a new game:
