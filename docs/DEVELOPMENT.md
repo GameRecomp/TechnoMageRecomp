@@ -44,7 +44,7 @@ the template the converter puts its Cranelift code beside; it runs a package's `
 | `RC_RENDERER=soft` | Direct3D in the software rasterizer instead of wgpu |
 | `RC_FRAMES=n` | end after `n` presented frames |
 | `RC_SCREENSHOT=file.ppm`, `RC_SCREENSHOT_FRAME=n` | write frame `n` (default: the first) |
-| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl alt z x m i s q tab f11 f12 up down left right click@x,y move@x,y` (`a-b:key` holds a key from frame a to b), the gamepad held four frames: `pad-square pad-triangle pad-cross pad-circle pad-l1 pad-l2 pad-r1 pad-r2 pad-select pad-start pad-left pad-right pad-up pad-down`, an on-screen button at `tap@x,y`; `fullscreen` switches between window and full screen as F11 does |
+| `RC_INPUT="frame:key …"` | scripted input: `esc enter space ctrl alt z x m i s q tab f11 f12 up down left right click@x,y move@x,y` (`a-b:key` holds a key from frame a to b), the gamepad held four frames: `pad-square pad-triangle pad-cross pad-circle pad-l1 pad-l2 pad-r1 pad-r2 pad-select pad-start pad-left pad-right pad-up pad-down`, an on-screen button at `tap@x,y`; `fullscreen` switches between window and full screen as F11 does; `point@x,y` moves the pointer to a point of the screen with its margins (`move@` and `click@` take the game's coordinates) |
 | `RC_PAD_STYLE=playstation\|xbox\|nintendo`, `RC_TOUCH=1` | scripted runs: the gamepad's buttons as that maker's; touch as the input in use (the on-screen buttons shown) |
 | `RC_RENDER_OUTPUT=WxH` | without a window: the window size native resolution and widescreen follow (scripted runs) |
 | `RC_CLOCK=virtual` | the guest's clock advances by frames (reproducible runs; smooth textures and fonts are enlarged at once, not in the background) |

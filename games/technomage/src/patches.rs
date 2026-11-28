@@ -1091,7 +1091,7 @@ fn draw_object(c: &mut Cpu) {
         // Drawn in the frame, among the world's buckets: placed on the wider screen like it.
         let at = c.r[ESP] + 4 + 4 * 2;
         let x = m.ld32(at) as i32;
-        m.st32(at, (x + game_to_screen_shift(x)) as u32);
+        m.st32(at, pointer_screen_x(x) as u32);
         wide_screen(c, |c| call_original(c, DRAW_OBJECT));
         return;
     }
@@ -1532,19 +1532,40 @@ fn game_to_screen_shift(x: i32) -> i32 {
 }
 
 /// The game's x of a point of the screen (margins included): the inverse of
-/// `game_to_screen_shift` (in the split interface's gap: as if in the middle).
+/// `game_to_screen_shift`. In the split interface's gap (the world between the halves) the
+/// game's middle, which is the world there too: one margin off it would be over a half's panel
+/// (its slots answer) while the pointer is over the world.
 fn screen_to_game(x: i32) -> i32 {
     let ox = rc_hle::ddraw::margin() as i32;
-    if !SPLIT.load(std::sync::atomic::Ordering::Relaxed) {
-        return x - ox;
-    }
-    if x < GAME_W / 2 {
+    let game = if !SPLIT.load(std::sync::atomic::Ordering::Relaxed) {
+        x - ox
+    } else if x < GAME_W / 2 {
         x
     } else if x >= GAME_W / 2 + 2 * ox {
         x - 2 * ox
     } else {
-        x - ox
+        GAME_W / 2
+    };
+    LAST_MAPPED.store(
+        u64::from(x as u32) << 32 | u64::from(game as u32),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    game
+}
+
+/// The last point of the screen `screen_to_game` took and the game's x it gave (screen in the
+/// upper half): the pointer the game draws itself goes back there. In the split interface's gap
+/// `game_to_screen_shift` would put it a margin to the left or right of where it was pointed.
+static LAST_MAPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Where on the screen the pointer at the game's `x` goes: where it was pointed, else as the
+/// interface around it.
+fn pointer_screen_x(x: i32) -> i32 {
+    let v = LAST_MAPPED.load(std::sync::atomic::Ordering::Relaxed);
+    if v != u64::MAX && (v as u32) as i32 == x {
+        return (v >> 32) as u32 as i32;
     }
+    x + game_to_screen_shift(x)
 }
 
 /// The interface's width in the game's pixels.

@@ -208,7 +208,8 @@ pub(crate) fn frame_done(c: &mut Cpu) {
 /// is pressed for one frame (DirectInput and window messages), the left button clicked at a
 /// position, or a button of the gamepad (`pad-square` … `pad-start`, `pad-l1` …, a direction
 /// `pad-left` …) held for four frames, or the touch screen's on-screen button at `tap@x,y`;
-/// `fullscreen` switches the window to full screen and back (F11).
+/// `fullscreen` switches the window to full screen and back (F11); `point@x,y` moves the pointer
+/// to a point of the screen, margins included (`move@x,y` takes the game's coordinates).
 fn scripted_input(frame: u64) {
     use std::sync::Mutex;
     static RELEASE: Mutex<Vec<(u64, u8, u32)>> = Mutex::new(Vec::new());
@@ -298,6 +299,20 @@ fn scripted_input(frame: u64) {
             };
             dinput::pad(bits, x, y);
             *PAD_RELEASE.lock().expect("input") = Some(frame + 4);
+            continue;
+        }
+        if let Some(pos) = what.strip_prefix("point@") {
+            // A point of the screen (margins included), as a window or a finger gives it.
+            let (x, y) = pos.split_once(',').unwrap_or(("0", "0"));
+            let (x, y): (i32, i32) = (x.parse().unwrap_or(0), y.parse().unwrap_or(0));
+            // And moved there (DirectInput), as a finger or a mouse does.
+            static AT: Mutex<(i32, i32)> = Mutex::new((0, 0));
+            let (px, py) = std::mem::replace(&mut *AT.lock().expect("point"), (x, y));
+            on_input(rc_platform::Input::MouseMotion {
+                dx: x - px,
+                dy: y - py,
+            });
+            on_input(rc_platform::Input::Cursor { x, y });
             continue;
         }
         if what == "fullscreen" {

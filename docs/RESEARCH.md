@@ -217,7 +217,10 @@ format needs a host service **(open)**.
   a cut scene's black bars draws them over 0 to 640 like the depth background. Widescreen keeps the tubes at
   the left edge in every state (the pause menu too), splits the character menu to both edges while it is open
   and for 40 frames after it closes (it slides out while the game is played again; its description, with the
-  key pictures in its text, stays in the middle), maps the pointer back (`screen_to_game`), and widens what
+  key pictures in its text, stays in the middle), maps the pointer back (`screen_to_game`; the gap between the
+  halves, which shows the world, to the game's middle, which is the world there too: one margin off it was over a
+  half's slots), puts the pointer the game draws itself (no system cursor: touch) back where it was pointed, and
+  widens what
   covers the whole 640 pixels (bars, fades). The level's geometry is drawn for a square of tiles around the
   camera, its radius set per level (`0x4025a4`, argument 12 in the house, doubled into `0x55f420`, also
   `(r-3)<<11` into `0x97e18c`, the Chebyshev distance from which a tile's corners fade to black over two

@@ -787,12 +787,17 @@ fn draw_touch(c: &mut Cpu, s: &mut Strings) {
     }
 }
 
-/// A click of the mouse's left button since the last frame, where it was.
+/// A click of the mouse's left button, where it was: told the frame after the button went
+/// down, since the button (DirectInput) arrives a frame before the game's mouse position
+/// (`WM_MOUSEMOVE`); a tap on a touch screen moves and presses at once, and would be taken
+/// where the last one was.
 fn click(m: Mem) -> Option<(i32, i32)> {
     static HELD: AtomicU8 = AtomicU8::new(0);
+    static PENDING: AtomicU8 = AtomicU8::new(0);
     let down = rc_hle::dinput::mouse_button_down(0);
     let was = HELD.swap(u8::from(down), Ordering::Relaxed) != 0;
-    (down && !was).then(|| {
+    let pending = PENDING.swap(u8::from(down && !was), Ordering::Relaxed) != 0;
+    pending.then(|| {
         (
             i32::from(m.ld16(MOUSE_X) as i16),
             i32::from(m.ld16(MOUSE_Y) as i16),
