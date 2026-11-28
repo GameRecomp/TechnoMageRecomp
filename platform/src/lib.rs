@@ -333,6 +333,18 @@ pub mod render {
         NATIVE.load(Ordering::Relaxed)
     }
 
+    static TOGGLE_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+    /// Switch between the window and full screen as F11 does (scripted runs: `fullscreen`).
+    pub fn toggle_fullscreen() {
+        TOGGLE_FULLSCREEN.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether a switch was asked for since the last call (the window's side).
+    pub fn take_fullscreen_toggle() -> bool {
+        TOGGLE_FULLSCREEN.swap(false, Ordering::Relaxed)
+    }
+
     static WIDESCREEN: AtomicBool = AtomicBool::new(false);
 
     /// Widescreen: the screen is as wide as the output's proportions ask, the game's picture in

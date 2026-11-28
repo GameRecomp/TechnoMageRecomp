@@ -476,7 +476,7 @@ impl Renderer {
                 self.target_pass(&mut enc, Pass::Edges, uniforms(size, guest, 0, st));
             }
         }
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
     }
 
     /// After a flip: the margins black, as the HLE clears them in guest memory.
@@ -491,7 +491,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.target_pass(&mut enc, Pass::Margins, uniforms(size, guest, 0, (0, 0)));
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
     }
 
     /// Drawn larger, before a new frame's first draws: the target as guest memory holds it
@@ -504,7 +504,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.target_pass(&mut enc, Pass::Reduce, uniforms(size, guest, 0, (0, 0)));
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
     }
 
     /// Wait until the GPU has done all that was handed to it (for measuring).
@@ -546,7 +546,7 @@ impl Renderer {
             false,
             None,
         );
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
         Some(self.read_texture(&low))
     }
 
@@ -564,7 +564,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         copy(&mut enc, &color, &front, size);
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
         self.resident().front = Some(front);
     }
 
@@ -635,7 +635,7 @@ impl Renderer {
                 Some(&img),
             );
         }
-        let index = queue.submit([enc.finish()]);
+        let index = crate::gpu::gate::submit(|| queue.submit([enc.finish()]));
         let r = self.resident();
         r.present = Some(present.clone());
         r.last = Some(index);
@@ -715,7 +715,7 @@ pub fn read(device: &wgpu::Device, queue: &wgpu::Queue, t: &wgpu::Texture) -> Ve
             depth_or_array_layers: 1,
         },
     );
-    queue.submit([enc.finish()]);
+    crate::gpu::gate::submit(|| queue.submit([enc.finish()]));
     let slice = buffer.slice(..);
     slice.map_async(wgpu::MapMode::Read, |_| {});
     let _ = device.poll(wgpu::PollType::Wait {

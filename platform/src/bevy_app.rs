@@ -128,6 +128,9 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
     )
     .add_audio_source::<GameAudio>()
     .insert_resource(ClearColor(Color::BLACK))
+    .insert_resource(bevy::render::error_handler::RenderErrorHandler(
+        render_error,
+    ))
     .init_resource::<HardwareCursor>()
     .init_resource::<Fingers>()
     .add_systems(Startup, setup)
@@ -150,6 +153,17 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
         use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
         let render = app.sub_app_mut(RenderApp);
         render.add_systems(RenderStartup, share_gpu);
+        // The renderer holds back while the window's surface is reconfigured (`gpu::gate`).
+        render.add_systems(
+            Render,
+            (|| crate::gpu::gate::close())
+                .run_if(bevy::render::view::window::need_surface_configuration)
+                .before(bevy::render::view::window::create_surfaces),
+        );
+        render.add_systems(
+            Render,
+            (|| crate::gpu::gate::frame()).after(bevy::render::view::window::prepare_windows),
+        );
         render.add_systems(
             Render,
             copy_gpu_frame
@@ -584,11 +598,40 @@ fn scale_cursor(c: &crate::cursor::Image, scale: f32) -> crate::cursor::Image {
     }
 }
 
+/// A rendering error ends the program (Bevy's way), but for a surface that could not be
+/// reconfigured because the GPU was busy (a resize; `gpu::gate` keeps the renderer back, this is
+/// the last line): it is configured again on the next frame.
+fn render_error(
+    error: &bevy::render::error_handler::RenderError,
+    main: &mut World,
+    _: &mut World,
+) -> bevy::render::error_handler::RenderErrorPolicy {
+    use bevy::render::error_handler::RenderErrorPolicy;
+    if error.description.contains("reconfiguring the Surface") {
+        warn!("the window's surface: {}; tried again", error.description);
+        return RenderErrorPolicy::Ignore;
+    }
+    error!("Quitting the application due to {:?} RenderError", error.ty);
+    main.write_message(AppExit::error());
+    RenderErrorPolicy::StopRendering
+}
+
 fn keyboard(
     mut keys: MessageReader<KeyboardInput>,
     held: Res<ButtonInput<KeyCode>>,
     mut windows: Query<&mut Window>,
 ) {
+    let toggle = |windows: &mut Query<&mut Window>| {
+        if let Ok(mut w) = windows.single_mut() {
+            w.mode = match w.mode {
+                WindowMode::Windowed => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+                _ => WindowMode::Windowed,
+            };
+        }
+    };
+    if crate::render::take_fullscreen_toggle() {
+        toggle(&mut windows);
+    }
     for k in keys.read() {
         // Alt+Enter and F11 switch between the window and full screen (not passed to the game).
         let alt = held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight);
@@ -596,14 +639,7 @@ fn keyboard(
             && k.state == ButtonState::Pressed
         {
             if !k.repeat {
-                if let Ok(mut w) = windows.single_mut() {
-                    w.mode = match w.mode {
-                        WindowMode::Windowed => {
-                            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
-                        }
-                        _ => WindowMode::Windowed,
-                    };
-                }
+                toggle(&mut windows);
             }
             continue;
         }

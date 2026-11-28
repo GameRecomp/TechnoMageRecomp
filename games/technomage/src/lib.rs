@@ -269,8 +269,33 @@ fn user_dir() -> Option<PathBuf> {
     Some(d)
 }
 
+/// A panic (on any thread: the game's, the window's, the renderer's) also goes to `crash.log`
+/// in the user directory, with a backtrace: started from a desktop, stderr is lost.
+fn crash_log() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        let Some(dir) = user_dir() else {
+            return;
+        };
+        let thread = std::thread::current();
+        let text = format!(
+            "TechnoMageRecomp {} ({} {}), thread {}:\n{info}\n\n{}\n",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            thread.name().unwrap_or("?"),
+            std::backtrace::Backtrace::force_capture(),
+        );
+        if std::fs::write(dir.join("crash.log"), text).is_ok() {
+            eprintln!("technomage: written to {}", dir.join("crash.log").display());
+        }
+    }));
+}
+
 /// The program: the game in a window (or headless, see [`Args`]).
 pub fn main() -> ExitCode {
+    crash_log();
     let a = args();
     #[cfg(feature = "window")]
     if !a.headless && !a.check {

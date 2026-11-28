@@ -980,7 +980,7 @@ impl Renderer {
         }
         if !read {
             let prepared = started.elapsed();
-            self.queue.submit([enc.finish()]);
+            crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
             *super::LAST_RENDER.lock().expect("render times") =
                 [prepared.as_nanos() as u64, 0, 0, 0];
             return None;
@@ -1020,7 +1020,7 @@ impl Renderer {
             },
         );
         let prepared = started.elapsed();
-        self.queue.submit([enc.finish()]);
+        crate::gpu::gate::submit(|| self.queue.submit([enc.finish()]));
         let slice = out.slice(..);
         slice.map_async(wgpu::MapMode::Read, |_| {});
         let _ = self.device.poll(wgpu::PollType::Wait {

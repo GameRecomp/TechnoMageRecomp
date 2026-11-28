@@ -75,6 +75,58 @@ pub(crate) fn shared() -> Option<&'static Shared> {
     None
 }
 
+/// While the window reconfigures its surface (a new size: full screen and back), the renderer
+/// submits nothing: wgpu waits for the GPU to be idle first and fails when another thread
+/// submits meanwhile ("Failed to wait for GPU to come idle before reconfiguring the Surface"),
+/// which ends the program. The window closes the gate (`close`, waiting for submits under way),
+/// keeps it closed a few of its frames (resizes come in a row) and opens it again (`frame`).
+#[cfg(not(target_family = "wasm"))]
+pub mod gate {
+    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+
+    /// Window frames the gate stays closed for.
+    static CLOSED: AtomicU32 = AtomicU32::new(0);
+    /// Submits under way.
+    static ACTIVE: AtomicU32 = AtomicU32::new(0);
+
+    /// Frames a closing lasts.
+    const FRAMES: u32 = 3;
+
+    /// Submit `f`'s work once the gate is open.
+    pub fn submit<R>(f: impl FnOnce() -> R) -> R {
+        loop {
+            while CLOSED.load(SeqCst) > 0 {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+            ACTIVE.fetch_add(1, SeqCst);
+            if CLOSED.load(SeqCst) == 0 {
+                break;
+            }
+            ACTIVE.fetch_sub(1, SeqCst);
+        }
+        let r = f();
+        ACTIVE.fetch_sub(1, SeqCst);
+        r
+    }
+
+    /// The window is about to reconfigure: no new submits, and those under way done.
+    pub fn close() {
+        CLOSED.store(FRAMES, SeqCst);
+        while ACTIVE.load(SeqCst) > 0 {
+            std::thread::yield_now();
+        }
+    }
+
+    /// A window frame prepared: a closing lasts one frame less.
+    pub fn frame() {
+        let n = CLOSED.load(SeqCst);
+        if n > 0 {
+            // Only the window closes it again, on this same thread: no other change to lose.
+            let _ = CLOSED.compare_exchange(n, n - 1, SeqCst, SeqCst);
+        }
+    }
+}
+
 /// The device and queue frames on the GPU were drawn with (to read one back).
 #[cfg(not(target_family = "wasm"))]
 static FRAMES_DEVICE: std::sync::OnceLock<(wgpu::Device, wgpu::Queue)> = std::sync::OnceLock::new();
