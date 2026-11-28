@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Smooth fonts: a game's bitmap font redrawn from an outline font (TrueType) on its texture
-//! page enlarged four times, so text stays sharp at native resolution while the game lays it out,
-//! colours and clips it as ever.
+//! page enlarged as many times as the screen is drawn larger (`factor`), so text is drawn at
+//! native resolution while the game lays it out, colours and clips it as ever.
 //!
 //! The game tells which rectangles of a texture page hold which character (`register`, a set per
 //! font). The renderer finds the page a set lies on by the 2D quads it draws: one that shows
@@ -113,12 +113,27 @@ pub fn tied(tex: u64) -> Option<(Vec<Arc<GlyphSet>>, u64)> {
     })
 }
 
-/// The page `base` (already enlarged four times from the `width × height` texels `src`) with
-/// the glyphs of `sets` drawn from their outline fonts.
-pub fn refine(sets: &[Arc<GlyphSet>], src: &[Px], width: usize, height: usize, base: &mut [Px]) {
+/// The page `base` (already enlarged `factor` times from the `width × height` texels `src`)
+/// with the glyphs of `sets` drawn from their outline fonts.
+pub fn refine(
+    sets: &[Arc<GlyphSet>],
+    src: &[Px],
+    width: usize,
+    height: usize,
+    factor: usize,
+    base: &mut [Px],
+) {
     for set in sets {
-        refine_cells(set, 0..set.cells.len(), src, width, height, base);
+        refine_cells(set, 0..set.cells.len(), src, width, height, factor, base);
     }
+}
+
+/// How many times a font's page is enlarged when the screen (`screen` pixels) is drawn at
+/// `render` pixels: at least as many texels as pixels (1 to 8).
+pub fn factor(screen: (u32, u32), render: (u32, u32)) -> usize {
+    let s =
+        (render.0 as f32 / screen.0.max(1) as f32).max(render.1 as f32 / screen.1.max(1) as f32);
+    (s - 0.01).ceil().clamp(1.0, 8.0) as usize
 }
 
 /// Part of `refine`: the glyphs `cells` of one set; so the work can be spread.
@@ -128,6 +143,7 @@ pub fn refine_cells(
     src: &[Px],
     width: usize,
     height: usize,
+    factor: usize,
     base: &mut [Px],
 ) {
     let Ok(font) = ab_glyph::FontRef::try_from_slice(set.face) else {
@@ -142,7 +158,7 @@ pub fn refine_cells(
             && (y..y + h).any(|yy| (x..x + w).any(|xx| src[yy * width + xx][3] < 128))
     });
     for cell in set.cells.get(cells).unwrap_or_default() {
-        draw_cell(&font, cell, clear, src, width, height, base);
+        draw_cell(&font, cell, clear, src, (width, height), factor, base);
     }
 }
 
@@ -247,8 +263,8 @@ fn draw_cell(
     cell: &Cell,
     clear: bool,
     src: &[Px],
-    width: usize,
-    height: usize,
+    (width, height): (usize, usize),
+    factor: usize,
     base: &mut [Px],
 ) {
     let [x, y, w, h] = cell.rect.map(usize::from);
@@ -258,12 +274,12 @@ fn draw_cell(
     let Some(look) = look(src, width, [x, y, w, h], clear) else {
         return;
     };
-    // Four texels a source texel, a rim a quarter of a source texel wide (the renderer keeps a
-    // 2D quad's pixels within the texels of the game's, `Draw::enlarged`, so the glyph may fill
-    // its rectangle).
-    const K: usize = 4;
-    let (bw, bh) = (K * w, K * h);
-    let ring = if look.rim { K / 4 } else { 0 };
+    // `factor` texels a source texel, a rim a quarter of a source texel wide, at least one
+    // texel (the renderer keeps a 2D quad's pixels within the texels of the game's,
+    // `Draw::enlarged`, so the glyph may fill its rectangle).
+    let k = factor.max(1);
+    let (bw, bh) = (k * w, k * h);
+    let ring = if look.rim { k.div_ceil(4) } else { 0 };
     let edge = ring;
     let (iw, ih) = (bw.saturating_sub(2 * ring), bh.saturating_sub(2 * ring));
     let Some(cov) = coverage(font, cell.ch, iw, ih) else {
@@ -277,7 +293,7 @@ fn draw_cell(
         cov[py as usize * iw + px as usize]
     };
     let r = ring as isize;
-    let stride = K * width;
+    let stride = k * width;
     for py in 0..bh as isize {
         for px in 0..bw as isize {
             let c = at(px, py);
@@ -296,7 +312,7 @@ fn draw_cell(
             } else {
                 look.fill
             };
-            base[(K * y + py as usize) * stride + K * x + px as usize] = texel;
+            base[(k * y + py as usize) * stride + k * x + px as usize] = texel;
         }
     }
 }
@@ -346,12 +362,26 @@ mod tests {
             }
         }
         let mut big = vec![[9u8; 4]; 16 * w * h];
-        refine(&sets, &src, w, h, &mut big);
+        refine(&sets, &src, w, h, 4, &mut big);
         // Only the fill and the background inside the glyphs: no outline (none in the source).
         assert!(big
             .iter()
             .all(|&p| p == [0, 0, 0, 0] || p == [255, 255, 255, 255]));
         assert!(big.contains(&[255, 255, 255, 255]));
         assert!(tied(101).is_none());
+        // At other sizes too: three times, and as small as the game's own.
+        for k in [1, 3] {
+            let mut page = vec![[9u8; 4]; k * k * w * h];
+            refine(&sets, &src, w, h, k, &mut page);
+            assert!(page.contains(&[255, 255, 255, 255]), "{k}");
+        }
+    }
+
+    #[test]
+    fn the_factor_follows_the_render_size() {
+        assert_eq!(factor((640, 480), (640, 480)), 1);
+        assert_eq!(factor((640, 480), (1280, 960)), 2);
+        assert_eq!(factor((854, 480), (1920, 1080)), 3);
+        assert_eq!(factor((640, 480), (8000, 6000)), 8);
     }
 }

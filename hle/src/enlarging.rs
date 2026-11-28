@@ -44,8 +44,10 @@ enum Stage {
     Second,
     /// Smooth: 4× rows sharpened.
     Sharpen,
-    /// Not smooth: every texel taken four times over.
+    /// Not smooth: every texel taken `factor` times over.
     Nearest,
+    /// Smooth, for a factor other than 4: the 4× picture taken to `factor` (nearest).
+    Resample,
     /// The fonts' glyphs drawn over, a few at a time (set, first glyph), then done.
     Fonts(usize, usize),
 }
@@ -54,6 +56,8 @@ enum Stage {
 pub(crate) struct Job {
     w: usize,
     h: usize,
+    /// How many times larger the result is (4 when smooth unless fonts ask for another).
+    factor: usize,
     /// Whether any texel is colour-keyed, handed on to `Done`.
     keyed: bool,
     src: Arc<Vec<Px>>,
@@ -68,12 +72,12 @@ pub(crate) struct Job {
 }
 
 impl Job {
-    /// `w × h` texels `src` to be enlarged four times, smoothed or not, with the glyphs of
-    /// `fonts` drawn over them.
+    /// `w × h` texels `src` to be enlarged `factor` times, smoothed (four times, then taken to
+    /// `factor`) or not, with the glyphs of `fonts` drawn over them.
     pub(crate) fn new(
         src: Arc<Vec<Px>>,
-        w: usize,
-        h: usize,
+        (w, h): (usize, usize),
+        factor: usize,
         keyed: bool,
         smooth: bool,
         fonts: Vec<Arc<GlyphSet>>,
@@ -81,6 +85,7 @@ impl Job {
         Job {
             w,
             h,
+            factor: factor.max(1),
             keyed,
             src,
             fonts,
@@ -144,19 +149,46 @@ impl Job {
                     ),
                     None => {
                         self.four = Vec::new();
-                        self.stage = Stage::Fonts(0, 0);
+                        self.stage = if self.factor == 4 {
+                            Stage::Fonts(0, 0)
+                        } else {
+                            Stage::Resample
+                        };
                     }
                 },
-                Stage::Nearest => {
-                    if self.out.is_empty() {
-                        self.out = vec![[0; 4]; 16 * w * h];
+                Stage::Resample => {
+                    // The sharpened 4× picture is `out`; it becomes `factor`×, row by row.
+                    let k = self.factor;
+                    if self.four.is_empty() {
+                        self.four = std::mem::replace(&mut self.out, vec![[0; 4]; k * k * w * h]);
                     }
-                    match self.rows(4 * h, 4 * w) {
+                    match self.rows(k * h, k * w) {
                         Some(r) => {
                             for y in r {
-                                let row = &mut self.out[y * 4 * w..(y + 1) * 4 * w];
+                                let sy = (4 * y + 2) / k;
+                                for x in 0..k * w {
+                                    let sx = (4 * x + 2) / k;
+                                    self.out[y * k * w + x] = self.four[sy * 4 * w + sx];
+                                }
+                            }
+                        }
+                        None => {
+                            self.four = Vec::new();
+                            self.stage = Stage::Fonts(0, 0);
+                        }
+                    }
+                }
+                Stage::Nearest => {
+                    let k = self.factor;
+                    if self.out.is_empty() {
+                        self.out = vec![[0; 4]; k * k * w * h];
+                    }
+                    match self.rows(k * h, k * w) {
+                        Some(r) => {
+                            for y in r {
+                                let row = &mut self.out[y * k * w..(y + 1) * k * w];
                                 for (x, p) in row.iter_mut().enumerate() {
-                                    *p = self.src[(y / 4) * w + x / 4];
+                                    *p = self.src[(y / k) * w + x / k];
                                 }
                             }
                         }
@@ -168,7 +200,15 @@ impl Job {
                         return Some(std::mem::take(&mut self.out));
                     };
                     let end = (first + GLYPHS).min(glyphs.cells.len());
-                    crate::glyphs::refine_cells(glyphs, first..end, &self.src, w, h, &mut self.out);
+                    crate::glyphs::refine_cells(
+                        glyphs,
+                        first..end,
+                        &self.src,
+                        w,
+                        h,
+                        self.factor,
+                        &mut self.out,
+                    );
                     self.stage = if end < glyphs.cells.len() {
                         Stage::Fonts(set, end)
                     } else {
@@ -194,8 +234,8 @@ impl Job {
     fn done(&self, key: Key, texels: Vec<Px>) -> Done {
         Done {
             key,
-            w: 4 * self.w as u32,
-            h: 4 * self.h as u32,
+            w: (self.factor * self.w) as u32,
+            h: (self.factor * self.h) as u32,
             keyed: self.keyed,
             texels,
         }
@@ -340,7 +380,7 @@ mod tests {
             })
             .collect();
         let whole = upscale::scale4x(&src, w, h);
-        let mut job = Job::new(Arc::new(src), w, h, false, true, Vec::new());
+        let mut job = Job::new(Arc::new(src), (w, h), 4, false, true, Vec::new());
         // One band at a time.
         let mut steps = 0;
         let out = loop {
@@ -376,11 +416,11 @@ mod tests {
                 }
             })
             .collect();
-        let mut at_once = Job::new(Arc::new(src.clone()), w, h, true, false, Vec::new())
+        let mut at_once = Job::new(Arc::new(src.clone()), (w, h), 3, true, false, Vec::new())
             .run(&mut || true)
             .expect("done");
-        crate::glyphs::refine(std::slice::from_ref(&set), &src, w, h, &mut at_once);
-        let mut job = Job::new(Arc::new(src), w, h, true, false, vec![set]);
+        crate::glyphs::refine(std::slice::from_ref(&set), &src, w, h, 3, &mut at_once);
+        let mut job = Job::new(Arc::new(src), (w, h), 3, true, false, vec![set]);
         let out = loop {
             let mut once = true;
             if let Some(out) = job.run(&mut || std::mem::replace(&mut once, false)) {

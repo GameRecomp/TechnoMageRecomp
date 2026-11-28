@@ -487,12 +487,13 @@ fn decoded(
     d
 }
 
-/// The texture enlarged four times, for the GPU: smoothed (`smooth`, "smooth textures",
+/// The texture enlarged for the GPU: smoothed four times (`smooth`, "smooth textures",
 /// `upscale`) or not, and with the glyphs of the fonts tied to it redrawn (`fonts`, "smooth
-/// fonts", `glyphs`); made in the background (`enlarging`) and cached here. With it the variant
-/// for the GPU's texture key (bit 1 smoothed, bit 2 fonts, above them the fonts' stamp). `None`
-/// when nothing is asked, the texture is too large to be enlarged (at most 2048 texels a side
-/// after) or it is still being made: the plain texture is drawn meanwhile.
+/// fonts", `glyphs`) at as many texels as the screen is drawn larger (`glyphs::factor`, so a
+/// font page follows the render resolution); made in the background (`enlarging`) and cached
+/// here. With it the variant for the GPU's texture key (bit 1 smoothed, bit 2 fonts, bits 3–6
+/// the factor, above them the fonts' stamp). `None` when nothing is asked, the texture is too
+/// large to be enlarged or it is still being made: the plain texture is drawn meanwhile.
 #[cfg(feature = "gpu")]
 fn enlarge(
     m: Mem,
@@ -504,13 +505,38 @@ fn enlarge(
 ) -> Option<(std::sync::Arc<Decoded>, u32)> {
     type Cache = std::collections::HashMap<crate::enlarging::Key, std::sync::Arc<Decoded>>;
     static ENLARGED: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+    /// The factor font pages were last enlarged by: when it changes, the old pages go.
+    static FONT_FACTOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     if !smooth && fonts.is_none() {
+        return None;
+    }
+    let side = info.width.max(info.height) as usize;
+    let largest = (rc_platform::render::max_texture() as usize).min(4096);
+    let factor = if fonts.is_some() {
+        let screen = crate::ddraw::screen_size();
+        let f = crate::glyphs::factor(screen, crate::d3d::screen_render_size());
+        f.min(largest / side.max(1))
+    } else if side <= 512 {
+        4
+    } else {
+        0
+    };
+    if factor == 0 {
         return None;
     }
     let variant = u32::from(smooth) << 1
         | fonts
             .as_ref()
-            .map_or(0, |f| 4 | (f.1 as u32 & 0x1fff_ffff) << 3);
+            .map_or(0, |f| 4 | (f.1 as u32 & 0x01ff_ffff) << 7)
+        | (factor as u32 & 0xf) << 3;
+    if fonts.is_some()
+        && FONT_FACTOR.swap(factor as u32, std::sync::atomic::Ordering::Relaxed) != factor as u32
+    {
+        // The render resolution changed: font pages enlarged for the old one are not used again.
+        if let Some(map) = ENLARGED.lock().expect("enlarged").as_mut() {
+            map.retain(|k, _| k.3 & 4 == 0 || (k.3 >> 3) & 0xf == factor as u32);
+        }
+    }
     let k = (obj, version, key.is_some(), variant);
     let lookup = || {
         let mut cache = ENLARGED.lock().expect("enlarged");
@@ -538,13 +564,10 @@ fn enlarge(
         return None;
     }
     let d = decoded(m, obj, version, info, key);
-    if d.w > 512 || d.h > 512 {
-        return None;
-    }
     let job = crate::enlarging::Job::new(
         d.texels.clone(),
-        d.w as usize,
-        d.h as usize,
+        (d.w as usize, d.h as usize),
+        factor,
         d.keyed,
         smooth,
         fonts.map(|f| f.0).unwrap_or_default(),
@@ -1236,7 +1259,7 @@ pub fn gpu_draw(
                 let (d, variant) = enlarge(m, (obj, version), &info, key, smooth, tied)
                     .unwrap_or_else(|| (decoded(m, obj, version, &info, key), 0));
                 if s == 0 && variant != 0 {
-                    enlarged = 4;
+                    enlarged = d.w / info.width.max(1);
                 }
                 // Enlarged, a 2D quad (one texel to a pixel of the original) is sampled at its
                 // nearest texel: filtered, its edges would take in the packed neighbours.
