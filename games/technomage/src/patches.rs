@@ -1158,7 +1158,7 @@ fn draw_ot(c: &mut Cpu) {
     });
     DRAWING_POINTER.store(false, Ordering::Relaxed);
     if let Some(image) = render_pointer(m, &draws, x, y) {
-        rc_platform::cursor::show(image);
+        rc_platform::cursor::show(smooth_pointer(image));
     }
 }
 
@@ -1689,7 +1689,44 @@ fn render_pointer(
         height: h,
         hotspot: (hot_x - lx, hot_y - ly),
         rgba: out,
+        scale: 1,
     })
+}
+
+/// With "smooth textures" the pointer as the textures: enlarged four times by the same scaler
+/// and sharpened (`rc_hle::upscale`). Its sway repeats, so the images made are kept (by their
+/// look) and seldom made again.
+fn smooth_pointer(image: rc_platform::cursor::Image) -> rc_platform::cursor::Image {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+    static MADE: Mutex<Option<HashMap<u64, rc_platform::cursor::Image>>> = Mutex::new(None);
+    if !rc_platform::render::smooth_textures() || image.width > 128 || image.height > 128 {
+        return image;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    image.hash(&mut h);
+    let key = h.finish();
+    let mut made = MADE.lock().expect("pointers");
+    let map = made.get_or_insert_with(HashMap::new);
+    if let Some(i) = map.get(&key) {
+        return i.clone();
+    }
+    let (w, h) = (image.width as usize, image.height as usize);
+    let texels: Vec<[u8; 4]> = image.rgba.as_chunks::<4>().0.to_vec();
+    let big = rc_hle::upscale::scale4x(&texels, w, h);
+    let smooth = rc_platform::cursor::Image {
+        width: 4 * image.width,
+        height: 4 * image.height,
+        // The middle of the hotspot's pixel.
+        hotspot: (4 * image.hotspot.0 + 2, 4 * image.hotspot.1 + 2),
+        rgba: big.into_iter().flatten().collect(),
+        scale: 4,
+    };
+    if map.len() >= 256 {
+        map.clear();
+    }
+    map.insert(key, smooth.clone());
+    smooth
 }
 
 /// Install the hooks (the addresses `game.toml` routes through the dispatcher).

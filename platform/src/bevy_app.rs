@@ -450,11 +450,13 @@ fn hardware_cursor(
         }
         return;
     };
-    // As big as the game's pointer in the scaled frame (window pixels, nearest neighbour).
+    // As big as the game's pointer in the scaled frame (window pixels; an enlarged image's
+    // pixels are a part of the game's).
     let (gw, gh) = (screen.game.0 as f32, screen.game.1 as f32);
-    let fit = (win.width() / gw).min(win.height() / gh) * win.scale_factor();
+    let fit =
+        (win.width() / gw).min(win.height() / gh) * win.scale_factor() / p.scale.max(1) as f32;
     let largest = (CURSOR_MAX as f32 / p.width.max(p.height).max(1) as f32).max(1.0);
-    let scale = fit.clamp(1.0, largest);
+    let scale = fit.clamp(1.0 / p.scale.max(1) as f32, largest);
     let key = (generation, scale.to_bits());
     if hw.shown == Some(key) && options.visible {
         return;
@@ -576,17 +578,39 @@ fn nearest_cursor(
         .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
-/// `c` enlarged by `scale` with nearest neighbours.
+/// `c` enlarged by `scale` with nearest neighbours; made smaller (an enlarged, smoothed image
+/// on a small window) by averaging the pixels each covers.
 fn scale_cursor(c: &crate::cursor::Image, scale: f32) -> crate::cursor::Image {
     let w = ((c.width as f32 * scale).round() as u32).max(1);
     let h = ((c.height as f32 * scale).round() as u32).max(1);
     let mut rgba = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
         let sy = ((y as f32 / scale) as u32).min(c.height - 1);
+        let ey = (((y + 1) as f32 / scale).ceil() as u32).clamp(sy + 1, c.height);
         for x in 0..w {
             let sx = ((x as f32 / scale) as u32).min(c.width - 1);
-            let i = 4 * (sy * c.width + sx) as usize;
-            rgba.extend_from_slice(&c.rgba[i..i + 4]);
+            if scale >= 1.0 {
+                let i = 4 * (sy * c.width + sx) as usize;
+                rgba.extend_from_slice(&c.rgba[i..i + 4]);
+                continue;
+            }
+            // Premultiplied, so transparent pixels add no colour.
+            let ex = (((x + 1) as f32 / scale).ceil() as u32).clamp(sx + 1, c.width);
+            let mut sum = [0u32; 4];
+            for yy in sy..ey {
+                for xx in sx..ex {
+                    let i = 4 * (yy * c.width + xx) as usize;
+                    let a = u32::from(c.rgba[i + 3]);
+                    for k in 0..3 {
+                        sum[k] += u32::from(c.rgba[i + k]) * a;
+                    }
+                    sum[3] += a;
+                }
+            }
+            let n = (ey - sy) * (ex - sx);
+            let a = sum[3];
+            let ch = |k: usize| sum[k].checked_div(a).map_or(0, |v| v.min(255) as u8);
+            rgba.extend_from_slice(&[ch(0), ch(1), ch(2), (a / n.max(1)) as u8]);
         }
     }
     let hot = |v: u32, n: u32| ((v as f32 * scale) as u32).min(n - 1);
@@ -595,6 +619,7 @@ fn scale_cursor(c: &crate::cursor::Image, scale: f32) -> crate::cursor::Image {
         height: h,
         hotspot: (hot(c.hotspot.0, w), hot(c.hotspot.1, h)),
         rgba,
+        scale: 1,
     }
 }
 

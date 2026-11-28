@@ -252,14 +252,16 @@ pub mod cursor {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    /// A cursor image: RGBA8 with straight alpha, `width * height * 4` bytes, and the point the
-    /// pointer points with.
+    /// A cursor image: RGBA8 with straight alpha, `width * height * 4` bytes, the point the
+    /// pointer points with, and how many of its pixels make one of the game's (1, or more for an
+    /// enlarged, smoothed one): a backend shows it as large as the game's pixels are.
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct Image {
         pub width: u32,
         pub height: u32,
         pub hotspot: (u32, u32),
         pub rgba: Vec<u8>,
+        pub scale: u32,
     }
 
     struct Shown {
