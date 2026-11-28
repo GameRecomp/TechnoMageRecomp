@@ -157,8 +157,38 @@ pub fn refine_cells(
             && y + h <= height
             && (y..y + h).any(|yy| (x..x + w).any(|xx| src[yy * width + xx][3] < 128))
     });
+    if clear && cells.start == 0 {
+        clear_rings(set, (width, height), factor, base);
+    }
     for cell in set.cells.get(cells).unwrap_or_default() {
         draw_cell(&font, cell, clear, src, (width, height), factor, base);
+    }
+}
+
+/// A texel around each glyph made transparent (before the glyphs are drawn, so one beside
+/// another's rectangle is drawn again with it): the game's quads for its letters reach up to a
+/// texel past their rectangles, which on the enlarged page showed what the page held there
+/// (the next glyph's edge, smeared by the scaler) as a thin line beside each letter.
+fn clear_rings(set: &GlyphSet, (width, height): (usize, usize), factor: usize, base: &mut [Px]) {
+    let k = factor.max(1);
+    let stride = k * width;
+    for cell in &set.cells {
+        let [x, y, w, h] = cell.rect.map(usize::from);
+        if w == 0 || h == 0 || x + w > width || y + h > height {
+            continue;
+        }
+        let (x1, y1) = ((x + w + 1).min(width), (y + h + 1).min(height));
+        for ty in y.saturating_sub(1)..y1 {
+            for tx in x.saturating_sub(1)..x1 {
+                if (x..x + w).contains(&tx) && (y..y + h).contains(&ty) {
+                    continue;
+                }
+                for py in 0..k {
+                    let at = (k * ty + py) * stride + k * tx;
+                    base[at..at + k].fill([0; 4]);
+                }
+            }
+        }
     }
 }
 
@@ -229,8 +259,11 @@ fn look(src: &[Px], width: usize, rect: [usize; 4], clear: bool) -> Option<Look>
     })
 }
 
-/// Coverage of `ch` from `font` fitted to `w × h` texels: its outline's bounds mapped onto the
-/// box exactly (the game's glyphs are cut to their ink), rasterized with smoothed edges.
+/// Coverage of `ch` from `font` fitted to `w × h` texels: its outline's bounds as tall as the
+/// box (the game's glyphs are cut to their ink), as wide as the outline's own proportions give
+/// and centred (squeezed only where that is wider than the box: stretched, a narrow letter as
+/// `i` became a block with half-covered columns down both its sides), rasterized with smoothed
+/// edges.
 fn coverage(font: &ab_glyph::FontRef<'_>, ch: char, w: usize, h: usize) -> Option<Vec<f32>> {
     use ab_glyph::{point, Font, OutlineCurve, Point};
     let id = font.glyph_id(ch);
@@ -242,9 +275,10 @@ fn coverage(font: &ab_glyph::FontRef<'_>, ch: char, w: usize, h: usize) -> Optio
     // Font units, y up.
     let (left, right) = (b.min.x.min(b.max.x), b.min.x.max(b.max.x));
     let (bottom, top) = (b.min.y.min(b.max.y), b.min.y.max(b.max.y));
-    let sx = w as f32 / (right - left).max(1.0);
     let sy = h as f32 / (top - bottom).max(1.0);
-    let to = |p: &Point| point((p.x - left) * sx, (top - p.y) * sy);
+    let sx = (w as f32 / (right - left).max(1.0)).min(sy);
+    let ox = (w as f32 - (right - left) * sx) / 2.0;
+    let to = |p: &Point| point(ox + (p.x - left) * sx, (top - p.y) * sy);
     let mut r = ab_glyph_rasterizer::Rasterizer::new(w, h);
     for c in &outline.curves {
         match c {
@@ -274,12 +308,14 @@ fn draw_cell(
     let Some(look) = look(src, width, [x, y, w, h], clear) else {
         return;
     };
-    // `factor` texels a source texel, a rim a quarter of a source texel wide, at least one
-    // texel (the renderer keeps a 2D quad's pixels within the texels of the game's,
-    // `Draw::enlarged`, so the glyph may fill its rectangle).
+    // `factor` texels a source texel, a rim a quarter of a source texel wide (the renderer
+    // keeps a 2D quad's pixels within the texels of the game's, `Draw::enlarged`, so the glyph
+    // may fill its rectangle). Below four texels a source texel the rim would be a whole texel,
+    // a third or half of the game's pixel, black and stepped around each letter: there the
+    // glyph is only smoothed against black, as the game's own are.
     let k = factor.max(1);
     let (bw, bh) = (k * w, k * h);
-    let ring = if look.rim { k.div_ceil(4) } else { 0 };
+    let ring = if look.rim { k / 4 } else { 0 };
     let edge = ring;
     let (iw, ih) = (bw.saturating_sub(2 * ring), bh.saturating_sub(2 * ring));
     let Some(cov) = coverage(font, cell.ch, iw, ih) else {
