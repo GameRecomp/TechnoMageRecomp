@@ -303,7 +303,10 @@ Binary treatment:
       `android-native-activity`, no Java), arm64-v8a and x86_64, the data unpacked from the APK's assets on the
       first start, touch as the mouse, Back as Escape; `tools/build-android`, the template in the Pages and
       release workflows, "Android" on the converter page
-- [ ] Android checked on a device (start, unpacking, Vulkan, sound, touch, saving)
+- [x] Android: the screen stays on while the game runs (#2); the system bars (and a launcher's task bar, as on
+      Samsung devices) hidden in sticky immersive mode, asked again when the window has the focus back, the
+      display cutout used (#1)
+- [ ] Android checked on a device (start, unpacking, Vulkan, sound, touch, saving, the bars hidden)
 
 ### M9 – Release v0.1
 

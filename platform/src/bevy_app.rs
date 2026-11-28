@@ -144,6 +144,8 @@ pub fn run(title: &str, guest: impl FnOnce() + Send + 'static) -> ! {
             hardware_cursor,
         ),
     );
+    #[cfg(target_os = "android")]
+    app.add_systems(Update, refocused);
     {
         use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
         let render = app.sub_app_mut(RenderApp);
@@ -976,4 +978,13 @@ fn key_codes(k: KeyCode) -> Option<(u8, u32)> {
         IntlBackslash => (0x56, 0xe2),
         _ => return None,
     })
+}
+
+/// Android: the system bars hidden again when the window has the focus back (another app, the
+/// notifications, a dialog took it).
+#[cfg(target_os = "android")]
+fn refocused(mut focus: MessageReader<bevy::window::WindowFocused>) {
+    if focus.read().fold(false, |_, f| f.focused) {
+        crate::android::immersive();
+    }
 }

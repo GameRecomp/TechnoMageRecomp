@@ -12,10 +12,90 @@ use std::path::{Path, PathBuf};
 
 pub use bevy::android::android_activity;
 
-/// Keep the app handle for Bevy (its winit backend takes it from here) and for us.
+/// Keep the app handle for Bevy (its winit backend takes it from here) and for us; the screen
+/// stays on while the game runs, and the game has it whole (no system bars).
 pub fn init(app: AndroidApp) {
+    use android_activity::WindowManagerFlags as F;
+    app.set_window_flags(F::KEEP_SCREEN_ON | F::FULLSCREEN, F::empty());
     let _ = bevy::android::ANDROID_APP.set(app);
     log_to_file();
+    immersive();
+}
+
+/// Hide the system bars (the status bar, the navigation bar or a launcher's task bar, as some
+/// Samsung devices show one) in "sticky immersive" mode: a swipe from the edge shows them for a
+/// moment. Android drops the mode when the app loses the focus, so it is asked again when the
+/// window has it back. Runs on Java's main thread, as views must be changed there.
+pub fn immersive() {
+    let Some(app) = app() else {
+        return;
+    };
+    let handle = app.clone();
+    app.run_on_java_main_thread(Box::new(move || {
+        if let Err(e) = try_immersive(&handle) {
+            eprintln!("android: system bars not hidden: {e}");
+        }
+    }));
+}
+
+fn try_immersive(app: &AndroidApp) -> jni::errors::Result<()> {
+    use jni::objects::{JObject, JValue};
+    // View.SYSTEM_UI_FLAG_…: LAYOUT_STABLE, LAYOUT_HIDE_NAVIGATION, LAYOUT_FULLSCREEN,
+    // HIDE_NAVIGATION, FULLSCREEN, IMMERSIVE_STICKY.
+    const FLAGS: i32 = 0x100 | 0x200 | 0x400 | 0x2 | 0x4 | 0x1000;
+    // WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES (Android 9).
+    const SHORT_EDGES: i32 = 1;
+    // SAFETY: the activity's Java VM, which lives as long as the process.
+    let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast())? };
+    let mut env = vm.attach_current_thread_permanently()?;
+    let result = env.with_local_frame(16, |env| -> jni::errors::Result<()> {
+        // SAFETY: the activity's global reference, valid while the app runs.
+        let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        let window = env
+            .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])?
+            .l()?;
+        let attrs = env
+            .call_method(
+                &window,
+                "getAttributes",
+                "()Landroid/view/WindowManager$LayoutParams;",
+                &[],
+            )?
+            .l()?;
+        if env
+            .set_field(
+                &attrs,
+                "layoutInDisplayCutoutMode",
+                "I",
+                JValue::Int(SHORT_EDGES),
+            )
+            .is_ok()
+        {
+            env.call_method(
+                &window,
+                "setAttributes",
+                "(Landroid/view/WindowManager$LayoutParams;)V",
+                &[JValue::Object(&attrs)],
+            )?;
+        } else if env.exception_check()? {
+            // Before Android 9: no such field.
+            env.exception_clear()?;
+        }
+        let view = env
+            .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
+            .l()?;
+        env.call_method(
+            &view,
+            "setSystemUiVisibility",
+            "(I)V",
+            &[JValue::Int(FLAGS)],
+        )?;
+        Ok(())
+    });
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+    result
 }
 
 fn app() -> Option<&'static AndroidApp> {
@@ -346,6 +426,7 @@ pub unsafe extern "C" fn AInputQueue_getEvent(queue: *mut c_void, out: *mut *mut
         if event.is_null() || !unsafe { take(event) } {
             return r;
         }
+        // SAFETY: the queue's own event, finished once.
         unsafe { AInputQueue_finishEvent(queue, event, 1) };
     }
 }
